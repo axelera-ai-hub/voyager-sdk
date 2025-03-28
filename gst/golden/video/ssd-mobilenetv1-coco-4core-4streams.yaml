@@ -1,0 +1,190 @@
+- pipeline:
+  - instance: filesrc
+    location: {{input_video0}}
+  - instance: qtdemux
+    connections:
+      video_%u: queue_in0.sink
+  - instance: queue
+    name: queue_in0
+
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: decodebin
+    force-sw-decoders: {{force_sw_decoders}}
+    connections:
+      src_%u: queue_after_decodebin0.sink
+  - instance: queue
+    name: queue_after_decodebin0
+
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinplace
+    lib: libinplace_addstreamid.so
+    mode: meta
+    options: stream_id:0
+    use-aligned: true
+  - instance: identity
+    connections:
+      src: inference-funnel.sink_%u
+  - instance: filesrc
+    location: {{input_video1}}
+  - instance: qtdemux
+    connections:
+      video_%u: queue_in1.sink
+  - instance: queue
+    name: queue_in1
+
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: decodebin
+    force-sw-decoders: {{force_sw_decoders}}
+    connections:
+      src_%u: queue_after_decodebin1.sink
+  - instance: queue
+    name: queue_after_decodebin1
+
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinplace
+    lib: libinplace_addstreamid.so
+    mode: meta
+    options: stream_id:1
+    use-aligned: true
+  - instance: identity
+    connections:
+      src: inference-funnel.sink_%u
+  - instance: filesrc
+    location: {{input_video2}}
+  - instance: qtdemux
+    connections:
+      video_%u: queue_in2.sink
+  - instance: queue
+    name: queue_in2
+
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: decodebin
+    force-sw-decoders: {{force_sw_decoders}}
+    connections:
+      src_%u: queue_after_decodebin2.sink
+  - instance: queue
+    name: queue_after_decodebin2
+
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinplace
+    lib: libinplace_addstreamid.so
+    mode: meta
+    options: stream_id:2
+    use-aligned: true
+  - instance: identity
+    connections:
+      src: inference-funnel.sink_%u
+  - instance: filesrc
+    location: {{input_video3}}
+  - instance: qtdemux
+    connections:
+      video_%u: queue_in3.sink
+  - instance: queue
+    name: queue_in3
+
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: decodebin
+    force-sw-decoders: {{force_sw_decoders}}
+    connections:
+      src_%u: queue_after_decodebin3.sink
+  - instance: queue
+    name: queue_after_decodebin3
+
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinplace
+    lib: libinplace_addstreamid.so
+    mode: meta
+    options: stream_id:3
+    use-aligned: true
+  - instance: identity
+    connections:
+      src: inference-funnel.sink_%u
+  - instance: axfunnel
+    name: inference-funnel
+  - instance: axtransform
+  - instance: tee
+    name: input_tee
+    connections:
+      src_%u:
+        - queue_task0.sink
+        - queue_decoder_task0.sink
+  - instance: queue
+    name: queue_task0
+
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: videoconvert
+  - instance: capsfilter
+    caps: video/x-raw,format=RGBA
+  - instance: videoscale
+  - instance: capsfilter
+    caps: video/x-raw,width=300,height=300
+  - instance: axtransform
+    lib: {{prefix}}libtransform_totensor.so
+    options: type:int8
+  - instance: axinplace
+    lib: {{prefix}}libinplace_normalize.so
+    mode: write
+    options: mean:0.5;std:0.5;simd:avx2;quant_scale:{{quant_scale}};quant_zeropoint:{{quant_zeropoint}}
+  - instance: axtransform
+    lib: {{prefix}}libtransform_padding.so
+    options: padding:{{pads}};fill:{{quant_zeropoint}}
+    batch: 4
+  - instance: queue
+
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinference
+    name: inference-task0-batch4-{{model_name0}}
+    model: {{model_lib}}
+    devices: metis-0:1:0
+    double_buffer: true
+    dmabuf_inputs: true
+
+  - instance: queue
+    connections:
+      src: decoder_task0.sink_1
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: queue
+    name: queue_decoder_task0
+
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: videoconvert
+  - instance: capsfilter
+    caps: video/x-raw,format=RGBA
+    connections:
+      src: decoder_task0.sink_0
+  - instance: decode_muxer
+    lib: {{prefix}}libdecode_ssd2.so
+    name: decoder_task0
+    mode: read
+    options: meta_key:{{model_name}};confidence_threshold:{{confidence_threshold}};classes:90;classlabels_file:{{label_file}};max_boxes:{{max_boxes}};scales:0.9;zero_points:0;transpose:1;class_agnostic:1
+  - instance: axinplace
+    lib: {{prefix}}libinplace_nms.so
+    options: meta_key:{{model_name}};nms_threshold:0.5;class_agnostic:1;max_boxes:{{nms_top_k}}
+  - instance: appsink
+    max-buffers: 16
+    drop: false
+    sync: false

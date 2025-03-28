@@ -1,0 +1,75 @@
+axelera-model-format: 1.0.0
+
+name: yolov5s-v7-perspective-barrel-onnx
+
+description: YOLOv5s-v7.0 with perspective-barrel transform, SiLU, 640x640 (COCO)
+# converted from https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5s.pt
+# !python export.py --weights yolov5s.pt --include onnx [--opset 17]
+
+pipeline:
+  - detections:
+      model_name: yolov5s-v7-coco-onnx
+      template_path: $AXELERA_FRAMEWORK/pipeline-template/yolo-letterbox.yaml
+      input:
+        source: image_processing
+        image_processing:
+            - perspective:
+                stream_match: 0
+                camera_matrix: [1.019,-0.697,412.602,0.918,1.361,-610.083,0.0,0.0,1.0]
+            - camera-undistort:
+                stream_match: 1
+                fx: 0.614
+                fy: 1.091
+                cx: 0.488
+                cy: 0.482
+                distort_coefs: [-0.37793616, 0.11966818, -0.00115868, -0.00067655, 0]
+            - convert-color-input:
+                stream_match:
+                  exclude: [0,1]
+                format: rgb
+
+      postprocess:
+        - decodeyolo:
+            max_nms_boxes: 30000
+            conf_threshold: 0.25
+            nms_iou_threshold: 0.45
+            nms_class_agnostic: False
+            nms_top_k: 300
+
+models:
+  yolov5s-v7-coco-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/yolov5s-v7.onnx
+    weight_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/model_cards/weights/yolo/object_detection/yolov5s-v7.onnx
+    weight_md5: 5be2dce14ac1d10f3738a3621d9634ac
+    task_category: ObjectDetection
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 640, 640]
+    input_color_format: RGB
+    num_classes: 80
+    dataset: CocoDataset-COCO2017
+    extra_kwargs:
+      YOLO:
+        anchors_path: training_yamls/yolov5s.yaml # anchors are the same as yolov5s
+        anchors_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/model_cards/artifacts/yolo/object_detection/cfgs/yolov5s.yaml
+        anchors_md5: a41970402a188912070d5694bc62ed83
+        #anchors: # or, specified explicitly
+        #- [anchor, anchor, anchor]
+        #- [anchor, anchor, anchor]
+        #- [anchor, anchor, anchor]
+        # strides: [8, 16, 32]  # specify if you are using a special version
+
+datasets: # Python dataloader
+  CocoDataset-COCO2017:
+    class: ObjDataAdaptor
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
+    data_dir_name: coco
+    labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/coco.names
+          #    # If using a custom dataset, comment out download year and add either
+    # repr_imgs or cal_data for calibration and add val_data for validation.
+    # You can use your existing training dataset as cal_data
+    download_year: 2017
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/coco2017_400_b680128
+    repr_imgs_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/data/coco/coco2017_repr400.zip
+    repr_imgs_md5: b680128512392586e3c86b670886d9fa

@@ -1,0 +1,69 @@
+# Ultralytics YOLO Models and Software License
+# The Ultralytics YOLO models, along with their supporting files and documentation
+# (collectively, the "Software"), are developed and distributed by Ultralytics
+# under the GNU Affero General Public License version 3.0 (AGPL-3.0), subject to
+# the following modification for Axelera AI:
+#
+# Evaluation Use Only:
+# This Software is solely for testing and evaluation on Axelera AI hardware. Any
+# other use requires a commercial license from Ultralytics.
+#
+# Commercial Use Prohibited Without License:
+# Commercial use of this Software, including deployment, reproduction, or
+# distribution in products or services internal or external to a commercial
+# entity requires an Ultralytics Enterprise License. Visit
+# https://www.ultralytics.com/license for licensing details. By using this
+# Software, you acknowledge and agree to comply with the above terms.
+
+axelera-model-format: 1.0.0
+
+name: yolov3-coco-onnx
+
+description: yolov3 ultralytics v9.6.0, input size 640x640 (COCO)
+# converted from https://github.com/ultralytics/yolov3
+
+pipeline:
+  - detections:
+      model_name: yolov3-coco-onnx
+      template_path: $AXELERA_FRAMEWORK/pipeline-template/yolo-letterbox.yaml
+      postprocess:
+        - decodeyolo:
+            max_nms_boxes: 30000
+            conf_threshold: 0.25
+            nms_iou_threshold: 0.45
+            nms_class_agnostic: False
+            nms_top_k: 300
+
+models:
+  yolov3-coco-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/yolov3.onnx
+    weight_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/model_cards/weights/yolo/object_detection/yolov3.onnx
+    weight_md5: 28db45eabed8f885f6bd399a789c33aa
+    task_category: ObjectDetection
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 640, 640]
+    input_color_format: RGB
+    num_classes: 80
+    dataset: CocoDataset-COCO2017
+    extra_kwargs:
+      m2:
+        mvm_limitation: 57
+      YOLO:
+        anchors:
+          - [10, 13, 16, 30, 33, 23]
+          - [30, 61, 62, 45, 59, 119]
+          - [116, 90, 156, 198, 373, 326]
+        strides: [8, 16, 32]
+
+datasets: # Python dataloader
+  CocoDataset-COCO2017:
+    class: ObjDataAdaptor
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
+    data_dir_name: coco
+    labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/coco.names
+    download_year: 2017
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/coco2017_400_b680128
+    repr_imgs_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/data/coco/coco2017_repr400.zip
+    repr_imgs_md5: b680128512392586e3c86b670886d9fa

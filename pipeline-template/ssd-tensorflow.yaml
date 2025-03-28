@@ -1,0 +1,31 @@
+# TODO: check if other SSD models share the same preprocess
+input:
+    type: image
+preprocess:
+    - resize:
+        width: {{input_width}}
+        height: {{input_height}}
+        half_pixel_centers: True
+    - torch-totensor:
+        scale: False
+    - linear-scaling:
+        mean: 127.5
+        shift: -1
+postprocess:
+    - decode-ssd-mobilenet:
+        box_format: xyxy # box format of the model output
+        normalized_coord: True
+        max_nms_boxes: 30000
+        conf_threshold: 0.4
+        nms_iou_threshold: 0.5
+        nms_class_agnostic: True
+        nms_top_k: 200
+        label_filter: {{label_filter}}
+        eval: # overrides for evaluating accuracy
+          conf_threshold: 0.016
+          nms_iou_threshold: 0.5
+
+operators:
+  decode-ssd-mobilenet:
+    class: DecodeSsdMobilenet
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/ssd.py

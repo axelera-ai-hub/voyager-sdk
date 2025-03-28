@@ -1,0 +1,16 @@
+input:
+    type: image
+preprocess:
+  - resize:
+      size: {{resize_size}}
+      interpolation: bicubic
+  - centercrop:
+      width: {{input_width}}
+      height: {{input_height}}
+  - torch-totensor:
+  - normalize:
+      mean: 0.485, 0.456, 0.406
+      std: 0.229, 0.224, 0.225
+postprocess:
+  - topk:
+      k: 5

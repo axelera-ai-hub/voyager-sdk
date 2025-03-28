@@ -1,0 +1,69 @@
+axelera-model-format: 1.0.0
+
+name: yolov8n-weapons-and-knives
+
+description: YOLOv8n 640x640 (weapons and knives dataset)
+# Pretrained weights from https://github.com/JoaoAssalim/Weapons-and-Knives-Detector-with-YOLOv8
+# Downloaded at 30-Oct-2024, MIT license
+# Model exported by Ultralytics CLI: "yolo export model=runs/detect/Normal_Compressed/weights/best.pt format=onnx opset=13 dynamic"
+
+pipeline:
+  - detections:
+      model_name: yolov8n-weapons-and-knives
+      input:
+        type: image
+      preprocess:
+        - letterbox:
+            width: 640
+            height: 640
+            scaleup: True
+        - torch-totensor:
+      postprocess:
+        - decodeyolo:
+            box_format: xywh # box format of the model output
+            normalized_coord: False
+            max_nms_boxes: 30000
+            conf_threshold: 0.25
+            nms_iou_threshold: 0.45
+            nms_class_agnostic: True
+            nms_top_k: 300
+            use_multi_label: False
+            eval: # overrides for evaluating accuracy
+              conf_threshold: 0.001
+              nms_iou_threshold: 0.65
+              use_multi_label: True
+              nms_class_agnostic: False
+
+operators:
+  decodeyolo:
+    class: DecodeYolo
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/yolo.py
+
+
+models:
+  yolov8n-weapons-and-knives:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    task_category: ObjectDetection
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 640, 640]
+    input_color_format: RGB
+    weight_path: weights/yolov8n_weapons_and_knives.onnx
+    weight_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/weights/yolo/yolov8n_weapon_and_knievs.onnx
+    weight_md5: 292190cdc6452001c1d1d26c46ecf88b
+    num_classes: 2
+    dataset: CocoDataset-WeaponsAndKnives
+
+datasets:
+  CocoDataset-WeaponsAndKnives:
+    class: ObjDataAdaptor
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
+    data_dir_name: Weapon2.v2i
+    # comment out the url if you are using your local dataset
+    dataset_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/data/Weapon2.v2i.zip
+    # dataset_md5: 92a3905a986b28a33bb66b0b17184d16 # optional to check md5sum
+    dataset_drop_dirs: 1
+    # tools/list_relative_image_paths.py can be used to generate the following 2 files
+    cal_data: train.txt
+    val_data: val.txt
+    labels_path: $AXELERA_FRAMEWORK/ax_models/tutorials/yolo/weapons.names

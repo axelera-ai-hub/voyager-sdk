@@ -1,0 +1,65 @@
+axelera-model-format: 1.0.0
+
+name: yolov5m-v7-coco-tracker
+
+description: YOLOv5m with object tracking (OC-SORT)
+
+pipeline:
+  - detections:
+      model_name: yolov5m
+      preprocess:
+        - letterbox:
+            width: 640
+            height: 640
+        - torch-totensor:
+      postprocess:
+        - decodeyolo:
+            box_format: xywh
+            normalized_coord: False
+            label_filter: ['car', 'truck', 'motorcycle', 'bus', 'person', 'bicycle', 'cat', 'dog']
+            max_nms_boxes: 5000
+            conf_threshold: 0.3
+            nms_iou_threshold: 0.5
+            nms_class_agnostic: False
+            nms_top_k: 100
+            use_multi_label: False
+        - tracker:
+            algorithm: oc-sort
+            history_length: 30
+
+operators:
+  decodeyolo:
+    class: DecodeYolo
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/yolo.py
+
+models:
+  yolov5m:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/yolov5m-v7.onnx
+    weight_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/weights/yolo/op17/yolov5m-v7.onnx
+    weight_md5: aad63caa41a389d409717a0bbaa17311
+    task_category: ObjectDetection
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 640, 640]
+    input_color_format: RGB
+    num_classes: 80
+    dataset: CocoDataset-COCO2017
+    extra_kwargs:
+      YOLO:
+        anchors: # or, specified explicitly
+        - [10,13, 16,30, 33,23]
+        - [30,61, 62,45, 59,119]
+        - [116,90, 156,198, 373,326]
+        strides: [8, 16, 32]  # specify if you are using a special version
+
+datasets: # Python dataloader
+  CocoDataset-COCO2017:
+    class: ObjDataAdaptor
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
+    data_dir_name: coco
+    labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/coco.names
+    download_year: 2017
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/coco2017_400_b680128
+    repr_imgs_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/data/coco/coco2017_repr400.zip
+    repr_imgs_md5: b680128512392586e3c86b670886d9fa

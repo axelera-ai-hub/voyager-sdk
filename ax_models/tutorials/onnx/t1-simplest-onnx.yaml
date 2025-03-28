@@ -1,0 +1,27 @@
+axelera-model-format: 1.0.0
+
+name: t1-simplest-onnx
+
+description: ONNX Tutorial-1 - An example demonstrating how to deploy an ONNX model with minimal effort. The compiled model, located at build/t1-simplest-onnx/model1/1/model.json, can be utilized in AxRuntime to create your own pipeline.
+
+pipeline: null
+
+models:
+  model1:
+    class: CustomONNXModel
+    class_path: simplest_onnx.py
+    task_category: Classification
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 100, 100]
+    input_color_format: RGB
+    weight_path: ~/.cache/axelera/weights/tutorials/resnet34_fruits360.onnx
+    dataset: RepresentativeDataset
+    extra_kwargs:
+
+datasets:
+  RepresentativeDataset:
+    class: DataAdapter
+    # We build a dataloader from the images in this directory
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/fruits-360-100x100/repr_imgs/
+    # This is the color format of the images in the dataloader, which is passed to what you implement in your override_preprocess. This is required only if you don't specify a pipeline in the YAML file.
+    repr_imgs_dataloader_color_format: RGB  # RGB or BGR

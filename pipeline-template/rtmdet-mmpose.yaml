@@ -1,0 +1,30 @@
+# Refer preprocess from https://github.com/open-mmlab/mmpose/blob/main/docs/en/user_guides/configs.md
+
+input:
+  type: image
+  color_format: bgr
+preprocess:
+  - resize:
+      width: {{input_width}}
+      height: {{input_height}}
+      interpolation: bilinear
+      input_color_format: bgr
+  - torch-totensor:
+      scale: False
+  - normalize:
+      mean: 103.53, 116.28, 123.675
+      std: 57.375, 57.12, 58.395
+postprocess:
+  - decodertmdet:
+      box_format: xyxy
+      normalized_coord: True
+      max_nms_boxes: 30000
+      conf_threshold: 0.2
+      nms_iou_threshold: 0.45
+      nms_class_agnostic: False
+      nms_top_k: 2
+
+operators:
+  decodertmdet:
+    class: DecodeRTMDet
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/rtmdet.py

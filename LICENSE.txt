@@ -1,0 +1,7 @@
+© Axelera AI, 2025
+
+By using this Software you accept the End User License Agreement as specified
+in https://www.axelera.ai/eula
+
+Please refer to the `licenses` sub-directory for licenses of open source
+components used in this Software

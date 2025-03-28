@@ -1,0 +1,77 @@
+axelera-model-format: 1.0.0
+
+name: retinaface-mobilenet0.25-widerface-onnx
+
+description: RetinaFace face detection and landmark localization model trained on WiderFace dataset with MobileNet0.25 backbone
+
+pipeline:
+  - detections:
+      model_name: retinaface-mobilenet0.25-widerface-onnx
+      input:
+          type: image
+          color_format: BGR
+          imreader_backend: OpenCV
+      preprocess:
+          - letterbox:
+              width: 640
+              height: 640
+              scaleup: True
+          - torch-totensor:
+              scale: False
+          - linear-scaling: # [0,1]
+              mean: 1, 1, 1
+              shift: -104, -117, -123
+      postprocess:
+          - decode-retinaface:
+              box_format: xywh
+              normalized_coord: True
+              max_nms_boxes: 5000
+              conf_threshold: 0.2
+              nms_iou_threshold: 0.4
+              nms_class_agnostic: True
+              nms_top_k: 200
+              labels: ['face','background']
+              label_filter: ['face']
+              eval: # overrides for evaluating accuracy
+                conf_threshold: 0.02
+                nms_iou_threshold: 0.5
+                nms_top_k: 750
+
+operators:
+  decode-retinaface:
+    class: DecodeRetinaface
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/retinaface.py
+
+
+models:
+  retinaface-mobilenet0.25-widerface-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/Retinaface_mb0.25_pytorch.onnx
+    weight_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/model_cards/weights/others/object_detection/Retinaface_mb0.25_pytorch.onnx
+    weight_md5: 9232a08b7056937f63ba26b6a3606546
+    task_category: ObjectDetection
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 640, 640]
+    input_color_format: BGR
+    num_classes: 1
+    dataset: WiderFace
+    extra_kwargs:
+      RetinaFace:
+        cfg:
+          min_sizes: [[16, 32], [64, 128], [256, 512]]
+          steps: [8, 16, 32]
+          variance: [0.1, 0.2]
+          clip: False
+
+datasets:
+  WiderFace:
+    class: WiderFaceDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/widerface.py
+    data_dir_name: widerface
+    labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/face.names
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/coco2017_400_b680128
+    repr_imgs_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/data/coco/coco2017_repr400.zip
+    repr_imgs_md5: b680128512392586e3c86b670886d9fa
+    # cal_data: train/label.txt
+    val_data: val/label.txt

@@ -1,0 +1,96 @@
+axelera-model-format: 1.0.0
+
+name: yolov8n-yolov8s
+
+description: yolov8n cascaded with yolov8s
+
+pipeline:
+  - master_detections:
+      model_name: yolov8n-coco-onnx
+      preprocess:
+        - letterbox:
+            width: 640
+            height: 640
+            scaleup: True
+        - torch-totensor:
+      postprocess:
+        - decodeyolo:
+            box_format: xywh
+            normalized_coord: False
+            max_nms_boxes: 30000
+            conf_threshold: 0.25
+            nms_iou_threshold: 0.45
+            nms_class_agnostic: True
+            nms_top_k: 300
+            use_multi_label: False
+  - secondary_detections:
+      model_name: yolov8s-coco-onnx
+      input:
+        type: image
+        source: roi
+        where: master_detections
+        # which: AREA # AREA, SCORE, CENTER
+        top_k: 10
+        expand_margin: 0
+      preprocess:
+        - letterbox:
+            width: 640
+            height: 640
+            scaleup: True
+        - torch-totensor:
+      postprocess:
+        - decodeyolo:
+            box_format: xywh
+            normalized_coord: False
+            max_nms_boxes: 30000
+            conf_threshold: 0.25
+            nms_iou_threshold: 0.45
+            nms_class_agnostic: True
+            nms_top_k: 300
+            use_multi_label: False
+
+operators:
+  decodeyolo:
+    class: DecodeYolo
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/yolo.py
+
+models:
+  yolov8n-coco-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/yolov8n_ultralytics_v8.1.0.onnx
+    weight_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/model_cards/weights/yolo/object_detection/yolov8n_ultralytics_v8.1.0.onnx
+    weight_md5: 2ec6c50f5cb0e059344f4ea7f72a3c41
+    task_category: ObjectDetection
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 640, 640]
+    input_color_format: RGB
+    num_classes: 80
+    dataset: CocoDataset-COCO2017
+    extra_kwargs:
+      aipu_cores: 3
+  yolov8s-coco-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/yolov8s_ultralytics_v8.1.0.onnx
+    weight_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/model_cards/weights/yolo/object_detection/yolov8s_ultralytics_v8.1.0.onnx
+    weight_md5: b16cc786a276cdc58928416c19d8aa56
+    task_category: ObjectDetection
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 640, 640]
+    input_color_format: RGB
+    num_classes: 80
+    dataset: CocoDataset-COCO2017
+    extra_kwargs:
+      aipu_cores: 1
+
+datasets: # Python dataloader
+  CocoDataset-COCO2017:
+    class: ObjDataAdaptor
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
+    data_dir_name: coco
+    labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/coco.names
+    download_year: 2017
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/coco2017_400_b680128
+    repr_imgs_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/data/coco/coco2017_repr400.zip
+    repr_imgs_md5: b680128512392586e3c86b670886d9fa

@@ -1,0 +1,87 @@
+ImageNet:
+  description: ImageNet is a large-scale image dataset for image recognition.
+  download_hint: "To download the dataset, it is necessary to register at https://image-net.org/download-images.\n\
+    Then, please ensure that the files {split_files}\nare placed in the requested\
+    \ directory.\n\nLastly, execute the script 'inference.py' to initiate the inference\
+    \ process.\n\nFurther information on dataset downloading can be found here:\n\
+    \    https://pytorch.org/vision/main/generated/torchvision.datasets.ImageNet.html\n\
+    \    https://tensorflow.org/datasets/catalog/imagenet2012_subset\n"
+  splits:
+    subset:
+    - drop_dirs: 0
+      file: ILSVRC2012_devkit_t12.tar.gz
+    - check_files:
+      - readme_imagenet_subset.txt
+      drop_dirs: 0
+      file: imagenet_subset.zip
+    train:
+    - drop_dirs: 0
+      file: ILSVRC2012_devkit_t12.tar.gz
+    - drop_dirs: 0
+      file: ILSVRC2012_img_train.tar
+      sub_dir: train
+    val:
+    - check_files:
+      - val/n01641577
+      - val/n01440764/ILSVRC2012_val_00003014.JPEG
+      drop_dirs: 0
+      file: ILSVRC2012_devkit_t12.tar.gz
+    - drop_dirs: 0
+      file: ILSVRC2012_img_val.tar
+      sub_dir: val
+MMLab-Cityscapes:
+  description: Cityscapes dataset for semantic segmentation
+  download_hint: 'Please ensure the dataset is correctly placed.
+
+    For detailed instructions, refer to the preparation guide at:
+
+    https://github.com/open-mmlab/mmsegmentation/blob/main/docs/en/user_guides/2_dataset_prepare.md
+
+    '
+  splits:
+    test:
+    - check_files:
+      - gtFine/test/munich/munich_000199_000019_gtFine_labelIds.png
+      - gtFine/test/bonn/bonn_000018_000019_gtFine_instanceIds.png
+      drop_dirs: 0
+      file: gtFine_test.zip
+    - check_files:
+      - leftImg8bit/test/munich/munich_000199_000019_leftImg8bit.png
+      - leftImg8bit/test/bonn/bonn_000014_000019_leftImg8bit.png
+      drop_dirs: 0
+      file: leftImg8bit_test.zip
+    val:
+    - check_files:
+      - gtFine/val/frankfurt/frankfurt_000000_001016_gtFine_polygons.json
+      - gtFine/val/frankfurt/frankfurt_000000_001016_gtFine_instanceIds.png
+      drop_dirs: 0
+      file: gtFine_val.zip
+    - check_files:
+      - leftImg8bit/val/lindau/lindau_000000_000019_leftImg8bit.png
+      - leftImg8bit/val/frankfurt/frankfurt_000001_000538_leftImg8bit.png
+      drop_dirs: 0
+      file: leftImg8bit_val.zip
+WiderFace:
+  description: YOLO format WiderFace dataset for face detection
+  download_hint: "WiderFace is with Creative Common License (cc by-nc-nd).\nPlease\
+    \ prepare the dataset by following the instructions at the model source repository:\n\
+    https://github.com/biubug6/Pytorch_Retinaface?tab=readme-ov-file#data1\n\n Step\
+    \ 1: Download the organized dataset they used as in the \"Data1\" subsection.\n\
+    \ Step 2: Download the annotations from dropbox and take the val/label.txt to\
+    \ the data/widerface/val folder.\n Step 3: Download widerface mat files from https://github.com/biubug6/Pytorch_Retinaface/tree/master/widerface_evaluate/ground_truth\
+    \ and place them in the data/widerface/wider_face_split folder.\n"
+  splits:
+    train:
+    - check_files:
+      - train/label.txt
+      - train/images/0--Parade/0_Parade_marchingband_1_5.jpg
+      drop_dirs: 1
+      file: widerface_train.zip
+    val:
+    - check_files:
+      - val/label.txt
+      - val/images/0--Parade/0_Parade_marchingband_1_20.jpg
+      - wider_face_split/wider_face_val.mat
+      - wider_face_split/wider_medium_val.mat
+      drop_dirs: 1
+      file: widerface_val.zip

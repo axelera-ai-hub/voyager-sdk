@@ -1,0 +1,93 @@
+---
+- pipeline:
+  - instance: filesrc
+    location: {{input_video0}}
+  - instance: qtdemux
+    connections:
+      video_%u: queue_in.sink
+  - instance: queue
+    name: queue_in
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: decodebin
+    force-sw-decoders: {{force_sw_decoders}}
+    connections:
+      src_%u: queue_after_decodebin.sink
+  - instance: queue
+    name: queue_after_decodebin
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinplace
+    lib: libinplace_addstreamid.so
+    mode: meta
+    options: stream_id:0
+    use-aligned: true
+  - instance: axtransform
+  - instance: tee
+    name: input_tee
+    connections:
+      src_%u:
+        - queue_task0.sink
+        - queue_decoder_task0.sink
+  - instance: queue
+    name: queue_task0
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: vaapipostproc
+    format: rgba
+  - instance: axinplace
+  - instance: vaapipostproc
+    width: 300
+    height: 300
+    format: rgba
+    scale-method: 0
+  - instance: axinplace
+  - instance: axtransform
+    name: axtransform-normalize-cl0
+    lib: libtransform_normalize_cl.so
+    options: to_tensor:1;mean:0.5,0.5,0.5;std:0.5,0.5,0.5;quant_scale:0.01863;quant_zeropoint:-14.0
+  - instance: axtransform
+    lib: '{{prefix}}libtransform_padding.so'
+    options: padding:{{pads}};fill:{{quant_zeropoint}}
+    batch: 1
+  - instance: queue
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinference
+    name: inference-task0-{{model_name0}}
+    model: {{model_lib}}
+    devices: metis-0:1:0
+    double_buffer: true
+    dmabuf_inputs: true
+  - instance: queue
+    connections:
+      src: decoder_task0.sink_1
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: queue
+    name: queue_decoder_task0
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: vaapipostproc
+    format: rgba
+  - instance: axinplace
+    connections:
+      src: decoder_task0.sink_0
+  - instance: decode_muxer
+    name: decoder_task0
+    lib: '{{prefix}}libdecode_ssd2.so'
+    mode: 'read'
+    options: meta_key:{{model_name}};confidence_threshold:{{confidence_threshold}};classes:90;classlabels_file:{{label_file}};max_boxes:{{max_boxes}};scales:0.9;zero_points:0;transpose:1;class_agnostic:1
+  - instance: axinplace
+    lib: '{{prefix}}libinplace_nms.so'
+    options: meta_key:{{model_name}};nms_threshold:{{nms_threshold}};class_agnostic:{{class_agnostic}};max_boxes:{{nms_top_k}}
+  - instance: appsink
+    max-buffers: 16
+    drop: false
+    sync: false

@@ -1,0 +1,48 @@
+axelera-model-format: 1.0.0
+
+name: yolov7-coco
+
+description: YOLOv7 640x640 (COCO)
+
+pipeline:
+  - detections:
+      model_name: yolov7-coco
+      template_path: $AXELERA_FRAMEWORK/pipeline-template/yolo-letterbox.yaml
+      postprocess:
+        - decodeyolo:
+            max_nms_boxes: 30000
+            conf_threshold: 0.25
+            nms_iou_threshold: 0.45
+            nms_class_agnostic: False
+            nms_top_k: 300
+
+models: # paths are all relatived to app.framework root dir
+  yolov7-coco:
+    class: AxYolo
+    class_path: $AXELERA_FRAMEWORK/ax_models/yolo/ax_yolo.py
+    task_category: ObjectDetection
+    input_tensor_layout: NCHW # NCHW / NHWC / CHWN; batch N, channels C, height H, width W
+    input_tensor_shape: [1, 3, 640, 640] # corresponding to input format
+    input_color_format: RGB # RGB, BGR, Gray
+    weight_path: weights/yolov7.pt
+    weight_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/model_cards/weights/yolo/object_detection/yolov7.pt
+    weight_md5: 495054a9170d74da374e329db294dd90
+    num_classes: 80
+    dataset: CocoDataset-COCO2017
+    extra_kwargs:
+      compilation_config:
+        backend_config:
+          tiling_depth: 6
+
+datasets: # Python dataloader
+  CocoDataset-COCO2017:
+    class: ObjDataAdaptor
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
+    data_dir_name: coco
+    download_year: 2017
+    labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/coco.names
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/coco2017_400_b680128
+    repr_imgs_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/data/coco/coco2017_repr400.zip
+    repr_imgs_md5: b680128512392586e3c86b670886d9fa
+    # without val, will use the default coco2017 val set
+    # val: /path/to/your/val_custom.json or dir with darknet label txt files

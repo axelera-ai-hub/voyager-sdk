@@ -1,0 +1,37 @@
+# This file must be used with "source venv/bin/activate" *from bash*
+# you cannot run it directly
+
+_AX_var=
+_AX_envs=
+
+_AX_set_env() {
+  # Must be called before defining deactivate function
+  local var="_OLD_ENV_${1}"
+  local x=
+  if [ -n "${!1:-}" ] && [[ ! $(type -t deactivate) == function ]] ; then
+    eval "${var}=\"${!1}\""
+  fi
+  # strip escapes from $ expressions and evaluate RHS before assigning to LHS
+  x=${2//\\\$/\$}
+  x=`echo $x`
+  eval "$1=\"$x\""
+  export "$1"
+}
+
+for _AX_var in "${_AX_envs[@]}"; do
+  if [[ "$_AX_var" == *=* ]]; then
+    _AX_set_env "${_AX_var%%=*}" "${_AX_var#*=}"
+  fi
+done
+unset _AX_var
+
+_AX_reset_env() {
+  local var="_OLD_ENV_${1}"
+  if [ -n "${!var:-}" ]; then
+    eval "$1=\"${!var}\""
+    export "$1"
+    unset ${var}
+  else
+    unset $1
+  fi
+}

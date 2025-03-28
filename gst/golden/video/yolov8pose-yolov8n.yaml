@@ -1,0 +1,179 @@
+- pipeline:
+  - instance: filesrc
+    name: filesrc0
+    location: /path/to/src0.mp4
+  - instance: queue
+    name: queue_in0
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: decodebin
+    name: decodebin0
+    force-sw-decoders: true
+    caps: video/x-raw(ANY)
+    expose-all-streams: false
+    connections:
+      src_%u: queue_after_decodebin0.sink
+  - instance: queue
+    name: queue_after_decodebin0
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinplace
+    name: axinplace-addstreamid0
+    lib: libinplace_addstreamid.so
+    mode: meta
+    options: stream_id:0
+  - instance: identity
+    name: identity0
+    connections:
+      src: inference-funnel.sink_%u
+  - instance: axfunnel
+    name: inference-funnel
+  - instance: videoconvert
+    name: videoconvert0
+  - instance: capsfilter
+    name: capsfilter0
+    caps: video/x-raw,format=RGBA
+  - instance: axtransform
+    name: axtransform0
+  - instance: tee
+    name: input_tee0
+    connections:
+      src_%u:
+      - queue_task0.sink
+      - queue_decoder_task0.sink
+  - instance: queue
+    name: queue_task0
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axtransform
+    name: axtransform-resize0
+    lib: libtransform_resize.so
+    options: width:640;height:640;padding:114;to_tensor:1;letterbox:1;scale_up:1
+  - instance: axinplace
+    name: axinplace-normalize0
+    lib: libinplace_normalize.so
+    mode: write
+    options: mean:0.;std:1.;simd:avx2;quant_scale:0.003919653594493866;quant_zeropoint:-128
+  - instance: axtransform
+    name: axtransform-padding0
+    lib: libtransform_padding.so
+    options: padding:0,0,1,1,1,15,0,0;fill:0
+    batch: 1
+  - instance: queue
+    name: queue0
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinference
+    name: inference-task0-yolov8spose-coco-onnx
+    model: build/lib_export/yolov8pose/model.json
+    devices: metis-0:1:0
+    double_buffer: true
+    dmabuf_inputs: true
+    dmabuf_outputs: true
+    num_children: 2
+  - instance: queue
+    name: queue1
+    connections:
+      src: decoder_task0.sink_1
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: queue
+    name: queue_decoder_task0
+    connections:
+      src: decoder_task0.sink_0
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: decode_muxer
+    name: decoder_task0
+    lib: libdecode_yolov8.so
+    mode: read
+    options: meta_key:yolov8spose-coco-onnx;confidence_threshold:0.25;scales:0.055154770612716675,0.05989416316151619,0.06476129591464996,0.10392487794160843,0.17826798558235168,0.16040770709514618,0.04365239664912224,0.057816002517938614,0.066075898706913;padding:0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,63|0,0,0,0,0,0,0,63|0,0,0,0,0,0,0,63|0,0,0,0,0,0,0,13|0,0,0,0,0,0,0,13|0,0,0,0,0,0,0,13;zero_points:-65,-65,-56,109,109,107,12,7,15;classes:1;kpts_shape:17,3;model_width:640;model_height:640;scale_up:1;decoder_name:CocoBodyKeypointsMeta;
+  - instance: axinplace
+    name: axinplace-nms0
+    lib: libinplace_nms.so
+    options: meta_key:yolov8spose-coco-onnx;max_boxes:300;nms_threshold:0.45;class_agnostic:1;location:CPU;
+  - instance: axtransform
+    name: axtransform1
+  - instance: tee
+    name: input_tee1
+    connections:
+      src_%u:
+      - queue_task1.sink
+      - queue_decoder_task1.sink
+  - instance: queue
+    name: queue_task1
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinplace
+    name: axinplace-filterdetections0
+    lib: libinplace_filterdetections.so
+    options: meta_key:master_detections;which:AREA;top_k:10
+  - instance: distributor
+    name: distributor0
+    meta: master_detections
+  - instance: axtransform
+    name: axtransform-roicrop0
+    lib: libtransform_roicrop.so
+    options: meta_key:master_detections
+  - instance: axtransform
+    name: axtransform-resize1
+    lib: libtransform_resize.so
+    options: width:640;height:640;padding:114;to_tensor:1;letterbox:1;scale_up:1
+  - instance: axinplace
+    name: axinplace-normalize1
+    lib: libinplace_normalize.so
+    mode: write
+    options: mean:0.;std:1.;simd:avx2;quant_scale:0.003919653594493866;quant_zeropoint:-128
+  - instance: axtransform
+    name: axtransform-padding1
+    lib: libtransform_padding.so
+    options: padding:0,0,1,1,1,15,0,0;fill:0
+    batch: 1
+  - instance: queue
+    name: queue2
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinference
+    name: inference-task1-yolov8n-coco-onnx
+    model: build/lib_export/yolov8n/model.json
+    devices: metis-0:1:0
+    double_buffer: true
+    dmabuf_inputs: true
+    dmabuf_outputs: true
+    num_children: 2
+  - instance: queue
+    name: queue3
+    connections:
+      src: decoder_task1.sink_1
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: queue
+    name: queue_decoder_task1
+    connections:
+      src: decoder_task1.sink_0
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: decode_muxer
+    name: decoder_task1
+    lib: libdecode_yolov8.so
+    mode: read
+    options: meta_key:yolov8n-coco-onnx;master_meta:master_detections;classes:80;confidence_threshold:0.25;scales:0.08838965743780136,0.07353860884904861,0.07168316841125488,0.10592737793922424,0.15443256497383118,0.18016019463539124;padding:0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,48|0,0,0,0,0,0,0,48|0,0,0,0,0,0,0,48;zero_points:-60,-57,-44,127,117,104;topk:30000;multiclass:0;classlabels_file:/path/to/sometempfile.txt;model_width:640;model_height:640;scale_up:1;letterbox:1
+  - instance: axinplace
+    name: axinplace-nms1
+    lib: libinplace_nms.so
+    options: meta_key:yolov8n-coco-onnx;master_meta:master_detections;max_boxes:300;nms_threshold:0.45;class_agnostic:1;location:CPU
+  - instance: appsink
+    name: appsink0
+    max-buffers: 16
+    drop: false
+    sync: false

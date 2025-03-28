@@ -1,0 +1,118 @@
+- pipeline:
+  - instance: filesrc
+    location: {{input_video0}}
+  - instance: decodebin
+    name: queue_in0
+    force-sw-decoders: {{force_sw_decoders}}
+    caps: video/x-raw(ANY)
+    expose-all-streams: false
+    connections:
+      src_%u: axinplace-addstreamid0.sink
+  - instance: axinplace
+    lib: libinplace_addstreamid.so
+    name: axinplace-addstreamid0
+    mode: meta
+    options: stream_id:0
+  - instance: videoconvert
+  - instance: capsfilter
+    caps: video/x-raw,format=RGBA
+  - instance: queue
+    connections:
+      src: inference-task0.sink_%u
+    max-size-buffers: 4
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: filesrc
+    location: {{input_video1}}
+  - instance: decodebin
+    name: queue_in1
+    force-sw-decoders: {{force_sw_decoders}}
+    caps: video/x-raw(ANY)
+    expose-all-streams: false
+    connections:
+      src_%u: axinplace-addstreamid1.sink
+  - instance: axinplace
+    lib: libinplace_addstreamid.so
+    name: axinplace-addstreamid1
+    mode: meta
+    options: stream_id:1
+  - instance: videoconvert
+  - instance: capsfilter
+    caps: video/x-raw,format=RGBA
+  - instance: queue
+    connections:
+      src: inference-task0.sink_%u
+    max-size-buffers: 4
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: filesrc
+    location: {{input_video2}}
+  - instance: decodebin
+    name: queue_in2
+    force-sw-decoders: {{force_sw_decoders}}
+    caps: video/x-raw(ANY)
+    expose-all-streams: false
+    connections:
+      src_%u: axinplace-addstreamid2.sink
+  - instance: axinplace
+    lib: libinplace_addstreamid.so
+    name: axinplace-addstreamid2
+    mode: meta
+    options: stream_id:2
+  - instance: videoconvert
+  - instance: capsfilter
+    caps: video/x-raw,format=RGBA
+  - instance: queue
+    connections:
+      src: inference-task0.sink_%u
+    max-size-buffers: 4
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: filesrc
+    location: {{input_video3}}
+  - instance: decodebin
+    name: queue_in3
+    force-sw-decoders: {{force_sw_decoders}}
+    caps: video/x-raw(ANY)
+    expose-all-streams: false
+    connections:
+      src_%u: axinplace-addstreamid3.sink
+  - instance: axinplace
+    lib: libinplace_addstreamid.so
+    name: axinplace-addstreamid3
+    mode: meta
+    options: stream_id:3
+  - instance: videoconvert
+  - instance: capsfilter
+    caps: video/x-raw,format=RGBA
+  - instance: queue
+    connections:
+      src: inference-task0.sink_%u
+    max-size-buffers: 4
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinferencenet
+    name: inference-task0
+    model: {{model_lib0}}
+    devices: metis-0:1:0
+    double_buffer: true
+    dmabuf_inputs: true
+    dmabuf_outputs: true
+    num_children: 0
+    preprocess0_lib: libtransform_resize.so
+    preprocess0_options: "width:640;height:640;padding:114;to_tensor:1;letterbox:1;scale_up:1"
+    preprocess1_lib: libinplace_normalize.so
+    preprocess1_options: "mean:0.;std:1.;simd:avx2;quant_scale:0.003919653594493866;quant_zeropoint:-128"
+    preprocess1_mode: write
+    preprocess2_lib: libtransform_yolopreproc.so
+    preprocess2_options: "padding:0,0,0,0,0,0,0,52"
+    preprocess2_batch: 1
+    postprocess0_lib: libdecode_yolov5.so
+    postprocess0_options: "meta_key:{{model_name0}};anchors:1.25,1.625,2.0,3.75,4.125,2.875,1.875,3.8125,3.875,2.8125,3.6875,7.4375,3.625,2.8125,4.875,6.1875,11.65625,10.1875;classes:80;confidence_threshold:0.25;scales:0.08142165094614029,0.09499982744455338,0.09290479868650436;zero_points:70,82,66;topk:{{max_boxes}};multiclass:0;sigmoid_in_postprocess:0;transpose:1;classlabels_file:{{label_file}};model_width:640;model_height:640;scale_up:1;letterbox:1"
+    postprocess0_mode: read
+    postprocess1_lib: libinplace_nms.so
+    postprocess1_options: "meta_key:{{model_name0}};max_boxes:{{nms_top_k}};nms_threshold:0.45;class_agnostic:0;location:CPU"
+  - instance: appsink
+    max-buffers: 4
+    drop: false
+    sync: false

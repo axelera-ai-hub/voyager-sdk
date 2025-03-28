@@ -1,0 +1,8 @@
+     local var=
+     for var in "${_AX_envs[@]}"; do
+         [[ "$var" == *=* ]] && _AX_reset_env "${var%%=*}"
+     done
+     unset _AX_envs
+     unset -f _AX_set_env
+     unset -f _AX_reset_env
+     unset -f deactivate

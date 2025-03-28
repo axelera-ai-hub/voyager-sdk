@@ -1,0 +1,53 @@
+---
+- pipeline:
+  - instance: filesrc
+    location: {{input_video0}}
+  - instance: decodebin
+    name: queue_in0
+    force-sw-decoders: {{force_sw_decoders}}
+    caps: video/x-raw(ANY)
+    expose-all-streams: false
+    connections:
+      src_%u: axinplace-addstreamid0.sink
+  - instance: axinplace
+    lib: libinplace_addstreamid.so
+    name: axinplace-addstreamid0
+    mode: meta
+    options: stream_id:0
+  - instance: videoconvert
+  - instance: capsfilter
+    caps: video/x-raw,format=RGBA
+  - instance: queue
+    connections:
+      src: inference-task0.sink_%u
+    max-size-buffers: 4
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinferencenet
+    name: inference-task0
+    model: {{model_lib0}}
+    devices: metis-0:1:0
+    double_buffer: true
+    dmabuf_inputs: true
+    dmabuf_outputs: true
+    num_children: 0
+    preprocess0_lib: libtransform_centrecropextra.so
+    preprocess0_options: cropsize:224;scalesize:256
+    preprocess1_lib: libtransform_resize.so
+    preprocess1_options: size:224
+    preprocess2_lib: libtransform_totensor.so
+    preprocess2_options: type:int8
+    preprocess3_lib: libinplace_normalize.so
+    preprocess3_options: mean:0.485,0.456,0.406;std:0.229,0.224,0.225;simd:avx2;quant_scale:{{quant_scale}};quant_zeropoint:{{quant_zeropoint}}
+    preprocess3_mode: write
+    preprocess4_lib: libtransform_padding.so
+    preprocess4_options: padding:{{pads}};fill:0
+    preprocess4_batch: 4
+    postprocess0_lib: libtransform_dequantize.so
+    postprocess0_options: dequant_scale:{{dequant_scale}};dequant_zeropoint:{{dequant_zeropoint}}
+    postprocess1_lib: libdecode_classification.so
+    postprocess1_options: meta_key:{{model_name}};classlabels_file:{{label_file}};top_k:5;softmax:0
+  - instance: appsink
+    max-buffers: 4
+    drop: false
+    sync: false

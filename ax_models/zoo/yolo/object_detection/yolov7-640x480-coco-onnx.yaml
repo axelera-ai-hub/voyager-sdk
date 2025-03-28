@@ -1,0 +1,57 @@
+axelera-model-format: 1.0.0
+
+name: yolov7-640x480-coco-onnx
+
+description: YOLOv7-v0.1 ONNX with rectangular inference (COCO)
+# converted from https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7.pt with opset=12
+# !python export.py --weights yolov7.pt
+
+pipeline:
+  - detections:
+      model_name: yolov7-640x480-coco-onnx
+      template_path: $AXELERA_FRAMEWORK/pipeline-template/yolo-letterbox.yaml
+      postprocess:
+        - decodeyolo:
+            max_nms_boxes: 30000
+            conf_threshold: 0.25
+            nms_iou_threshold: 0.45
+            nms_class_agnostic: False
+            nms_top_k: 300
+
+models:
+  yolov7-640x480-coco-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/yolov7-640x480.onnx
+    weight_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/model_cards/weights/yolo/object_detection/yolov7-640x480.onnx
+    weight_md5: d7f419e299dbb49c3992f0077fbb0f8f
+    task_category: ObjectDetection
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 480, 640]
+    input_color_format: RGB
+    num_classes: 80
+    dataset: CocoDataset-COCO2017
+    extra_kwargs:
+      YOLO:
+        anchors_path: training_yamls/yolov7.yaml
+        anchors_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/model_cards/weights/yolo/object_detection/cfgs/yolov7.yaml
+        # from https://github.com/WongKinYiu/yolov7/raw/main/cfg/deploy/yolov7.yaml
+        anchors_md5: ff7a2574a06faaeb265ee84b56cb6189
+        #anchors: # or, specified explicitly
+        #- [anchor, anchor, anchor]
+        #- [anchor, anchor, anchor]
+        #- [anchor, anchor, anchor]
+        # strides: [8, 16, 32]  # specify if you are using a special version
+
+datasets: # Python dataloader
+  CocoDataset-COCO2017:
+    class: ObjDataAdaptor
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
+    data_dir_name: coco
+    download_year: 2017
+    labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/coco.names
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/coco2017_400_b680128
+    repr_imgs_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/data/coco/coco2017_repr400.zip
+    repr_imgs_md5: b680128512392586e3c86b670886d9fa
+    # without val, will use the default coco2017 val set
+    # val: /path/to/your/val_custom.json or dir with darknet label txt files

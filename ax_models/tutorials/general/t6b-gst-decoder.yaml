@@ -1,0 +1,56 @@
+axelera-model-format: 1.0.0
+
+name: t6b-gst-decoder
+
+description: ONNX Tutorial-6b - An example demonstrating how to build your own GStreamer plugin and integrate it into your AxOperator for building an end-to-end pipeline.
+
+pipeline:
+  - classifier:
+      model_name: model1
+      input:
+          type: image
+          color_format: rgb
+      # here we use built-in preprocess AxOperators to achieve the same effect as your own transforms (override_preprocess)
+      preprocess:
+        - resize:
+            width: 100
+            height: 100
+        - torch-totensor:
+        - normalize:
+            mean: 0.485, 0.456, 0.406
+            std: 0.229, 0.224, 0.225
+      # for general postprocess, we have built-in decoders to help you decode the results without writing any code
+      postprocess:
+        - my_topk_decoder:
+            k: 3
+
+operators:
+  my_topk_decoder:
+    class: TopKDecoderWithMyGstPlugin
+    class_path: tutorial_decoders.py
+
+models:
+  model1:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: ~/.cache/axelera/weights/tutorials/resnet34_fruits360.onnx
+    # PyTorch version
+    # class: CustomPytorchModel
+    # class_path: ../torch/simplest_torch.py
+    # weight_path: ~/.cache/axelera/weights/tutorials/resnet34_fruits360.pth
+    task_category: Classification
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 100, 100]
+    input_color_format: RGB
+    num_classes: 141
+    dataset: Custom-Fruits360
+
+datasets:
+  Custom-Fruits360:
+    class: CustomDataAdapter
+    class_path: tutorial_data_adapter.py
+    data_dir_name: fruits-360-100x100
+    val_data: Test
+    labels_path: ~/.cache/axelera/weights/tutorials/fruits360.names
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/fruits-360-100x100/repr_imgs/
+    disable_enumeration: True

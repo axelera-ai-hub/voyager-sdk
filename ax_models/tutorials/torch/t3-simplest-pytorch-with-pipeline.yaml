@@ -1,0 +1,40 @@
+axelera-model-format: 1.0.0
+
+name: t3-simplest-pytorch-with-pipeline
+
+description: Pytorch Tutorial-2 - A example of showing how to deploy a E2E pipeline with Pytorch model
+
+pipeline:
+  - classifier:
+      model_name: model1
+      input:
+          type: image
+          color_format: rgb
+      preprocess:
+        - resize:
+            width: 100
+            height: 100
+        - torch-totensor:
+        - normalize:
+            mean: 0.485, 0.456, 0.406
+            std: 0.229, 0.224, 0.225
+      postprocess:
+        - topk:
+            k: 1
+
+models:
+  model1:
+    # If you directly start from this level, you can simply use `CustomPytorchModel` instead of implementing `override_preprocess`. Feel free to replace the following line with `class: CustomPytorchModel` and deploy it.
+    class: CustomAxPytorchModelWithPreprocess
+    class_path: simplest_torch.py
+    task_category: Classification
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 100, 100]
+    input_color_format: RGB
+    weight_path: ~/.cache/axelera/weights/tutorials/resnet34_fruits360.pth
+    dataset: RepresentativeDataset
+
+datasets:
+  RepresentativeDataset:
+    class: DataAdapter
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/fruits-360-100x100/repr_imgs/

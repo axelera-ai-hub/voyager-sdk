@@ -1,0 +1,66 @@
+axelera-model-format: 1.0.0
+
+name: unet_fcn_256-cityscapes-onnx
+
+description: U-Net FCN from MMSegmentation, ONNX with dynamic axes, 256x256 input
+
+pipeline:
+  - unet_fcn_256-cityscapes-onnx:
+      input:
+        type: image
+        color_format: RGB
+      preprocess:
+        - resize:
+            width: 256 # {{model_width}}
+            height: 256 # {{model_height}}
+        - torch-totensor:
+            scale: False
+        - normalize:
+            mean: 123.675, 116.28, 103.53
+            std: 58.395, 57.12, 57.375
+      postprocess:
+        - semantic-segmentation:
+            width: 256 # {{model_width}}
+            height: 256 # {{model_height}}
+            eval:
+              width: 2048
+              height: 1024
+
+
+models:
+  unet_fcn_256-cityscapes-onnx:
+    class: AxMMSegmentationOnnx
+    class_path: $AXELERA_FRAMEWORK/ax_models/mmlab/mmseg/ax_mmseg.py
+    task_category: SemanticSegmentation
+    weight_path: weights/unet_fcn_dynamic.onnx
+    weight_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/model_cards/weights/mmlab/semantic_segmentation/unet_fcn_dynamic.onnx
+    weight_md5: b1377865452076e4b4b48c1152d64af1
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 256, 256]
+    input_color_format: RGB
+    dataset: Cityscapes
+    num_classes: 19
+    extra_kwargs:
+      compilation_config:
+        backend_config:
+          tiling_depth: 6
+      mmseg:
+        config_file: unet-s5-d16_fcn_4xb4-160k_cityscapes-512x1024.py
+
+datasets:
+  Cityscapes:
+    class: MMSegDataAdapter # CityscapesDataset
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/mmseg.py
+    data_dir_name: cityscapes
+    # if repr_imgs is not specified, use val dataset for calibration
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/coco2017_400_b680128
+    repr_imgs_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/data/coco/coco2017_repr400.zip
+    repr_imgs_md5: b680128512392586e3c86b670886d9fa
+
+model-env:
+  dependencies:
+    - mmcv==2.1.0
+    - mmsegmentation>=1.2.2
+    - ftfy==6.2.0
+    - cityscapesscripts
+    - regex

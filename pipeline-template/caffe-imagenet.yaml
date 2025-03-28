@@ -1,0 +1,18 @@
+input:
+    type: image
+    color_format: BGR
+preprocess:
+  - resize:
+      size: 256
+      half_pixel_centers: True
+  - centercrop:
+      width: 224
+      height: 224
+  - torch-totensor:
+      scale: False
+  - linear-scaling:
+      mean: 1, 1, 1
+      shift: -103.939, -116.779, -123.68
+postprocess:
+  - topk:
+      k: 5

@@ -1,0 +1,64 @@
+# Ultralytics YOLO Models and Software License
+# The Ultralytics YOLO models, along with their supporting files and documentation
+# (collectively, the "Software"), are developed and distributed by Ultralytics
+# under the GNU Affero General Public License version 3.0 (AGPL-3.0), subject to
+# the following modification for Axelera AI:
+#
+# Evaluation Use Only:
+# This Software is solely for testing and evaluation on Axelera AI hardware. Any
+# other use requires a commercial license from Ultralytics.
+#
+# Commercial Use Prohibited Without License:
+# Commercial use of this Software, including deployment, reproduction, or
+# distribution in products or services internal or external to a commercial
+# entity requires an Ultralytics Enterprise License. Visit
+# https://www.ultralytics.com/license for licensing details. By using this
+# Software, you acknowledge and agree to comply with the above terms.
+axelera-model-format: 1.0.0
+
+name: yolov5s-v5-coco
+
+description: YOLOv5s-v5 with Focus layer, SiLU, S2D on the host, 640x640 (COCO)
+
+pipeline:
+  - detections:
+      model_name: yolov5s-v5-coco
+      template_path: $AXELERA_FRAMEWORK/pipeline-template/yolo-letterbox.yaml
+      postprocess:
+        - decodeyolo:
+            max_nms_boxes: 30000
+            conf_threshold: 0.25
+            nms_iou_threshold: 0.45
+            nms_class_agnostic: False
+            nms_top_k: 300
+
+models:
+  yolov5s-v5-coco:
+    class: AxYolo
+    class_path: $AXELERA_FRAMEWORK/ax_models/yolo/ax_yolo.py
+    task_category: ObjectDetection
+    input_tensor_layout: NCHW # NCHW / NHWC / CHWN; batch N, channels C, height H, width W
+    input_tensor_shape: [1, 3, 640, 640] # corresponding to input format
+    input_color_format: RGB # RGB, BGR, Gray
+    weight_path: weights/yolov5s-v5.pt
+    weight_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/model_cards/weights/yolo/object_detection/yolov5s-v5.pt
+    weight_md5: 6afd8e05c9539ba4537fd3dfe32db554
+    num_classes: 80
+    dataset: CocoDataset-COCO2017
+
+datasets: # Python dataloader
+  CocoDataset-COCO2017:
+    class: ObjDataAdaptor
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
+    data_dir_name: coco
+    labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/coco.names
+    # If using a custom dataset, comment out download year and add either
+    # repr_imgs or cal_data for calibration and add val_data for validation.
+    # You can use your existing training dataset as cal_data
+    download_year: 2017
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/coco2017_400_b680128
+    repr_imgs_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/data/coco/coco2017_repr400.zip
+    repr_imgs_md5: b680128512392586e3c86b670886d9fa
+    # relative/path/to/your/cal_custom.json or dir with darknet label txt files
+    # cal_data: train2017-400.txt
+    # val_data: val2017.txt

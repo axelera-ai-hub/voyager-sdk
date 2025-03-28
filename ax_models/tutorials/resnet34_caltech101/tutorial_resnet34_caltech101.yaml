@@ -1,0 +1,49 @@
+# Simple classifier model for Caltech101 dataset
+
+axelera-model-format: 1.0.0
+
+name: tutorial-resnet34-caltech101
+
+description: Example of porting Resnet34 with custom dataset using the ImageFolder structure
+
+pipeline:
+  - ResNet34-Caltech101:
+      template_path: $AXELERA_FRAMEWORK/pipeline-template/torch-imagenet.yaml
+      postprocess:
+        - topk:
+            k: 1
+
+models:
+  ResNet34-Caltech101:
+    class: AxTorchvisionResNet
+    class_path: $AXELERA_FRAMEWORK/ax_models/torchvision/resnet.py
+    task_category: Classification
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 224, 224]
+    input_color_format: RGB # RGB, BGR, Gray
+    dataset: Caltech101
+    num_classes: 101
+    weight_path: resnet34_caltech101.pth
+    # You can comment out the following 2 fields and train the model by yourself via
+    # python ax_models/tutorials/tutorial_resnet34_caltech101.py
+    weight_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/weights/tutorial/resnet34_caltech101.pth
+    weight_md5: 43e16f6d467349a41b48efbe8387d3a2
+    extra_kwargs:
+      block: BasicBlock
+      layers: [3, 4, 6, 3] # Resnet34
+
+datasets:
+  Caltech101:
+    class: TorchvisionDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/torchvision.py
+    data_dir_name: Caltech101
+    cal_data: caltech101/101_ObjectCategories
+    val_data: caltech101/101_ObjectCategories
+    # If all data sets are in the same folder, please specify the data to be used
+    # for calibration and validation through index; if the data sets are already in
+    # different directories, please ignore the following 2 fields
+    cal_index_pkl: indices/val_indices.pkl
+    val_index_pkl: indices/test_indices.pkl
+    is_one_indexed: True # False as 0-indexed
+    # why the root of labels_path is following YAML but not datasets section?
+    labels_path: caltech101_classes.txt

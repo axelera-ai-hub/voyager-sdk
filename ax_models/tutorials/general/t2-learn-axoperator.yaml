@@ -1,0 +1,46 @@
+axelera-model-format: 1.0.0
+
+name: t2-learn-axoperator
+
+description: Tutorial-2 - An example demonstrating how to deploy a model using the torch and torch-aipu pipeline to measure the model's latency and throughput, preparing you for a journey towards enabling a highly efficient end-to-end pipeline with accuracy-aware development.
+
+# Register a custom decoder to AxOperator list
+operators:
+  my_topk_decoder:
+    class: TopKDecoder
+    class_path: tutorial_decoders.py
+
+# Define a pipeline without preprocess section
+pipeline:
+  - classifier:            # Name of the vision classification task
+      model_name: model1   # References model defined in models section
+      input:
+          type: image
+          color_format: rgb # Must match repr_imgs_dataloader_color_format
+      postprocess:
+        - my_topk_decoder:
+            k: 3
+            softmax: True
+
+models:
+  # ONNX version
+  model1:
+    class: CustomONNXModel
+    class_path: ../onnx/simplest_onnx.py
+    weight_path: ~/.cache/axelera/weights/tutorials/resnet34_fruits360.onnx
+  # For PyTorch users, you can also use the following way:
+  # model1:
+  #   class: CustomAxPytorchModelWithPreprocess
+  #   class_path: ../torch/simplest_torch.py
+  #   weight_path: ~/.cache/axelera/weights/tutorials/resnet34_fruits360.pth
+    task_category: Classification
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 100, 100]
+    input_color_format: RGB
+    dataset: RepresentativeDataset
+
+datasets:
+  RepresentativeDataset:
+    class: DataAdapter
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/fruits-360-100x100/repr_imgs/
+    # repr_imgs_dataloader_color_format: RGB

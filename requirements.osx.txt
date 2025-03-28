@@ -1,0 +1,29 @@
+alive-progress
+boto3
+climage
+cython
+jsonschema
+matplotlib < 3.10
+networkx
+numpy < 2.0.0
+onnxruntime
+opencv-python
+pillow
+protobuf
+psutil
+pycocotools
+pyglet==2.1.3
+pygobject
+pyopencl
+pyserial
+pytest
+pytest-cov
+pyyaml
+siphash24
+requests
+rich
+simple-term-menu
+torch < 2
+torchaudio
+torchvision
+tqdm

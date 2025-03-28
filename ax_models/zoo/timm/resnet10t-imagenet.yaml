@@ -1,0 +1,44 @@
+axelera-model-format: 1.0.0
+
+name: resnet10t-imagenet
+
+description: resnet10t.c3_in1k from timm
+
+pipeline:
+  - classifier:
+      model_name: resnet10t-imagenet
+      template_path: $AXELERA_FRAMEWORK/pipeline-template/timm-imagenet.yaml
+
+models:
+  resnet10t-imagenet:
+    class: AxTimmModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/torch/ax_timm.py
+    task_category: Classification
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 224, 224]
+    input_color_format: RGB
+    dataset: ImageNet-1K
+    num_classes: 1000
+    extra_kwargs:
+      resize_size: 256
+      timm_model_args:
+        name: resnet10t.c3_in1k
+
+datasets:
+  ImageNet-1K:
+    class: TorchvisionDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/torchvision.py
+    data_dir_name: ImageNet
+    labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/imagenet1000_clsidx_to_labels.txt
+    # Use COCO as representative images due to ImageNet's redistribution restrictions and large dataset size.
+    # Suggest selecting 100-400 images from the ImageNet training dataset for representative images and
+    # replacing the following representative_coco dataset with the selected images.
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/coco2017_400_b680128
+    repr_imgs_url: https://d1o2y3tc25j7ge.cloudfront.net/artifacts/data/coco/coco2017_repr400.zip
+    repr_imgs_md5: b680128512392586e3c86b670886d9fa
+    # cal_data: /path/to/the/cal/dir
+    # val_data: /path/to/the/val/dir
+
+model-env:
+  dependencies:
+    - timm

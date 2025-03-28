@@ -1,0 +1,154 @@
+- pipeline:
+  - instance: filesrc
+    location: {{input_video0}}
+  - instance: queue
+    name: queue_in0
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: decodebin
+    force-sw-decoders: {{force_sw_decoders}}
+    caps: video/x-raw(ANY)
+    expose-all-streams: false
+    connections:
+      src_%u: queue_after_decodebin0.sink
+  - instance: queue
+    name: queue_after_decodebin0
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinplace
+    lib: libinplace_addstreamid.so
+    mode: meta
+    options: stream_id:0
+  - instance: identity
+    name: identity0
+    connections:
+      src: inference-funnel.sink_%u
+  - instance: axfunnel
+    name: inference-funnel
+  - instance: axtransform
+    lib: libtransform_colorconvert.so
+    options: format:rgba
+  - instance: axtransform
+  - instance: tee
+    name: input_tee0
+    connections:
+      src_%u:
+      - queue_task0.sink
+      - queue_decoder_task0.sink
+  - instance: queue
+    name: queue_task0
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axtransform
+    lib: libtransform_resize_cl.so
+    options: width:640;height:640;padding:114;letterbox:1;scale_up:1;to_tensor:1;mean:0.,0.,0.;std:1.,1.,1.;quant_scale:0.003919653594493866;quant_zeropoint:-128.0
+  - instance: axtransform
+    lib: libtransform_padding.so
+    options: padding:{{pads0}};fill:0
+    batch: 1
+  - instance: queue
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinference
+    name: inference-task0-{{model_name0}}
+    model: {{model_lib}}
+    devices: metis-0:1:0
+    double_buffer: true
+    dmabuf_inputs: true
+    dmabuf_outputs: true
+    num_children: 3
+  - instance: queue
+    connections:
+      src: decoder_task0.sink_1
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: queue
+    name: queue_decoder_task0
+    connections:
+      src: decoder_task0.sink_0
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: decode_muxer
+    name: decoder_task0
+    lib: libdecode_yolov5.so
+    mode: read
+    options: meta_key:{{model_name0}};anchors:1.25,1.625,2.0,3.75,4.125,2.875,1.875,3.8125,3.875,2.8125,3.6875,7.4375,3.625,2.8125,4.875,6.1875,11.65625,10.1875;classes:80;confidence_threshold:0.3;scales:0.0038571979384869337,0.0038748111110180616,0.0038069516886025667;zero_points:-128,-128,-128;topk:30000;multiclass:0;sigmoid_in_postprocess:0;transpose:1;classlabels_file:{{label_file}};model_width:640;model_height:640;scale_up:1;letterbox:1
+  - instance: axinplace
+    lib: libinplace_nms.so
+    options: meta_key:{{model_name0}};max_boxes:{{nms_top_k}};nms_threshold:0.5;class_agnostic:0;location:CPU
+  - instance: axinplace
+    lib: libinplace_filterdetections.so
+    options: meta_key:{{model_name0}};min_width:10;min_height:10
+    mode: read
+  - instance: axinplace
+    lib: libinplace_tracker.so
+    options: meta_key:{{model_name0}};history_length:1;num_subtask_runs:1;algorithm:oc-sort;algo_params_json:{{tracker_params_json0}};
+  - instance: axtransform
+  - instance: tee
+    name: input_tee1
+    connections:
+      src_%u:
+      - queue_task1.sink
+      - queue_decoder_task1.sink
+  - instance: queue
+    name: queue_task1
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: distributor
+    meta: master_detections
+  - instance: axtransform
+    lib: libtransform_roicrop.so
+    options: meta_key:master_detections
+  - instance: axtransform
+    lib: libtransform_centrecropextra.so
+    options: cropsize:224;scalesize:256
+  - instance: axtransform
+    lib: libtransform_resize_cl.so
+    options: size:224;to_tensor:1;mean:0.485,0.456,0.406;std:0.229,0.224,0.225;quant_scale:0.01863;quant_zeropoint:-14.0
+  - instance: axtransform
+    lib: libtransform_padding.so
+    options: padding:{{pads1}};fill:0
+    batch: 1
+  - instance: queue
+    max-size-buffers: 16
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinference
+    name: inference-task1-{{model_name1}}
+    model: {{model_lib1}}
+    devices: metis-0:1:0
+    double_buffer: true
+    dmabuf_inputs: true
+    dmabuf_outputs: true
+    num_children: 0
+  - instance: axtransform
+    lib: libtransform_dequantize.so
+    options: dequant_scale:{{dequant_scale1}};dequant_zeropoint:{{dequant_zeropoint1}}
+    connections:
+      src: decoder_task1.sink_1
+  - instance: queue
+    connections:
+      src: decoder_task1.sink_0
+    name: queue_decoder_task1
+    max-size-buffers: 0
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: decode_muxer
+    name: decoder_task1
+    lib: libdecode_classification.so
+    options: meta_key:{{model_name1}};master_meta:master_detections;classlabels_file:{{label_file1}};top_k:1;softmax:0
+  - instance: axinplace
+    lib: libinplace_trackeraddclassifications.so
+    options: classification_meta_key:{{model_name1}};tracking_meta_key:master_detections;
+    mode: read
+  - instance: appsink
+    max-buffers: 16
+    drop: false
+    sync: false

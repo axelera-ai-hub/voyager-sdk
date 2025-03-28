@@ -1,0 +1,59 @@
+axelera-model-format: 1.0.0
+
+name: t4.2-dataadapter
+
+description: Tutorial-4.2 - An example demonstrating how to create your own DataAdapter
+
+pipeline:
+  - classifier:
+      model_name: model1
+      input:
+          type: image
+          color_format: rgb
+      postprocess:
+        - my_topk_decoder:
+            k: 5
+
+operators:
+  my_topk_decoder:
+    class: TopKDecoderOutputMeta # a different decoder implementation here!
+    class_path: tutorial_decoders.py
+
+models:
+  # ONNX version
+  model1:
+    class: CustomONNXModel
+    class_path: ../onnx/simplest_onnx.py
+    weight_path: ~/.cache/axelera/weights/tutorials/resnet34_fruits360.onnx
+  # For PyTorch users, you can also use the following way:
+  # model1:
+  #   class: CustomAxPytorchModelWithPreprocess
+  #   class_path: ../torch/simplest_torch.py
+  #   weight_path: ~/.cache/axelera/weights/tutorials/resnet34_fruits360.pth
+    task_category: Classification
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 100, 100]
+    input_color_format: RGB
+    num_classes: 141
+    dataset: Custom-Fruits360 # Here we switch to a self implemented DataAdapter to wrap the Fruits360 dataset
+
+datasets:
+  RepresentativeDataset:
+    class: DataAdapter
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/fruits-360-100x100/repr_imgs/
+  Fruits360:
+    class: TorchvisionDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/torchvision.py
+    data_dir_name: fruits-360-100x100
+    val_data: Test
+    labels_path: ~/.cache/axelera/weights/tutorials/fruits360.names
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/fruits-360-100x100/repr_imgs/
+    disable_enumeration: True
+  Custom-Fruits360:
+    class: CustomDataAdapter
+    class_path: tutorial_data_adapter.py
+    data_dir_name: fruits-360-100x100
+    val_data: Test
+    labels_path: ~/.cache/axelera/weights/tutorials/fruits360.names
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/fruits-360-100x100/repr_imgs/
+    disable_enumeration: True

@@ -1,0 +1,48 @@
+axelera-model-format: 1.0.0
+
+name: t3-learn-axtaskmeta
+
+description: Tutorial-3 - An example demonstrating how to fill the results into AxTaskMeta for visualization, utilizing the in-house CV and GL implementation, and how to use the generated pipeline in application.py
+
+# SAM!! This is why we want to enable multicore support for the torch-aipu pipeline. Once they reach this level, they can build applications on top of it, even if the performance is not optimal. It can still be sufficient for POC by using application.py? Or we think the performance is worth the cost?
+
+
+operators:
+  my_topk_decoder:
+    class: TopKDecoderOutputMeta # a different decoder implementation here!
+    class_path: tutorial_decoders.py # Look into the tutorial_decoders.py for more details
+
+pipeline:
+  - classifier:
+      model_name: model1
+      input:
+          type: image
+          color_format: rgb
+      postprocess:
+        - my_topk_decoder:
+            k: 3
+
+
+models:
+  # ONNX version
+  model1:
+    class: CustomONNXModel
+    class_path: ../onnx/simplest_onnx.py
+    weight_path: ~/.cache/axelera/weights/tutorials/resnet34_fruits360.onnx
+  # For PyTorch users, you can also use the following way:
+  # model1:
+  #   class: CustomAxPytorchModelWithPreprocess
+  #   class_path: ../torch/simplest_torch.py
+  #   weight_path: ~/.cache/axelera/weights/tutorials/resnet34_fruits360.pth
+    task_category: Classification
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 100, 100]
+    input_color_format: RGB
+    dataset: RepresentativeDataset
+
+datasets:
+  RepresentativeDataset:
+    class: DataAdapter
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/fruits-360-100x100/repr_imgs/
+    labels_path: ~/.cache/axelera/weights/tutorials/fruits360.names
+    disable_enumeration: True

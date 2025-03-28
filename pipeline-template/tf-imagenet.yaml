@@ -1,0 +1,17 @@
+input:
+    type: image
+preprocess:
+  - resize:
+      size: 256
+      half_pixel_centers: True
+  - centercrop:
+      width: 224
+      height: 224
+  - torch-totensor:
+      scale: False
+  - linear-scaling:
+      mean: 127.5
+      shift: -1.
+postprocess:
+  - topk:
+      k: 5
