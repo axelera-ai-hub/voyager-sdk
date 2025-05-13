@@ -59,7 +59,7 @@ MarkupSafe==3.0.2
 matplotlib==3.9.4
 matplotlib-inline==0.1.7
 mdurl==0.1.2
-ml_dtypes==0.5.1
+ml_dtypes==0.9.0
 more-itertools==10.6.0
 mpmath==1.3.0
 nanobind==2.5.0
