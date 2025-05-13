@@ -227,7 +227,7 @@ runtime:
     - libmali-valhall-g610-g13p0-x11-gbm
     - libgstreamer1.0-dev
     - libgstreamer-plugins-base1.0-dev
-    - libgstreamer-plugins-good1.0-dev
+    - libgstreamer-plugins-1.0-dev
     - libgstreamer-plugins-bad1.0-dev
     - gstreamer1.0-plugins-ugly
     - libgstrtspserver-1.0-dev
