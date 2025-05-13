@@ -43,7 +43,7 @@ penv:
     - name: axelera_development
       url: ${AX_PYPI_DEVELOPMENT_URL}
       ssl: false
-      pip_extra_args: ${AX_PIP_EXTRA_ARGS}
+      pip_extra_args: --no-cache ${AX_PIP_EXTRA_ARGS}
   common:
     index_url: https://pypi.org/simple
     requires_auth: false
@@ -73,7 +73,7 @@ penv:
     - protobuf: "*"
     - pycocotools: "*"
     - pyglet: "2.1.3"
-    - pygobject: "{version = \"==3.50.0\"}"
+    - pygobject: "{version = \"==3.52.1\"}"
     - pytest: "*"
     - pyopencl: "*"
     - PyYAML: "*"
