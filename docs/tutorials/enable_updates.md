@@ -17,22 +17,23 @@ First, you need to install the Voyager SDK following the official setup instruct
 
 1. Visit the [Voyager SDK Quick Start Guide](/docs/tutorials/quick_start_guide.md#setup)
 2. Follow the setup instructions to install the Voyager SDK on your system
-3. Make sure to run the Step 2 below in an prompt with the (venv) activated from the guide above
+3. Make sure to run the Step 2 and Step 3 below in a prompt with the (venv) activated from the guide above
 
 ### Step 2: Download the Bootloader Update File
 
 Download the required bootloader update file using curl:
 
 ```bash
-curl -O https://media.axelera.ai/releases/enable_bootloader_update.bin
+wget https://axelera-public.s3.eu-central-1.amazonaws.com/aipu_firmware_enabler/voyager-sdk-v1.2.0/enable_bootloader_update.sh
+chmod +x enable_bootloader_update.sh
 ```
 
 ### Step 3: Enable Bootloader Updates
 
-Use the `triton_multi_ctx` tool to load the bootloader update file:
+Use the script previously downloaded to enable bootloader updates:
 
 ```bash
-triton_multi_ctx --fwload enable_bootloader_update.bin
+./enable_bootloader_update.sh
 ```
 
 This command will enable the bootloader update functionality on your board.
