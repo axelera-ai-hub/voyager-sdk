@@ -251,7 +251,11 @@ The `AXELERA_FRAMEWORK` environment variable points to the root of the Voyager S
 
 ## Tutorial-1: Getting Started with Model Deployment
 
-This tutorial introduces the fundamental structure of Axelera YAML files, which are essential for defining and deploying models on the Axelera platform. We will then walk through an example of deploying a single model.
+This tutorial introduces the fundamental structure of Axelera YAML files, which are essential for defining and deploying models on the Axelera platform. We will then walk through an example of deploying a single model. 
+
+Before starting this tutorial ensure you have completed Tutorial 0.
+- If your model is a **PyTorch model**, start with [t0-prepare-your-torch.md](/ax_models/tutorials/torch/t0-prepare-your-torch.md).
+- If your model is an **ONNX model** or can be converted to ONNX, begin with [t0-prepare-your-onnx.md](/ax_models/tutorials/onnx/t0-prepare-your-onnx.md). This tutorial also covers how to convert models from various frameworks to ONNX.
 
 ### YAML File Structure
 A valid Axelera YAML file must include the following six sections + an optional section:
