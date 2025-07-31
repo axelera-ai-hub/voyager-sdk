@@ -45,9 +45,9 @@ tar xzvf firmware_release_public_v1.3.2.tar.gz
 5. Run the firmware update tool to flash the firmware to your board. If you have multiple Metis devices connected, you can specify the device by using the `--device` option.
 
 ```
-$ cd firmware_release_public_v1.3.2
-$ chmod u+x flash_update.sh
-$ ./flash_update.sh --fw-update
+cd firmware_release_public_v1.3.2
+chmod u+x flash_update.sh
+./flash_update.sh --fw-update
 ```
 
 The firmware flashing tool takes up to two minutes to run and on success outputs the message `flash success`.
@@ -59,7 +59,7 @@ The firmware flashing tool takes up to two minutes to run and on success outputs
 
 6. To figure out if the board will support an update, run the following command
 ```
-$ axdevice
+axdevice
 Device 0: metis-0:1:0 4GiB pcie flver=1.3.2 bcver=1.0 clock=800MHz(0-3:800MHz) mvm=0-3:100%
 
 ``` 
@@ -67,15 +67,15 @@ which should report the `bcver` of at least `1.0`.
 
 7. Run the firmware update tool to flash the board controller firmware. If you have multiple Metis devices connected, you can specify the device by using the `--device` option.
 ```
-$ cd firmware_release_public_v1.3.2
-$ chmod u+x flash_update.sh
-$ ./flash_update.sh --bc-update
+cd firmware_release_public_v1.3.2
+chmod u+x flash_update.sh
+./flash_update.sh --bc-update
 ```
 
 > NOTICE: This is not a failsafe or revertible function. Removing power during this process might brick your device. Verify to proceed with "y" when prompted. If you run into any issues, contact an FAE or consult the community support.
 
 After this step, the board will reboot. Next, check if the board controller version was successfully updated and the board is responsive.
 ```
-$ axdevice
+axdevice
 Device 0: metis-0:1:0 4GiB pcie flver=1.3.2 bcver=1.4 clock=800MHz(0-3:800MHz) mvm=0-3:100%
 ```
