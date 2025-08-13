@@ -343,22 +343,24 @@ AXR_EXPORT axrResult axr_configure_device (
 * `device` the device to configure
 * `properties` the options to change.
   
-|    Supported options   |
-| ---------------------- |
-| sw_throttling          |
-| mvm_utilisation_core_3 |
-| pvt_warning_threshold  |
-| clock_profile_core_3   |
-| hw_throttling          |
-| mvm_utilisation_core_2 |
-| clock_profile_core_2   |
-| mvm_utilisation_core_1 |
-| clock_profile_core_1   |
-| clock_profile_core_0   |
-| mvm_utilisation_core_0 |
-| clock_profile          |
-| ddr_size               |
-  
+|    Supported options   |  Format (type) |
+| ---------------------- | -------------- |
+| sw_throttling          |      T:H:L     |
+| mvm_utilisation_core_3 |       int      |
+| pvt_warning_threshold  |       int      |
+| clock_profile_core_3   |       int      |
+| hw_throttling          |       T:H      |
+| mvm_utilisation_core_2 |       int      |
+| clock_profile_core_2   |       int      |
+| mvm_utilisation_core_1 |       int      |
+| clock_profile_core_1   |       int      |
+| clock_profile_core_0   |       int      |
+| mvm_utilisation_core_0 |       int      |
+| clock_profile          |       int      |
+| ddr_size               |       int      |
+
+**_NOTE!_** \
+**_Although `ddr_size` option appears and it IS an integer, it is not recognised by the parser when used._**
 
 
 **Returns:**
