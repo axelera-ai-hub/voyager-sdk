@@ -341,7 +341,24 @@ AXR_EXPORT axrResult axr_configure_device (
 
 * `context` the context
 * `device` the device to configure
-* `properties` the options to change. Currently supported options are clock\_profile:int - the clock profile to use, frequency in MHz.
+* `properties` the options to change.
+  
+|    Supported options   |
+| ---------------------- |
+| sw_throttling          |
+| mvm_utilisation_core_3 |
+| pvt_warning_threshold  |
+| clock_profile_core_3   |
+| hw_throttling          |
+| mvm_utilisation_core_2 |
+| clock_profile_core_2   |
+| mvm_utilisation_core_1 |
+| clock_profile_core_1   |
+| clock_profile_core_0   |
+| mvm_utilisation_core_0 |
+| clock_profile          |
+| ddr_size               |
+  
 
 
 **Returns:**
