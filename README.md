@@ -41,7 +41,7 @@ The Voyager SDK makes it easy to build high-performance inferencing applications
 | Document | Description |
 | :--------------------- | :---------- |
 | [Benchmarking guide](/docs/tutorials/benchmarking.md) | Explains how to measure end-to-end performance and accuracy |
-| [Inferencing manual (`inference.py`)](/docs/reference/inference.md) | Explains all options provided by command-line interencing tool |
+| [Inferencing manual (`inference.py`)](/docs/reference/inference.md) | Explains all options provided by command-line inferencing tool |
 | [Application integration tutorial (high level)](/docs/tutorials/application.md) | Explains how to integrate a YAML pipeline within your application |
 | [Application integration tutorial (low level)](/docs/tutorials/axinferencenet.md) | Explains how to integrate an AxInferenceNet model within your application |
 
