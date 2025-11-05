@@ -125,6 +125,18 @@ class _OldBuilder(list):
         ...
 
     @element
+    def nvvidconv(self, props={}, **kwargs) -> None:
+        ...
+
+    @element
+    def avdec_h264(self, props={}, **kwargs) -> None:
+        ...
+
+    @element
+    def avdec_h265(self, props={}, **kwargs) -> None:
+        ...
+
+    @element
     def playbin(self, props={}, **kwargs) -> None:
         ...
 

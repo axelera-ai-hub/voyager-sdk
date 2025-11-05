@@ -44,6 +44,7 @@ The Voyager SDK makes it easy to build high-performance inferencing applications
 | [Inferencing manual (`inference.py`)](/docs/reference/inference.md) | Explains all options provided by command-line interencing tool |
 | [Application integration tutorial (high level)](/docs/tutorials/application.md) | Explains how to integrate a YAML pipeline within your application |
 | [Application integration tutorial (low level)](/docs/tutorials/axinferencenet.md) | Explains how to integrate an AxInferenceNet model within your application |
+| [Jetson GStreamer video guide](/docs/tutorials/jetson_gstreamer_video.md) | How to resolve MP4/H.264 negotiation issues and enable explicit parse on Jetson |
 
 ## Application integration APIs
 
@@ -59,6 +60,8 @@ at different levels of abstraction.
 
 The InferenceStream library is the easiest to use and enables most users to achieve the highest performance. The lower-level APIs enable expert users
 to integrate Metis within existing video streaming frameworks.
+
+Tip for Jetson users: If you see GStreamer negotiation errors when playing MP4/H.264 files (for example, capsfilter not-negotiated), set the environment variable AXELERA_GST_EXPLICIT_PARSE=1 before running inference. This enables an explicit demux/parse/decode chain optimized for Jetson (qtdemux → h264parse → decoder), which resolves common decodebin issues on NVIDIA platforms. See the [Jetson GStreamer video guide](/docs/tutorials/jetson_gstreamer_video.md) for details.
 
 ## Reference pipelines
 
