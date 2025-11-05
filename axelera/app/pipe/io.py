@@ -451,7 +451,7 @@ class SinglePipeInput(PipeInput):
         elif self._src.type in (config.SourceType.IMAGE_FILES, config.SourceType.DATA_SOURCE):
             _build_data_loader(gst)
             gst.images = [os.path.relpath(str(i), os.getcwd()) for i in self._src.images]
-    elif self._src.type == config.SourceType.VIDEO_FILE:
+        elif self._src.type == config.SourceType.VIDEO_FILE:
             # Optionally build an explicit demux/parse/decode chain for file sources to avoid
             # decodebin negotiation issues seen on Jetson/NVIDIA pipelines.
             # Enable with AXELERA_GST_EXPLICIT_PARSE=1
