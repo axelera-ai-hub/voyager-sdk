@@ -7,6 +7,8 @@ import dataclasses
 import enum
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import re
 from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Optional, Tuple
 import urllib
@@ -241,11 +243,31 @@ def build_decodebin(gst: gst_builder.Builder, allow_hardware_codec, stream_idx):
     hw_decoder = allow_hardware_codec
     props = {
         'force-sw-decoders': not hw_decoder,
+        # Keep caps aligned with existing golden pipelines/tests
         'caps': 'video/x-raw(ANY)',
         'expose-all-streams': False,
     }
     props['connections'] = {'src_%u': f'decodebin-link{stream_idx or 0}.sink'}
     gst.decodebin(props)
+
+
+def build_jetson_video_decode(gst: gst_builder.Builder, stream_idx):
+    """Build a Jetson-optimized video decode pipeline for MP4/MOV files.
+    
+    NVIDIA nvv4l2decoder requires byte-stream format, but MP4 files contain
+    AVC1/HVC1 format. We need to explicitly insert h264parse/h265parse to
+    convert the stream format, which decodebin doesn't do automatically.
+    """
+    # qtdemux extracts video stream from MP4/MOV container
+    # video_%u is a dynamic pad - the SDK will use pad-added callback to link it
+    gst.qtdemux(connections={'video_%u': f'videoparser{stream_idx or 0}.sink'})
+    
+    # h264parse converts from AVC1 to byte-stream format required by nvv4l2decoder
+    # Note: For H.265 videos, this would need h265parse instead
+    gst.h264parse(name=f'videoparser{stream_idx or 0}')
+    
+    # NVIDIA hardware decoder
+    gst.nvv4l2decoder(connections={'src': f'decodebin-link{stream_idx or 0}.sink'})
 
 
 def _build_gst_usb(gst: gst_builder.Builder, src: config.Source, allow_hardware_codec, stream_idx):
@@ -430,8 +452,85 @@ class SinglePipeInput(PipeInput):
             _build_data_loader(gst)
             gst.images = [os.path.relpath(str(i), os.getcwd()) for i in self._src.images]
         elif self._src.type == config.SourceType.VIDEO_FILE:
+            # Optionally build an explicit demux/parse/decode chain for file sources to avoid
+            # decodebin negotiation issues seen on Jetson/NVIDIA pipelines.
+            # Enable with AXELERA_GST_EXPLICIT_PARSE=1
+            use_explicit_parse = str(os.getenv('AXELERA_GST_EXPLICIT_PARSE', '0')).lower() in (
+                '1',
+                'true',
+                'yes',
+                'on',
+            )
             gst.filesrc(location=self._src.location)
-            requires_decodebin = True
+            if use_explicit_parse:
+                # Detect codec to decide whether to use explicit parse (h264/h265) or fall back to decodebin
+                codec = ''
+                if shutil.which('ffprobe'):
+                    try:
+                        out = subprocess.run(
+                            [
+                                'ffprobe',
+                                '-v',
+                                'error',
+                                '-select_streams',
+                                'v:0',
+                                '-show_entries',
+                                'stream=codec_name',
+                                '-of',
+                                'default=nw=1:nk=1',
+                                self._src.location,
+                            ],
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                        )
+                        codec = (out.stdout or '').strip().lower()
+                    except Exception:
+                        codec = ''
+
+                is_h264 = codec in ('h264', 'avc1')
+                is_h265 = codec in ('hevc', 'h265', 'hev1', 'hvc1')
+
+                if not (is_h264 or is_h265):
+                    # Unknown/unsupported for explicit path – fall back to legacy decodebin
+                    requires_decodebin = True
+                else:
+                    # filesrc → qtdemux (video_%u) → h26x parse → decoder → decodebin-linkX
+                    gst.qtdemux(connections={'video_%u': f'videoparser{stream_idx or 0}.sink'})
+                    if is_h265:
+                        gst.h265parse(
+                            name=f'videoparser{stream_idx or 0}',
+                            connections={'src': f'videodecoder{stream_idx or 0}.sink'},
+                        )
+                    else:
+                        gst.h264parse(
+                            name=f'videoparser{stream_idx or 0}',
+                            connections={'src': f'videodecoder{stream_idx or 0}.sink'},
+                        )
+
+                    # Choose decoder: prefer hardware if enabled, otherwise software
+                    if self._allow_hardware_codec:
+                        gst.nvv4l2decoder(name=f'videodecoder{stream_idx or 0}')
+                        gst.nvvidconv()
+                        gst.capsfilter(
+                            caps='video/x-raw,format=NV12',
+                            connections={'src': f'decodebin-link{stream_idx or 0}.sink'},
+                        )
+                    else:
+                        if is_h265:
+                            gst.avdec_h265(
+                                name=f'videodecoder{stream_idx or 0}',
+                                connections={'src': f'decodebin-link{stream_idx or 0}.sink'},
+                            )
+                        else:
+                            gst.avdec_h264(
+                                name=f'videodecoder{stream_idx or 0}',
+                                connections={'src': f'decodebin-link{stream_idx or 0}.sink'},
+                            )
+                    requires_decodebin = False
+            else:
+                # Legacy/default behaviour: rely on decodebin auto-plugging
+                requires_decodebin = True
         else:
             raise NotImplementedError(f"{self._src.type} format not supported in gst pipe")
 
