@@ -60,6 +60,8 @@ at different levels of abstraction.
 The InferenceStream library is the easiest to use and enables most users to achieve the highest performance. The lower-level APIs enable expert users
 to integrate Metis within existing video streaming frameworks.
 
+Tip for Jetson users: If you see GStreamer negotiation errors when playing MP4/H.264 files (for example, capsfilter not-negotiated), set the environment variable AXELERA_GST_EXPLICIT_PARSE=1 before running inference. This enables an explicit demux/parse/decode chain optimized for Jetson (qtdemux → h264parse → decoder), which resolves common decodebin issues on NVIDIA platforms.
+
 ## Reference pipelines
 
 The Voyager SDK makes it easy to construct pipelines that combine multiple models in different ways. A number of
