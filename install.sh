@@ -3432,16 +3432,30 @@ if needed "$STATUS_container"; then
     print_envs_to_source "AX_runtime_envs"
     install_docker_libs
     VAR_uid="$(id -u)"
-    write_to_dockerfile "RUN useradd --badname -m -u $VAR_uid $USER"
+    aaa="RUN uname -o -p"
+    if [[ "$aaa" == "unknown GNU/Linux" ]]; then
+        write_to_dockerfile "RUN sudo adduser --badname -m -u $VAR_uid $USER"
 
-    docker_create_groups render axelera kvm
+        docker_create_groups render axelera kvm
 
-    write_to_dockerfile "RUN usermod -a -G sudo,video,render,kvm,axelera $USER"
-    write_to_dockerfile "RUN echo '$USER:$USER' | chpasswd"
+        write_to_dockerfile "RUN sudo usermod -a -G sudo,video,render,kvm,axelera $USER"
+        write_to_dockerfile "RUN echo '$USER:$USER' | chpasswd"
 
-    # create a volume to replace the host's .local
-    write_to_dockerfile "RUN mkdir -p $HOME/.local && chown -R $USER:$USER $HOME/.local"
-    write_to_dockerfile "VOLUME $HOME/.local"
+        # create a volume to replace the host's .local
+        write_to_dockerfile "RUN sudo mkdir -p $HOME/.local && chown -R $USER:$USER $HOME/.local"
+        write_to_dockerfile "VOLUME $HOME/.local"
+    else
+        write_to_dockerfile "RUN useradd --badname -m -u $VAR_uid $USER"
+
+        docker_create_groups render axelera kvm
+
+        write_to_dockerfile "RUN usermod -a -G sudo,video,render,kvm,axelera $USER"
+        write_to_dockerfile "RUN echo '$USER:$USER' | chpasswd"
+
+        # create a volume to replace the host's .local
+        write_to_dockerfile "RUN mkdir -p $HOME/.local && chown -R $USER:$USER $HOME/.local"
+        write_to_dockerfile "VOLUME $HOME/.local"
+    fi
   fi
 fi
 
