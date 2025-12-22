@@ -14,7 +14,7 @@ BUILD_DIR := $(BUILD_TYPE)
 PREFIX_DIR := $(realpath $(dir $(abspath $(firstword $(MAKEFILE_LIST)))))
 PKG_CONFIG_PATH := $(AXELERA_RUNTIME_DIR)/lib/pkgconfig:$(PKG_CONFIG_PATH)
 
-ARCH := $(shell uname -p)
+ARCH := $(shell uname -m)
 ifeq ($(ARCH),arm64)
   ONNX_RUNTIME_ARCH := aarch64
 else
