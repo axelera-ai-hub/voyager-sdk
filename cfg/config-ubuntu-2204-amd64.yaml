@@ -5,6 +5,7 @@ name: "Axelera AI - Voyager SDK"
 os:
   name: Ubuntu
   version: 22.04
+  cpu: AuthenticINTEL
 
 vars:
   AX_RELEASE_URL: https://d1o2y3tc25j7ge.cloudfront.net
