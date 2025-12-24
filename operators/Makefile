@@ -16,7 +16,7 @@ PKG_CONFIG_PATH := $(AXELERA_RUNTIME_DIR)/lib/pkgconfig:$(PKG_CONFIG_PATH)
 
 INSTALL_DIR := $(PREFIX_DIR)/lib
 
-ARCH := $(shell uname -p)
+ARCH := $(shell uname -m)
 ifeq ($(ARCH),arm64)
   ONNX_RUNTIME_ARCH := aarch64
 else
