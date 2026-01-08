@@ -35,7 +35,7 @@
 
 ## Prerequisites
 - SDK installed and virtual environment activated
-- Hardware connected and detected (`axdevice list`)
+- Hardware connected and detected (`axdevice`)
 - `axsystemserver` service running (automatically starts with SDK)
 
 ## Level

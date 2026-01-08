@@ -141,7 +141,7 @@ environment. This ensures that your environment variables are correctly set to t
 installer configuration file on the new release branch.
 
 ## Next Steps
-- **Verify installation**: Run `axdevice list` to confirm hardware is detected
+- **Verify installation**: Run `axdevice` to confirm hardware is detected
 - **Run first inference**: [Quick Start Guide](quick_start_guide.md)
 - **Enable firmware updates**: [Enable Updates Guide](enable_updates.md) for new boards
 - **For Windows users**: Complete [Windows Getting Started](windows/windows_getting_started.md)

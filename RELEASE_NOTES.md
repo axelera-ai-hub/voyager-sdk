@@ -1,11 +1,12 @@
 ![](/docs/images/Ax_Page_Banner_2500x168_01.png)
 # Voyager SDK release notes v1.5
 
-- [Voyager SDK release notes v1.5.2](#voyager-sdk-release-notes-v152)
+- [Voyager SDK release notes v1.5](#voyager-sdk-release-notes-v15)
+  - [Voyager SDK release notes v1.5.2](#voyager-sdk-release-notes-v152)
   - [Fixed Issues Since v1.5.1](#fixed-issues-since-v151)
   - [New Features / Support (v1.5.2)](#new-features--support-v152)
   - [Document Updates](#document-updates)
-- [Voyager SDK release notes v1.5.1](#voyager-sdk-release-notes-v151)
+  - [Voyager SDK release notes v1.5.1](#voyager-sdk-release-notes-v151)
   - [Release Qualification](#release-qualification)
   - [New Features / Support (v1.5.1)](#new-features--support-v151)
     - [New Axelera AI Cards and Systems](#new-axelera-ai-cards-and-systems)
@@ -44,7 +45,6 @@ This release addresses several issues found in v1.5.1 and delivers targeted impr
 - Added `create_inference_net` overloads to allow existing code to compile without a context parameter.
 
 ## Document Updates
-- Updated runtime and deployment guidance for AXM execution.
 - General refinements across tutorials and references aligned with the above changes.
 
 ## Voyager SDK release notes v1.5.1
@@ -185,8 +185,6 @@ parent folder of Voyager SDK.
 
 ### Runtime
 - Support for running LLMs on Windows platforms with `axllm` tool.
-- `.axm` zip archive model format introduced to reduce storage space. Older directory based model
-  format still supported.
 
 ### Tools
 - `interactive_flash_update` supports automatic firmware update of all Metis devices simultaneously.

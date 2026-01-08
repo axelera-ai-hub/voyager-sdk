@@ -89,7 +89,7 @@ If you encounter any issues:
 ## Next Steps
 - **After enabling updates**: Use [Quick Firmware Update Guide](quick_firmware_update.md) for future updates
 - **For complex scenarios**: Use [Full Firmware Update Guide](firmware_flash_update.md)
-- **Verify hardware**: Run `axdevice list` to confirm board is detected
+- **Verify hardware**: Run `axdevice` to confirm board is detected
 - **Start using SDK**: [Quick Start Guide](quick_start_guide.md)
 
 ## Related Documentation

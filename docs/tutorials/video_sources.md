@@ -12,7 +12,7 @@
     - [Multiple sources](#multiple-sources)
     - [Application integration](#application-integration)
 - [Sources](#sources)
-  - [\`dataset\`](#dataset)
+  - [`dataset`](#dataset)
     - [Example:](#example)
   - [USB cameras](#usb-cameras)
     - [Example:](#example-1)
@@ -28,7 +28,7 @@
 ## Prerequisites
 - Complete [Installation Guide](install.md) - SDK must be installed
 - Virtual environment activated (`source ~/voyagersdk/bin/activate`)
-- Hardware connected and detected (`axdevice list`)
+- Hardware connected and detected (`axdevice`)
 
 ## Level
 **Beginner** - Basic configuration, no coding required
