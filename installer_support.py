@@ -152,16 +152,47 @@ def check_vars(envs):
     return True
 
 
+def check_cpu():
+	ok = "lscpu | awk '/Vendor ID:/{print $2}'"
+	if ok == "AuthenticAMD":
+		ok = "lscpu | awk '/Vendor ID:/{print $2}'"
+	elif ok == "GeniuneIntel":
+		ok = "lscpu | awk '/Vendor ID:/{print $2}'"
+	else:
+		ok = "uname -m"
+	return ok
+	
+
+def check_sys(envs):
+	ok = check_key("os", envs)
+	if check_key("name", envs["os"], "os"):
+		if envs["os"]["name"] == "Debian":
+			ok = True
+		elif envs["os"]["name"] == "Ubuntu":
+			ok = True
+		elif envs["os"]["name"] == "Kubuntu":
+			ok = True
+		else:
+			ok = False
+	else:
+		ok = False
+	return ok
+    
+
 def check_os(envs):
-    ok = check_key("os", envs)
-    if check_key("name", envs["os"], "os"):
-        if not envs["os"]["name"] == "Ubuntu":
-            print("os:name Installer supports Ubuntu only")
-            ok = False
-    else:
-        ok = False
-    ok = ok and check_key("version", envs["os"], "os")
-    return ok
+	ok = check_key("os", envs)
+	if check_key("name", envs["os"], "os"):
+		if not envs["os"]["name"] == check_sys(envs):
+			if check_key("cpu", envs["os"], "os"):
+				if envs["os"]["cpu"] == check_cpu():
+					print("os:cpu Installer supports NOT This CPU")
+					ok = False
+			else:
+				ok = False
+	else:
+		ok = False
+	ok = ok and check_key("version", envs["os"], "os")
+	return ok
 
 
 def check_system_libs(key, libs):
@@ -249,6 +280,8 @@ def validate(envs):
     ok = True
     ok = ok and check_key("name", envs)
     ok = ok and check_vars(envs)
+    ok = ok and check_cpu()
+    ok = ok and check_sys(envs)
     ok = ok and check_os(envs)
     ok = ok and check_system_libs("installer_dependencies", envs)
     ok = ok and check_penv(envs)
@@ -287,8 +320,6 @@ def limit_for_hash(env, hash_type, optional):
         del env["driver"]
     if "repositories" in env:
         del env["repositories"]
-    if "media" in env:
-        del env["media"]
     if "next" in env:
         del env["next"]
 
@@ -620,8 +651,8 @@ def test_flatten():
     envs = yaml.safe_load(
         """
         penv:
-            python: 3.10
-            pip: 23.0.1
+            python: 3.12
+            pip: 25.0.1
             repositories:
                 - name: pypi
                   url: https://pypi.org/simple

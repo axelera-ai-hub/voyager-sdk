@@ -3,8 +3,9 @@
 name: "Axelera AI - Voyager SDK"
 
 os:
-  name: Ubuntu
+  name: Kubuntu
   version: 22.04
+  cpu: arm64
 
 vars:
   AX_RELEASE_URL: https://media.axelera.ai
@@ -142,7 +143,7 @@ penv:
     libs:
     - axelera-llm: "{index = \"axelera_runtime\" }"
 
-  requirements: ${AX_CFG_DIR}/requirements-ubuntu-2204-amd64.txt
+  requirements: ${AX_CFG_DIR}/requirements-ubuntu-2204-arm64.txt
 
   pyenv:
     - url: https://github.com/pyenv/pyenv.git
@@ -176,6 +177,8 @@ penv:
     - xz-utils
     - zlib1g-dev
     # platform specific
+    - opencl-headers
+    - ocl-icd-opencl-dev
 
 docker:
   base: ubuntu:22.04
@@ -246,10 +249,13 @@ runtime:
     - qt6-base-dev
     - unzip
     # platform specific
-    - vainfo
-    - intel-media-va-driver-non-free
-    - gstreamer1.0-vaapi
-    - intel-opencl-icd
+    - linux-headers-6.12.57-*rt-amd64
+    - linux-image-6.12.57-*rt-amd64
+  optionals:
+    - name: libmali-valhall-g610-g13p0-x11-gbm
+      info: |-
+        This library provides MALI GPU acceleration on some ARM platforms based on RockChip RK3588 e.g. Aetina Industrial Motherboard
+        It may not work on other platforms.
 
   envs:
     - name: AXELERA_RUNTIME_DIR
@@ -322,6 +328,7 @@ repositories:
       - metis-dkms
       - axelera-multi-device
       # platform specific
+      - libmali-valhall-g610-g13p0-x11-gbm
     gpg-url: https://software.axelera.ai/artifactory/api/security/keypair/axelera/public
     gpg-key: /etc/apt/keyrings/axelera.gpg
     sources:

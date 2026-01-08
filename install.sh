@@ -198,7 +198,13 @@ determine_system_and_cfg_file() {
   SYS_OS_version=${SYS_OS_version//_/-}
   SYS_OS_version=${SYS_OS_version//./}
   SYS_arch=$(dpkg --print-architecture 2>/dev/null)
-  SYS_config=${SYS_config:-"cfg/config-${SYS_OS_name,,}-$SYS_OS_version-$SYS_arch.yaml"}
+  if [[ -f "cfg/config-${SYS_OS_name}-${SYS_OS_version}-amd64.yaml" ]] || [[ $($(lscpu | awk '/Vendor ID:/{print $2}')  2>/dev/null) == "AuthenticAMD" ]]; then
+  SYS_config=${SYS_config:-"cfg/config-${SYS_OS_name}-${SYS_OS_version}-amd64.yaml"}
+  elif [[ -f "cfg/config-${SYS_OS_name}-${SYS_OS_version}-arm64.yaml" ]] || [[ $(uname -m  2>/dev/null) == "arm64" ]]; then
+  SYS_config=${SYS_config:-"cfg/config-${SYS_OS_name}-${SYS_OS_version}-arm64.yaml"}
+  elif [[ -f "cfg/config-${SYS_OS_name}-${SYS_OS_version}-intel64.yaml" ]] || [[ $($(lscpu | awk '/Vendor ID:/{print $2}')  2>/dev/null) == "GeniuneIntel" ]]; then
+  SYS_config=${SYS_config:-"cfg/config-${SYS_OS_name}-${SYS_OS_version}-intel64.yaml"}
+  fi
 }
 
 trace() {
@@ -606,6 +612,42 @@ is_ubuntu_2404() {
   fi
 }
 
+is_kubuntu_2404() {
+  if [[ $(lsb_release -is 2>/dev/null) == "Kubuntu" ]] && [[ $(lsb_release -rs 2>/dev/null) == "24.04" ]];
+  then
+    true
+  else
+    false
+  fi
+}
+
+is_ubuntu_2204() {
+  if [[ $(lsb_release -is 2>/dev/null) == "Ubuntu" ]] && [[ $(lsb_release -rs 2>/dev/null) == "22.04" ]];
+  then
+    true
+  else
+    false
+  fi
+}
+
+is_kubuntu_2204() {
+  if [[ $(lsb_release -is 2>/dev/null) == "Kubuntu" ]] && [[ $(lsb_release -rs 2>/dev/null) == "22.04" ]];
+  then
+    true
+  else
+    false
+  fi
+}
+
+is_debian_13() {
+  if [[ $(lsb_release -is 2>/dev/null) == "Debian" ]] && [[ $(lsb_release -rs 2>/dev/null) == "13" ]];
+  then
+    true
+  else
+    false
+  fi
+}
+
 check_installer_requirements_met() {
   local ok=true
   # use system pip at this stage as not in virtual env here
@@ -616,7 +658,7 @@ check_installer_requirements_met() {
     pip_install="$pip_install --user"
   fi
   # needed for system pip at this stage
-  if is_ubuntu_2404; then
+  if [[ is_ubuntu_2204 ]] || [[ is_kubuntu_2204 ]] || [[ is_debian_13 ]] || [[ is_ubuntu_2404 ]] || [[ is_kubuntu_2404 ]]; then
     pip_install="$pip_install --break-system-packages"
   fi
   declare -a installs
@@ -3282,6 +3324,10 @@ fi
 if $ARG_print_container; then
   echo "$VAR_target_container" "$VAR_target_container_tag"
   exit 0
+fi
+
+if $ARG_cuda; then
+  echo "$ARG_cuda"="$OPTARG"
 fi
 
 # User requested activation of the environment

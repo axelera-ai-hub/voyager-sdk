@@ -16,6 +16,8 @@ PKG_CONFIG_PATH := $(AXELERA_RUNTIME_DIR)/lib/pkgconfig:$(PKG_CONFIG_PATH)
 
 INSTALL_DIR := $(PREFIX_DIR)/lib
 
+ARCHX := $(shell uname -m)
+ifeq ($(ARCHX),arm64)
 ARCH := $(shell uname -p)
 ifeq ($(ARCH),arm64)
   ONNX_RUNTIME_ARCH := aarch64
@@ -26,15 +28,20 @@ else
 ifeq ($(ARCH),arm)
   ONNX_RUNTIME_ARCH := aarch64
 else
-ifeq ($(ARCH),x86_64)
-  ONNX_RUNTIME_ARCH := x64
-else
   $(error Unsupported architecture: $(ARCH) "$(MACHINE_ARCH)")
 endif
 endif
 endif
+else
+ifeq ($(ARCHX),x86_64)
+ARCH2 := $(shell uname -m)
+ifeq ($(ARCH2),x86_64)
+  ONNX_RUNTIME_ARCH := x64
+else
+  $(error Unsupported architecture: $(ARCH2) "$(MACHINE_ARCH)")
 endif
-
+endif
+endif
 OS := $(shell uname -s)
 ifeq ($(OS),Linux)
   ONNX_RUNTIME_OS := linux
@@ -79,7 +86,7 @@ endif
 
 $(CMAKE_CACHE):
 	$(call run-cmake)
-
+	
 $(BUILD_DIR) $(INSTALL_DIR): $(ONNX_RUNTIME_DIR) $(CMAKE_CACHE) | check_cmake_rerun
 	ninja -C $(BUILD_DIR) install
 	@touch $@
@@ -90,18 +97,18 @@ $(ONNX_RUNTIME_DIR):
 	ln -snf $(ONNX_RUNTIME_NAME) onnxruntime/onnxruntime
 	mkdir -p lib
 	for lib in onnxruntime/onnxruntime/lib/*; do ln -snf "../$${lib}" lib; done
-
+	
 clear-cmake-cache:
 	rm -rf $(CMAKE_CACHE)
-
+	
 clean:
 	-ninja clean -C $(BUILD_DIR)
-
+	
 define clobber-it
 	rm -rf $(BUILD_DIR) $(INSTALL_DIR)  $(ONNX_RUNTIME_DIR) $(ONNX_RUNTIME_BASEDIR)/$(ONNX_RUNTIME_NAME).tgz $(ONNX_RUNTIME_BASEDIR)/onnxruntime
 endef
-
+	
 clobber:
 	$(call clobber-it)
-
+	
 .phony: clean clobber gst_ops_install check_cmake_rerun

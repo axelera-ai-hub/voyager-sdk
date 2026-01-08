@@ -1,13 +1,13 @@
 # Axelera AI Installer Configuration
 
-name: "Axelera AI - Voyager SDK"
+name: "Axelera AI - LLM SDK"
 
 os:
   name: Ubuntu
-  version: 22.04
+  version: 24.04
+  cpu: AuthenticAMD
 
 vars:
-  AX_RELEASE_URL: https://media.axelera.ai
   AX_DEBIAN_URL: https://software.axelera.ai/artifactory/axelera-apt-source/
   AX_PYPI_RUNTIME_URL: https://software.axelera.ai/artifactory/axelera-runtime-pypi/
   AX_PYPI_DEVELOPMENT_URL: https://software.axelera.ai/artifactory/axelera-dev-pypi/
@@ -20,8 +20,6 @@ vars:
 installer_dependencies:
   - git
   - kmod
-  - llvm-14
-  - llvm-14-dev
   - make
   - wget
 
@@ -33,9 +31,10 @@ common:
     - systemd
 
 penv:
-  python: 3.10.6
-  pip: 24.0
-  pipenv: 2023.7.23
+  python: 3.12.6
+  pip: 25.0
+  pipenv: 2025.7.23
+  py-cpuinfo: 9.1
   repositories:
     - name: pypi
       url: https://pypi.org/simple
@@ -85,7 +84,6 @@ penv:
     - pycocotools: "*"
     - pyglet: "2.1.3"
     - pytest: "*"
-    - pyopencl: "*"
     - PyYAML: "*"
     - rich: "*"
     - scipy: "*"
@@ -142,7 +140,7 @@ penv:
     libs:
     - axelera-llm: "{index = \"axelera_runtime\" }"
 
-  requirements: ${AX_CFG_DIR}/requirements-ubuntu-2204-arm64.txt
+  requirements: ${AX_CFG_DIR}/requirements-ubuntu-2404-amd64.txt
 
   pyenv:
     - url: https://github.com/pyenv/pyenv.git
@@ -160,7 +158,7 @@ penv:
   pyenv_dependencies:
     - python3-venv
   python_dependencies:
-    - python3.10-dev
+    - python3*-dev
     - build-essential
     - libbz2-dev
     - libcairo2-dev
@@ -176,8 +174,6 @@ penv:
     - xz-utils
     - zlib1g-dev
     # platform specific
-    - opencl-headers
-    - ocl-icd-opencl-dev
 
 docker:
   base: ubuntu:22.04
@@ -227,14 +223,14 @@ runtime:
     - gstreamer1.0-tools
     - gstreamer1.0-x
     - libasio-dev
-    - libboost-filesystem1.74.0
-    - libboost-log1.74.0
-    - libboost-program-options1.74.0
-    - libboost-regex1.74.0
-    - libboost-thread1.74.0
+    - libboost-filesystem1.88
+    - libboost-log1.88
+    - libboost-program-options1.88
+    - libboost-regex1.88
+    - libboost-thread1.88
     - libeigen3-dev
-    - libgstreamer-plugins-good1.0-dev
-    - libgstreamer-plugins-bad1.0-dev
+    - libgstreamer-plugins-good*-dev
+    - libgstreamer-plugins-bad*-dev
     - libgstreamer1.0-dev
     - libgstrtspserver-1.0-dev
     - libjson-glib-dev
@@ -243,16 +239,21 @@ runtime:
     - libzmq3-dev
     - meson
     - nlohmann-json3-dev
-    - ocl-icd-opencl-dev
+    - rocm-opencl-dev
     - python3-gi
     - qt6-base-dev
     - unzip
     # platform specific
-  optionals:
-    - name: libmali-valhall-g610-g13p0-x11-gbm
-      info: |-
-        This library provides MALI GPU acceleration on some ARM platforms based on RockChip RK3588 e.g. Aetina Industrial Motherboard
-        It may not work on other platforms.
+    - rocm
+    - linux-headers-6.12.57-*rt-amd64
+    - linux-image-6.12.57-*rt-amd64
+    - amdgpu-dkms
+    - rocminfo
+    - va-info
+    - gstreamer1.0-tools
+    - gstreamer1.0-libav
+    - gstreamer1.0-vaapi
+    - rocm-opencl
 
   envs:
     - name: AXELERA_RUNTIME_DIR
@@ -289,6 +290,14 @@ driver:
     - axelera-multi-device == 1.0.0
 
 repositories:
+  - list: /etc/apt/sources.list.d/rocm.list
+    packages:
+      - amdgpu-dkms
+      - rocm*
+    gpg-url: https://repo.radeon.com/rocm/rocm.gpg.key
+    gpg-key: /etc/apt/keyrings/rocm.gpg
+    sources: 
+      - https://repo.radeon.com/rocm/apt/6.1.2 jammy main
   - list: /etc/apt/sources.list.d/docker.list
     packages:
       - docker-ce
@@ -325,31 +334,12 @@ repositories:
       - metis-dkms
       - axelera-multi-device
       # platform specific
-      - libmali-valhall-g610-g13p0-x11-gbm
     gpg-url: https://software.axelera.ai/artifactory/api/security/keypair/axelera/public
     gpg-key: /etc/apt/keyrings/axelera.gpg
     sources:
       - ${AX_DEBIAN_URL} ubuntu22 main
 
-media:
-  - url: ${AX_RELEASE_URL}/artifacts/test_videos/h265/traffic1_480p.mp4
-  - url: ${AX_RELEASE_URL}/artifacts/test_videos/h265/traffic1_720p.mp4
-  - url: ${AX_RELEASE_URL}/artifacts/test_videos/h265/traffic1_1080p.mp4
-  - url: ${AX_RELEASE_URL}/artifacts/test_videos/h265/traffic2_480p.mp4
-  - url: ${AX_RELEASE_URL}/artifacts/test_videos/h265/traffic2_720p.mp4
-  - url: ${AX_RELEASE_URL}/artifacts/test_videos/h265/traffic2_1080p.mp4
-  - url: ${AX_RELEASE_URL}/artifacts/test_videos/h265/traffic3_480p.mp4
-  - url: ${AX_RELEASE_URL}/artifacts/test_videos/h265/traffic3_720p.mp4
-  - url: ${AX_RELEASE_URL}/artifacts/test_videos/h265/traffic3_1080p.mp4
-  - url: ${AX_RELEASE_URL}/artifacts/test_videos/h265/traffic4_480p.mp4
-  - url: ${AX_RELEASE_URL}/artifacts/test_videos/h265/traffic4_720p.mp4
-  - url: ${AX_RELEASE_URL}/artifacts/test_videos/h265/traffic4_1080p.mp4
-  - url: ${AX_RELEASE_URL}/artifacts/test_videos/h265/intersection_road.mp4
-  - url: ${AX_RELEASE_URL}/artifacts/test_videos/h265/knife.mp4
-  - url: ${AX_RELEASE_URL}/artifacts/test_videos/h265/gun.mp4
-  - url: ${AX_RELEASE_URL}/artifacts/test_videos/h265/dancing.mp4
-
 next:
   - "To get started, please see the Quick Start Guide at:"
   -
-  - "  ./docs/tutorials/quick_start_guide.md"
+  - "  quick_start_guide.md"
