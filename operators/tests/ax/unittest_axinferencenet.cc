@@ -1,3 +1,4 @@
+// Copyright Axelera AI, 2025
 #include <fstream>
 #include <gmock/gmock.h>
 #include "AxInference.hpp"
@@ -214,7 +215,7 @@ TEST(axinferencenet, dmabuf_allocator_empty)
   EXPECT_EQ("empty", Ax::to_string(managed.data()));
   EXPECT_TRUE(managed.buffers().empty());
   EXPECT_TRUE(managed.fds().empty());
-  allocator->map(managed);
+  allocator->map(managed, Ax::MAP_READ_WRITE);
   check_dmabuf_mapped_consistency(managed);
   allocator->unmap(managed);
   check_dmabuf_unmapped_consistency(managed);
@@ -233,7 +234,7 @@ TEST(axinferencenet, dmabuf_allocator_video)
   EXPECT_EQ("video/RGB/640x480", Ax::to_string(managed.data()));
   check_dmabuf_unmapped_consistency(managed);
   for (int n = 0; n != 2; ++n) {
-    allocator->map(managed);
+    allocator->map(managed, Ax::MAP_READ_WRITE);
     check_dmabuf_mapped_consistency(managed);
     allocator->unmap(managed);
     check_dmabuf_unmapped_consistency(managed);
@@ -253,7 +254,7 @@ TEST(axinferencenet, dmabuf_allocator_tensors1)
   EXPECT_EQ("tensors/400,300,3[1 byte]", Ax::to_string(managed.data()));
   check_dmabuf_unmapped_consistency(managed);
   for (int n = 0; n != 2; ++n) {
-    allocator->map(managed);
+    allocator->map(managed, Ax::MAP_READ_WRITE);
     check_dmabuf_mapped_consistency(managed);
 
     allocator->unmap(managed);
@@ -274,7 +275,7 @@ TEST(axinferencenet, dmabuf_allocator_tensors2)
   EXPECT_EQ("tensors/400,300,3[1 byte];600,400,4[4 byte]", Ax::to_string(managed.data()));
   check_dmabuf_unmapped_consistency(managed);
   for (int n = 0; n != 2; ++n) {
-    allocator->map(managed);
+    allocator->map(managed, Ax::MAP_READ_WRITE);
     check_dmabuf_mapped_consistency(managed);
     allocator->unmap(managed);
     check_dmabuf_unmapped_consistency(managed);
@@ -298,7 +299,7 @@ TEST(axinferencenet, batched_buffer_pool)
   const auto &managed = batched->get_batched();
   EXPECT_EQ("tensors/5,400,300,3[1 byte]", Ax::to_string(managed.data()));
   check_dmabuf_unmapped_consistency(managed);
-  batched->map();
+  batched->map(Ax::MAP_READ_WRITE);
   check_dmabuf_mapped_consistency(managed);
 }
 

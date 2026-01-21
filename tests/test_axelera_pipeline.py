@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 import pathlib
 import textwrap
 from unittest.mock import MagicMock, patch

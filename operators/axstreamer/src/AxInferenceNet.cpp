@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2026
 #include "AxInferenceNet.hpp"
 #include "AxDataInterface.h"
 #include "AxInference.hpp"
@@ -178,7 +178,7 @@ is_dmabuf_buffer(std::shared_ptr<Ax::BatchedBuffer> &input)
 }
 
 bool
-map(std::shared_ptr<Ax::BatchedBuffer> &input, supported_features supports)
+map(std::shared_ptr<Ax::BatchedBuffer> &input, supported_features supports, Ax::MapType type)
 {
   if (supports.opencl_buffers && is_opencl_buffer(input)) {
     //  If the input is an opencl buffer then we do not need to map it
@@ -191,7 +191,7 @@ map(std::shared_ptr<Ax::BatchedBuffer> &input, supported_features supports)
     return false;
   }
   //  The plugin uses system memory so let's map to the CPU
-  input->map();
+  input->map(type);
   return true;
 }
 
@@ -226,6 +226,7 @@ class AxInferenceNet : public InferenceNet
   void end_of_input() override;
   void cascade_frame(CompletedFrame &frame) override;
   bool supports_opencl_buffers(const AxVideoInterface &video) override;
+  int frames_required_for_inference() const override;
 
   private:
   void release_frame(std::unique_ptr<Ax::Frame> frame);
@@ -240,8 +241,6 @@ class AxInferenceNet : public InferenceNet
 
   struct Stream {
     std::atomic_uint64_t frame_id{ 0 };
-    std::chrono::microseconds latency;
-    int count = 0;
   };
 
   void inference_thread(const int batch_size);
@@ -269,6 +268,7 @@ class AxInferenceNet : public InferenceNet
   std::unique_ptr<BatchedBufferPool> inf_input_pool;
   std::unique_ptr<BatchedBufferPool> inf_output_pool;
   std::unordered_map<int, Stream> streams;
+  std::mutex streams_mutex;
   std::once_flag compile_once_flag;
   InferenceDoneCallback done_callback;
   LatencyCallback latency_callback;
@@ -368,10 +368,12 @@ class TransformOp : public Ax::Operator
       p->strides = { size_t(p->info.stride) };
     }
     auto buffer = pool->new_batched_buffer(input);
-    auto mapped = map(buffer, supported_features{
-                                  .opencl_buffers = supports_opencl(),
-                                  .dmabuffers = supports_dmabuf(),
-                              });
+    auto mapped = map(buffer,
+        supported_features{
+            .opencl_buffers = supports_opencl(),
+            .dmabuffers = supports_dmabuf(),
+        },
+        Ax::MAP_WRITE_ONLY);
     return buffer;
   }
 
@@ -391,8 +393,14 @@ class TransformOp : public Ax::Operator
       }
       return input;
     }
+
     auto out = plugin.set_output_interface(*input);
     if (number_of_subframes == 0) {
+      if (plugin.has_set_output_interface_from_meta()) {
+        out = plugin.set_output_interface_from_meta(
+            *input, subframe_index, number_of_subframes, meta_map);
+      }
+      remove_cropinfo(out);
       auto output_buffer = out_buf ? out_buf : allocate_batched_buffer(out);
       auto output = get_shared_view_of_batch_buffer(output_buffer, current_batch);
       return batch_output(output.underlying());
@@ -439,7 +447,7 @@ class TransformOp : public Ax::Operator
     //  Here we might need to create a new output buffer, if so we either need
     //  to create one from the pool or an OpenCL buffer if the plugin supports OpenCL
     auto input_base = input.underlying();
-    map(input_base, get_supported_features(*this));
+    map(input_base, get_supported_features(*this), Ax::MAP_READ_ONLY);
     auto output_buffer = allocate_batched_buffer(out);
     auto output = get_shared_view_of_batch_buffer(output_buffer, current_batch);
     plugin.transform(*input, *output, subframe_index, number_of_subframes, meta_map);
@@ -533,7 +541,7 @@ class InplaceOp : public Ax::Operator
     }
     auto input_base = input.underlying();
     if (plugin.mode() != "meta") {
-      map(input_base, get_supported_features(*this));
+      map(input_base, get_supported_features(*this), Ax::MAP_READ_WRITE);
     }
     plugin.inplace(*input, subframe_index, number_of_subframes, meta_map);
     unmap(input_base, supported_features{
@@ -611,7 +619,7 @@ class DecodeOp : public Ax::Operator
       return input;
     }
     auto input_base = input.underlying();
-    map(input_base, get_supported_features(*this));
+    map(input_base, get_supported_features(*this), Ax::MAP_READ_ONLY);
     auto &tensor = std::get<AxTensorsInterface>(*input);
     auto out = pool->new_batched_buffer(video);
     if (number_of_subframes != 0) {
@@ -849,7 +857,7 @@ AxInferenceNet::unbatch(std::queue<std::unique_ptr<Frame>> &pending_frames,
   auto eos = false;
   //  If we are here and have not collected a full batch we are at end of
   //  stream and need to forward whatever frames we have (and no more)
-  out->map();
+  out->map(Ax::MAP_READ_ONLY);
   auto num_frames = current_batch != 0 ? current_batch : batch_size;
   for (int n = 0; n != num_frames && !eos;) {
     auto out_frame = Ax::pop_queue(pending_frames);
@@ -969,8 +977,8 @@ AxInferenceNet::inference_thread(const int batch_size)
     auto batched_output = inf_output_pool->new_batched_buffer();
     const auto &input = batched_input->get_batched();
     const auto &output = batched_output->get_batched();
-    map(batched_input, features_supported);
-    map(batched_output, features_supported);
+    map(batched_input, features_supported, Ax::MAP_READ_ONLY);
+    map(batched_output, features_supported, Ax::MAP_WRITE_ONLY);
     pending_params.push({ batched_input, batched_output });
     const auto gidx = uint64_t{ global_frame_idx++ }; // unused in high-latency mode
     inference->dispatch(
@@ -1041,8 +1049,8 @@ AxInferenceNet::inference_thread_low_latency()
     frame->inf_batched_output = inf_output_pool->new_batched_buffer();
     const auto &input = frame->inf_batched_input->get_batched();
     const auto &output = frame->inf_batched_output->get_batched();
-    map(frame->inf_batched_input, in_features_supported);
-    map(frame->inf_batched_output, out_features_supported);
+    map(frame->inf_batched_input, in_features_supported, Ax::MAP_READ_ONLY);
+    map(frame->inf_batched_output, out_features_supported, Ax::MAP_WRITE_ONLY);
     {
       std::unique_lock lock(reorder_mutex);
       reorder_queue.push_back(std::move(frame));
@@ -1098,18 +1106,12 @@ AxInferenceNet::inference_low_latency_ready(uint64_t idx)
   }
   for (auto &f : inferenced) {
     bump_inferences_count(*f);
-    f->inf_batched_output->map();
+    f->inf_batched_output->map(Ax::MAP_READ_ONLY);
     // note I don't call inference->collect here, because it is a no-op
     post_ops.input_queue().push(std::move(f));
   }
 }
 
-void
-AxInferenceNet::update_stream_latency(int which, std::chrono::microseconds latency)
-{
-  streams[which].latency += latency;
-  streams[which].count += 1;
-}
 
 void
 AxInferenceNet::finalize_thread()
@@ -1126,7 +1128,6 @@ AxInferenceNet::finalize_thread()
       log_latency("Total latency", frame->timestamp);
     }
     done_callback(*frame);
-    update_stream_latency(frame->stream_id, duration_since(frame->timestamp));
     release_frame(std::move(frame));
   }
 }
@@ -1213,15 +1214,19 @@ void
 AxInferenceNet::push_new_frame(std::shared_ptr<void> &&buffer_handle,
     const AxVideoInterface &video, MetaMap &axmetamap, int stream_id)
 {
-  auto &stream = streams[stream_id];
-  std::call_once(compile_once_flag, [this, video] { initialise_pipeline(video); });
+  std::atomic<uint64_t> *counter = nullptr;
+  {
+    std::unique_lock<std::mutex> lock(streams_mutex);
+    counter = &streams[stream_id].frame_id;
+  }
+  auto frame_id = counter->fetch_add(1, std::memory_order_relaxed);
 
+  std::call_once(compile_once_flag, [this, video] { initialise_pipeline(video); });
   auto frame = new_frame();
   frame->buffer_handle = buffer_handle;
   frame->video = video;
   frame->meta_map = &axmetamap;
   frame->stream_id = stream_id;
-  auto frame_id = stream.frame_id++;
   frame->frame_id = frame_id;
   if (properties.skip_stride > 1 && properties.skip_count > 0) {
     const auto reverse_index_in_slice
@@ -1345,6 +1350,12 @@ AxInferenceNet::supports_opencl_buffers(const AxVideoInterface &video)
 {
   std::call_once(compile_once_flag, [this, video] { initialise_pipeline(video); });
   return pre_ops.supports_opencl_buffers();
+}
+
+int
+AxInferenceNet::frames_required_for_inference() const
+{
+  return inference->batch_size();
 }
 
 void

@@ -72,6 +72,26 @@ def get_simplified_model(weights):
     return torch_model, model_type
 
 
+def flatten_ultralytics_outputs(outputs):
+    # If dict, return as-is (already handled by types module)
+    if isinstance(outputs, dict):
+        return outputs
+
+    flattened = []
+
+    def visit(obj):
+        if isinstance(obj, (list, tuple)):
+            for item in obj:
+                visit(item)
+        elif isinstance(obj, dict):
+            pass  # skip these because ultralytics return dicts of information we do not need.
+        else:  # Do not walk into other types
+            flattened.append(obj)
+
+    visit(outputs)
+    return flattened
+
+
 class AxUltralyticsYOLO(base_torch.TorchModel):
     def __init__(self):
         super().__init__()
@@ -84,6 +104,9 @@ class AxUltralyticsYOLO(base_torch.TorchModel):
         self.torch_model, self.model_type = get_simplified_model(weights)
         self.to("cpu")
         self.eval()
+
+    def forward(self, x):
+        return flatten_ultralytics_outputs(super().forward(x))
 
     def to_device(self, device: typing.Optional[torch.device] = None):
         self.to(device)

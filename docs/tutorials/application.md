@@ -316,7 +316,7 @@ car 70027: (1647, 1039) → (1644, 1040) @ stream 0
 > a PIL Image object, call `frame_result.image.aspil()`, and call `frame_result.image.color_format`
 > to determine its color format.
 > To obtain the image as a NumPy array use `frame_result.image.asarray()` optionally specifying the required color
-> format as an argument (`RGB`, `BGR`, `GRAY` or `BGRA`). If unspecified, the colour format is determined
+> format as an argument (`RGB`, `BGR`, `GRAY` or `BGRA`). If unspecified, the color format is determined
 > based on the input video.
 
 ### Cross-line counting example
@@ -326,7 +326,7 @@ builds on that by showing how to use the tracker history (`veh.history`) to impl
 
 - Text overlays for displaying counts are created using `window.text()` (see [Custom Visual Overlays](#custom-visual-overlays)) before the loop, then updated each frame.
 - The first iteration computes the line geometry based on the input frame size and caches the slope and intercept.
-- For each tracked object, it checks whether the centre of the bounding box moved from one side of the line to the other and keeps running totals as well as a short-term history window to show recently crossed IDs.
+- For each tracked object, it checks whether the center of the bounding box moved from one side of the line to the other and keeps running totals as well as a short-term history window to show recently crossed IDs.
 - The example draws the counting line on the image using OpenCV and feeds the modified frame back to the display with `types.Image.fromarray(...)`.
 
 This example demonstrates a concise pattern for processing trajectory history (`meta.pedestrian_and_vehicle_tracker`) within the main iteration loop.
@@ -404,7 +404,7 @@ stream = create_inference_stream(
 
 The `pipe_type` argument to `create_inference_stream` specifies the type of pipeline
 to build and run. The default `gst` option represents a pipeline running end-to-end
-across the host processor and Metis deice. Other supported values include 
+across the host processor and Metis device. Other supported values include 
 `torch` and `torch-aipu` (see [`--pipe` option](/docs/reference/deploy.md) for further
 details).
 
@@ -414,8 +414,8 @@ provide additional information useful for debugging.
 
 > [!TIP]
 > All options supported by [`inference.py`](/docs/reference/inference.md) can also be passed to
-> `create_inference_stream`, enabling you to easily switch between between evaluation and
-> development integration between evaluation and development environments.
+> `create_inference_stream`, enabling you to easily switch between evaluation and
+> development environments.
 
 ### Tracing
 
@@ -710,9 +710,9 @@ See the [axinferencenet_tensor.cpp](/examples/axinferencenet/axinferencenet_tens
 
 | Example | Description |
 | :------ | :---------- |
-| [`/examples/application.py`](/examples/application.py) | Simple integration of vehicle tracker into an application including visualisation and basic analytics |
+| [`/examples/application.py`](/examples/application.py) | Simple integration of vehicle tracker into an application including visualization and basic analytics |
 | [`/examples/application_extended.py`](/examples/application_extended.py) | Adds advanced customization and monitoring to the simple vehicle tracker example |
-| [`/examples/demos/fruit_demo.py`](/examples/demos/fruit_demo.py) | Renders segmentation of fruits held by people in colour against a grayscale background |
+| [`/examples/demos/fruit_demo.py`](/examples/demos/fruit_demo.py) | Renders segmentation of fruits held by people in color against a grayscale background |
 | [`/examples/application_tensor.py`](/examples/application_tensor.py) | Demonstrates how to extract and postprocess the raw tensor output from a YOLOv8 model |
 | [`/examples/cross_line_count.py`](/examples/cross_line_count.py) | Counts vehicles crossing a virtual line using tracker metadata and overlays live statistics on the rendered frame |
 | [`/examples/remote_cross_line_monitor.py`](/examples/remote_cross_line_monitor.py) | Extends the cross-line counter with a TCP broadcast server that streams JSON updates to remote clients |

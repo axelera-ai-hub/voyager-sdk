@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2026
 #pragma once
 
 #include <chrono>
@@ -7,6 +7,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include "AxDataInterface.h"
 #include "AxLog.hpp"
 #include "AxMeta.hpp"
@@ -81,6 +82,10 @@ class InferenceNet
   virtual void stop() = 0;
 
   virtual bool supports_opencl_buffers(const AxVideoInterface &video) = 0;
+
+  //  Number of frames required before input can be sent for inference
+  //  this is usually the same as batch_size
+  virtual int frames_required_for_inference() const = 0;
 
   virtual ~InferenceNet() = default;
 };

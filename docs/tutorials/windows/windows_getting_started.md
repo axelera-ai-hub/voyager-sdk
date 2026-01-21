@@ -162,19 +162,19 @@ Open a Windows regular **Command Prompt** (not Windows PowerShell!) without admi
 ```cmd
 cd C:\Axelera\voyager-sdk
 ```
-Create a local windows-packages directory and download the installers:x
+Create a local windows-packages directory and download the installers:
 ```cmd
 rmdir /s /q windows-packages 2>nul
 mkdir windows-packages
 cd windows-packages
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.5.x/axelera-win-device-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.5.x/axelera-win-runtime-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.5.x/axelera-win-syslibs-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.5.x/axelera-win-toolchain-deps-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.5.x/axelera-win-services-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-runtime-pypi/axelera-runtime/axelera_runtime-1.5.1-py3-none-any.whl
-curl -L -O https://software.axelera.ai/artifactory/axelera-runtime-pypi/axelera-types/axelera_types-1.5.1-py3-none-any.whl
-curl -L -O https://software.axelera.ai/artifactory/axelera-runtime-pypi/axelera-llm/axelera_llm-1.5.1-py3-none-any.whl
+curl -O https://media.axelera.ai/releases/v1.5.0/build-Release-Windows-2204-amd64/package_repos/axelera-win-device-installer.exe
+curl -O https://media.axelera.ai/releases/v1.5.0/build-Release-Windows-2204-amd64/package_repos/axelera-win-runtime-installer.exe
+curl -O https://media.axelera.ai/releases/v1.5.0/build-Release-Windows-2204-amd64/package_repos/axelera-win-syslibs-installer.exe
+curl -O https://media.axelera.ai/releases/v1.5.0/build-Release-Windows-2204-amd64/package_repos/axelera-win-toolchain-deps-installer.exe
+curl -O https://media.axelera.ai/releases/v1.5.0/build-Release-Windows-2204-amd64/package_repos/axelera-win-services-installer.exe
+curl -O https://media.axelera.ai/releases/v1.5.0/build-Release-Windows-2204-amd64/package_repos/axelera_llm-1.5.0-py3-none-any.whl
+curl -O https://media.axelera.ai/releases/v1.5.0/build-Release-Windows-2204-amd64/package_repos/axelera_runtime-1.5.0-py3-none-any.whl
+curl -O https://media.axelera.ai/releases/v1.5.0/build-Release-Windows-2204-amd64/package_repos/axelera_types-1.5.0-py3-none-any.whl
 cd ..
 ```
 

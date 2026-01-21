@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2026
 #pragma once
 
 #define CL_TARGET_OPENCL_VERSION 210
@@ -19,11 +19,112 @@
 #endif
 
 #include "AxDataInterface.h"
-//#include "AxOpenCl.hpp"
 
 #include <memory>
 #include <span>
+#include <utility>
 #include <variant>
+
+namespace ax_utils
+{
+
+inline void
+release_clobject(cl_mem obj)
+{
+  if (obj)
+    clReleaseMemObject(obj);
+}
+
+inline void
+release_clobject(cl_kernel obj)
+{
+  if (obj)
+    clReleaseKernel(obj);
+}
+
+inline void
+release_clobject(cl_event obj)
+{
+  if (obj)
+    clReleaseEvent(obj);
+}
+
+inline void
+retain_clobject(cl_mem obj)
+{
+  if (obj)
+    clRetainMemObject(obj);
+}
+
+inline void
+retain_clobject(cl_kernel obj)
+{
+  if (obj)
+    clRetainKernel(obj);
+}
+
+inline void
+retain_clobject(cl_event obj)
+{
+  if (obj)
+    clRetainEvent(obj);
+}
+
+template <typename T> class cl_object
+{
+  public:
+  explicit cl_object(T obj) : object(obj)
+  {
+  }
+
+  cl_object(cl_object &&rhs) noexcept
+      : object(std::exchange(rhs.object, nullptr))
+  {
+  }
+
+  cl_object &operator=(cl_object &&rhs) noexcept
+  {
+    auto o = std::exchange(rhs.object, nullptr);
+    release_clobject(std::exchange(object, o));
+    return *this;
+  }
+
+  T &operator*()
+  {
+    return object;
+  }
+
+  const T &operator*() const
+  {
+    return object;
+  }
+
+  operator bool() const
+  {
+    return object != nullptr;
+  }
+
+  T release()
+  {
+    return std::exchange(object, nullptr);
+  }
+
+  void reset()
+  {
+    release_clobject(object);
+    object = nullptr;
+  }
+
+  ~cl_object()
+  {
+    release_clobject(object);
+  }
+
+  // private:
+  T object;
+};
+} // namespace ax_utils
+
 
 extern "C" {
 #if defined(__aarch64__)
@@ -99,7 +200,7 @@ cl_int release_va(cl_command_queue commands, const cl_extensions &extensions,
 
 struct opencl_buffer {
   cl_mem buffer{ nullptr };
-  cl_event event{ nullptr };
+  ax_utils::cl_object<cl_event> event{ nullptr };
   std::span<uint8_t> data{};
   //  This is all of the GstMemory that the buffer depends on. i.e they
   //  must be around until the kernel that creates this buffer has finished

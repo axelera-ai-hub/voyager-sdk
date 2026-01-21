@@ -35,7 +35,7 @@ which offer advanced functionalities and ease of use beyond what is possible in 
 
 With the SDK, we include a number of elements built with these tools that cover most of the common
 use cases for video processing. Examples include cropping, color normalization, and resizing. We
-also include elements are able to decode common neural network output formats, such as YOLO bounding
+also include elements that are able to decode common neural network output formats, such as YOLO bounding
 boxes, and deliver all of these to a user's application. In this document, we provide an overview of
 our GStreamer pipeline classes and operators to enable users to understand our pipeline and build
 their own elements.
@@ -738,6 +738,6 @@ virtual size_t get_number_of_subframes () const;
 
 If this number is 1 (e.g. when the virtual method is not overridden) or no meta property is
 specified in the GST yaml, the AxInferenceNet element passes through the input buffer. If the number of
-subframes is zero (the parent , the element emits a gap event, which will be propagated through the
-pipeline and caught by the first `AxDecodeMuxer` operator. In case the number of subframes is larger
-than one.
+subframes is zero (i.e., the parent frame has no detections), the element emits a gap event, which will be propagated through the
+pipeline and caught by the first `AxDecodeMuxer` operator. If the number of subframes is larger
+than one, the element processes each subframe independently through the inference pipeline.

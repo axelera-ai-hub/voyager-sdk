@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2026
 #include <array>
 #include <unordered_map>
 #include <unordered_set>
@@ -419,7 +419,7 @@ class CLColorConvert
   }
 
   ax_utils::CLProgram::flush_details run_kernel(
-      kernel &k, const buffer_details &out, buffer &outbuf, bool start_flush)
+      cl_kernel k, const buffer_details &out, buffer &outbuf, bool start_flush)
   {
     size_t global_work_size[3] = { 1, 1, 1 };
     const int numpix_per_kernel = 1;
@@ -438,7 +438,7 @@ class CLColorConvert
     return {};
   }
 
-  int run_kernel(kernel &k, const buffer_details &out, buffer &inbuf,
+  int run_kernel(cl_kernel k, const buffer_details &out, buffer &inbuf,
       buffer &outbuf, bool start_flush)
   {
     auto details = run_kernel(k, out, outbuf, start_flush);
@@ -448,11 +448,11 @@ class CLColorConvert
       //  Store this away so that when the buffer is mapped we just wait on the
       //  event.
       if (auto *p = std::get_if<opencl_buffer *>(&out.data)) {
-        (*p)->event = details.event;
+        (*p)->event = std::move(details.event);
         (*p)->mapped = details.mapped;
       } else {
-        clWaitForEvents(1, &details.event);
-        clReleaseEvent(details.event);
+        clWaitForEvents(1, &*details.event);
+        details.event.reset();
       }
     }
     return 0;
@@ -471,7 +471,7 @@ class CLColorConvert
     cl_int uv_stride = in.strides[1];
     cl_int uv_offset = in.offsets[1];
     //  Set the kernel arguments
-    auto kernel = AxVideoFormatNumChannels(out.format) == 3 ? nv12_to_rgb : nv12_to_rgba;
+    auto kernel = AxVideoFormatNumChannels(out.format) == 3 ? *nv12_to_rgb : *nv12_to_rgba;
     program.set_kernel_args(kernel, 0, out.width, out.height, y_stride,
         uv_stride, out.stride, uv_offset, is_bgr, *inpbuf[0], *outbuf);
     return run_kernel(kernel, out, inpbuf[0], outbuf, start_flush);
@@ -489,7 +489,7 @@ class CLColorConvert
     cl_int u_offset = in.offsets[1];
     cl_int v_offset = in.offsets[2];
     //  Set the kernel arguments
-    auto kernel = AxVideoFormatNumChannels(out.format) == 3 ? i420_to_rgb : i420_to_rgba;
+    auto kernel = AxVideoFormatNumChannels(out.format) == 3 ? *i420_to_rgb : *i420_to_rgba;
     program.set_kernel_args(kernel, 0, out.width, out.height, y_stride, u_stride,
         v_stride, out.stride, u_offset, v_offset, is_bgr, *inpbuf, *outbuf);
     return run_kernel(kernel, out, inpbuf, outbuf, start_flush);
@@ -503,7 +503,7 @@ class CLColorConvert
 
     cl_int y_stride = in.strides[0];
     //  Set the kernel arguments
-    auto kernel = AxVideoFormatNumChannels(out.format) == 3 ? YUYV_to_rgb : YUYV_to_rgba;
+    auto kernel = AxVideoFormatNumChannels(out.format) == 3 ? *YUYV_to_rgb : *YUYV_to_rgba;
     program.set_kernel_args(kernel, 0, out.width, out.height, y_stride,
         out.stride, is_bgr, *inpbuf, *outbuf);
     return run_kernel(kernel, out, inpbuf, outbuf, start_flush);
@@ -514,33 +514,25 @@ class CLColorConvert
     auto inpbuf = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
 
-    auto kernel = bgra_to_rgba;
-    if ((in.format == AxVideoFormat::RGBA && out.format == AxVideoFormat::RGB)
-        || (in.format == AxVideoFormat::BGRA && out.format == AxVideoFormat::BGR)) {
-      kernel = rgba_to_rgb;
-    } else if ((in.format == AxVideoFormat::RGBA && out.format == AxVideoFormat::BGR)
-               || (in.format == AxVideoFormat::BGRA && out.format == AxVideoFormat::RGB)) {
-      kernel = rgba_to_bgr;
-    }
-    cl_int y_stride = in.stride;
-    //  Set the kernel arguments
-    program.set_kernel_args(kernel, 0, out.width, out.height, y_stride,
-        out.stride, *inpbuf, *outbuf);
-    return run_kernel(kernel, out, inpbuf, outbuf, start_flush);
-  }
-
-  int run_rgba_to_rgba(const buffer_details &in, const buffer_details &out, bool start_flush)
-  {
-    auto inpbuf = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
-    auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
-
-    auto kernel = bgra_to_rgba;
+    auto kernel = *bgra_to_rgba;
     if ((in.format == AxVideoFormat::RGB && out.format == AxVideoFormat::RGB)
         || (in.format == AxVideoFormat::BGR && out.format == AxVideoFormat::BGR)) {
-      kernel = rgb_to_rgb;
+      kernel = *rgb_to_rgb;
     } else if ((in.format == AxVideoFormat::RGBA && out.format == AxVideoFormat::RGBA)
                || (in.format == AxVideoFormat::BGRA && out.format == AxVideoFormat::BGRA)) {
-      kernel = rgba_to_rgba;
+      kernel = *rgba_to_rgba;
+    } else if ((in.format == AxVideoFormat::RGBA && out.format == AxVideoFormat::RGB)
+               || (in.format == AxVideoFormat::BGRA && out.format == AxVideoFormat::BGR)) {
+      kernel = *rgba_to_rgb;
+    } else if ((in.format == AxVideoFormat::RGBA && out.format == AxVideoFormat::BGR)
+               || (in.format == AxVideoFormat::BGRA && out.format == AxVideoFormat::RGB)) {
+      kernel = *rgba_to_bgr;
+    } else if ((in.format == AxVideoFormat::RGB && out.format == AxVideoFormat::BGR)
+               || (in.format == AxVideoFormat::BGR && out.format == AxVideoFormat::RGB)) {
+      kernel = *bgr_to_rgb;
+    } else if ((in.format == AxVideoFormat::RGBA && out.format == AxVideoFormat::BGRA)
+               || (in.format == AxVideoFormat::BGRA && out.format == AxVideoFormat::RGBA)) {
+      kernel = *bgra_to_rgba;
     }
     cl_int y_stride = in.stride;
     //  Set the kernel arguments
@@ -555,9 +547,9 @@ class CLColorConvert
     auto inpbuf = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
 
-    program.set_kernel_args(rgb_to_gray, 0, out.width, out.height, in.stride,
+    program.set_kernel_args(*rgb_to_gray, 0, out.width, out.height, in.stride,
         out.stride, *inpbuf, *outbuf);
-    return run_kernel(rgb_to_gray, out, inpbuf, outbuf, start_flush);
+    return run_kernel(*rgb_to_gray, out, inpbuf, outbuf, start_flush);
   }
 
   int run_rgba_to_gray(const buffer_details &in, const buffer_details &out, bool start_flush)
@@ -565,9 +557,9 @@ class CLColorConvert
     auto inpbuf = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
 
-    program.set_kernel_args(rgba_to_gray, 0, out.width, out.height, in.stride,
+    program.set_kernel_args(*rgba_to_gray, 0, out.width, out.height, in.stride,
         out.stride, *inpbuf, *outbuf);
-    return run_kernel(rgba_to_gray, out, inpbuf, outbuf, start_flush);
+    return run_kernel(*rgba_to_gray, out, inpbuf, outbuf, start_flush);
   }
 
 
@@ -576,9 +568,9 @@ class CLColorConvert
     auto inpbuf = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
 
-    program.set_kernel_args(bgr_to_gray, 0, out.width, out.height, in.stride,
+    program.set_kernel_args(*bgr_to_gray, 0, out.width, out.height, in.stride,
         out.stride, *inpbuf, *outbuf);
-    return run_kernel(bgr_to_gray, out, inpbuf, outbuf, start_flush);
+    return run_kernel(*bgr_to_gray, out, inpbuf, outbuf, start_flush);
   }
 
   int run_bgra_to_gray(const buffer_details &in, const buffer_details &out, bool start_flush)
@@ -586,9 +578,9 @@ class CLColorConvert
     auto inpbuf = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
 
-    program.set_kernel_args(bgra_to_gray, 0, out.width, out.height, in.stride,
+    program.set_kernel_args(*bgra_to_gray, 0, out.width, out.height, in.stride,
         out.stride, *inpbuf, *outbuf);
-    return run_kernel(bgra_to_gray, out, inpbuf, outbuf, start_flush);
+    return run_kernel(*bgra_to_gray, out, inpbuf, outbuf, start_flush);
   }
 
   int run_yuyv_to_gray(const buffer_details &in, const buffer_details &out, bool start_flush)
@@ -598,9 +590,9 @@ class CLColorConvert
 
     cl_int y_stride = in.strides[0];
     //  Set the kernel arguments
-    program.set_kernel_args(yuyv_to_gray, 0, out.width, out.height, y_stride,
+    program.set_kernel_args(*yuyv_to_gray, 0, out.width, out.height, y_stride,
         out.stride, *inpbuf, *outbuf);
-    return run_kernel(yuyv_to_gray, out, inpbuf, outbuf, start_flush);
+    return run_kernel(*yuyv_to_gray, out, inpbuf, outbuf, start_flush);
   }
 
   int run(const buffer_details &in, const buffer_details &out,
@@ -633,13 +625,19 @@ class CLColorConvert
       } else if (in.format == AxVideoFormat::YUY2) {
         return run_YUYV_to_rgba(in, out, is_bgr, start_flush);
       } else if (in.format == AxVideoFormat::RGB && out.format == AxVideoFormat::RGB) {
-        return run_rgba_to_rgba(in, out, start_flush);
+        return run_bgra_to_rgba(in, out, start_flush);
       } else if (in.format == AxVideoFormat::BGR && out.format == AxVideoFormat::BGR) {
-        return run_rgba_to_rgba(in, out, start_flush);
+        return run_bgra_to_rgba(in, out, start_flush);
+      } else if (in.format == AxVideoFormat::RGB && out.format == AxVideoFormat::BGR) {
+        return run_bgra_to_rgba(in, out, start_flush);
+      } else if (in.format == AxVideoFormat::BGR && out.format == AxVideoFormat::RGB) {
+        return run_bgra_to_rgba(in, out, start_flush);
       } else if (in.format == AxVideoFormat::BGRA && out.format == AxVideoFormat::BGRA) {
-        return run_rgba_to_rgba(in, out, start_flush);
+        return run_bgra_to_rgba(in, out, start_flush);
       } else if (in.format == AxVideoFormat::RGBA && out.format == AxVideoFormat::RGBA) {
-        return run_rgba_to_rgba(in, out, start_flush);
+        return run_bgra_to_rgba(in, out, start_flush);
+      } else if (in.format == AxVideoFormat::BGRA && out.format == AxVideoFormat::RGBA) {
+        return run_bgra_to_rgba(in, out, start_flush);
       } else if (in.format == AxVideoFormat::RGBA || in.format == AxVideoFormat::BGRA) {
         return run_bgra_to_rgba(in, out, start_flush);
       }

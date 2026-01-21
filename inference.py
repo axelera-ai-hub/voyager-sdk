@@ -20,6 +20,14 @@ from axelera.app import (
     yaml_parser,
 )
 
+try:
+    import gi
+
+    gi.require_version('Gst', '1.0')
+    from gi.repository import Gst
+except ImportError:
+    pass
+
 LOG = logging_utils.getLogger(__name__)
 PBAR = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
 
@@ -151,3 +159,6 @@ if __name__ == "__main__":
     finally:
         if 'stream' in locals():
             stream.stop()
+
+    if Gst.is_initialized():
+        Gst.deinit()

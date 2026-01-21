@@ -146,7 +146,7 @@ the application then more buffering would be beneficial (see `--rtsp-latency`).
 
 If the Host FPS is significantly higher than the System FPS, that suggests that another element in
 the pipeline is the bottleneck. To help determine why we can use the `--show-stats` option to
-`inference.py`. When doing so it is usually best to disable one of the optimisations that is
+`inference.py`. When doing so it is usually best to disable one of the optimizations that is
 applied to the pipeline, which is double buffering of OpenCL kernels.
 
 ```bash

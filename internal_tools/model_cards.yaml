@@ -1830,7 +1830,7 @@ MC-315:
   model_subversion: v8.3.204
   num_classes: 80
   onnx_model_path: ax_models/model_cards/yolo/object_detection/yolo26n-coco-onnx.yaml
-  onnx_model_weight: s3://axelera-model-card/weights/yolo/object_detection/yolo26n-preview-1001.onnx
+  onnx_model_weight: s3://axelera-model-card/weights/yolo/object_detection/yolo26n-202601-official.onnx
   onnx_yaml_description: yolo26n, 640x640 (COCO), NMS free model
   onnx_yaml_name: yolo26n-coco-onnx
   production_ML_framework: PyTorch
@@ -1848,7 +1848,7 @@ MC-316:
   model_subversion: v8.3.204
   num_classes: 80
   onnx_model_path: ax_models/model_cards/yolo/object_detection/yolo26s-coco-onnx.yaml
-  onnx_model_weight: s3://axelera-model-card/weights/yolo/object_detection/yolo26s-preview-1001.onnx
+  onnx_model_weight: s3://axelera-model-card/weights/yolo/object_detection/yolo26s-202601-official.onnx
   onnx_yaml_description: yolo26s, 640x640 (COCO), NMS free model
   onnx_yaml_name: yolo26s-coco-onnx
   production_ML_framework: PyTorch
@@ -1866,7 +1866,7 @@ MC-317:
   model_subversion: v8.3.204
   num_classes: 80
   onnx_model_path: ax_models/model_cards/yolo/object_detection/yolo26m-coco-onnx.yaml
-  onnx_model_weight: s3://axelera-model-card/weights/yolo/object_detection/yolo26m-preview-1001.onnx
+  onnx_model_weight: s3://axelera-model-card/weights/yolo/object_detection/yolo26m-202601-official.onnx
   onnx_yaml_description: yolo26m, 640x640 (COCO), NMS free model
   onnx_yaml_name: yolo26m-coco-onnx
   production_ML_framework: PyTorch
@@ -1884,7 +1884,7 @@ MC-318:
   model_subversion: v8.3.204
   num_classes: 80
   onnx_model_path: ax_models/model_cards/yolo/object_detection/yolo26l-coco-onnx.yaml
-  onnx_model_weight: s3://axelera-model-card/weights/yolo/object_detection/yolo26l-preview-1001.onnx
+  onnx_model_weight: s3://axelera-model-card/weights/yolo/object_detection/yolo26l-202601-official.onnx
   onnx_yaml_description: yolo26l, 640x640 (COCO), NMS free model
   onnx_yaml_name: yolo26l-coco-onnx
   production_ML_framework: PyTorch
@@ -1902,7 +1902,7 @@ MC-319:
   model_subversion: v8.3.204
   num_classes: 80
   onnx_model_path: ax_models/model_cards/yolo/object_detection/yolo26x-coco-onnx.yaml
-  onnx_model_weight: s3://axelera-model-card/weights/yolo/object_detection/yolo26x-preview-1001.onnx
+  onnx_model_weight: s3://axelera-model-card/weights/yolo/object_detection/yolo26x-202601-official.onnx
   onnx_yaml_description: yolo26x, 640x640 (COCO), NMS free model
   onnx_yaml_name: yolo26x-coco-onnx
   production_ML_framework: PyTorch

@@ -203,6 +203,7 @@ typing-extensions==4.5.0
     #   onnx
     #   torch
     #   torchvision
+ultralytics==8.4.0
 urllib3==1.26.15
     # via requests
 virtualenv==20.21.0

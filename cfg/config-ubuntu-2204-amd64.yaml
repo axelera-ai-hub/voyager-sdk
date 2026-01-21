@@ -13,7 +13,7 @@ vars:
   AX_PYPI_DEVELOPMENT_URL: https://software.axelera.ai/artifactory/axelera-dev-pypi/
   AX_PIP_EXTRA_ARGS: ""
   AX_CFG_DIR: cfg
-  AX_VERSION: 1.5.2
+  AX_VERSION: 1.5.3
   AX_DKMS_VERSION: 1.4.4
   AX_MULTI_DEVICE_VERSION: 1.0.0
 
@@ -29,7 +29,7 @@ common:
   description: Common
   libs:
     - libgstreamer-plugins-base1.0-dev
-    - axelera-runtime-1.5.2
+    - axelera-runtime-1.5.3
     - systemd
 
 penv:
@@ -253,9 +253,9 @@ runtime:
 
   envs:
     - name: AXELERA_RUNTIME_DIR
-      value: "/opt/axelera/runtime-1.5.2-1"
+      value: "/opt/axelera/runtime-1.5.3-1"
     - name: AXELERA_DEVICE_DIR
-      value: "/opt/axelera/device-1.5.2-1/omega"
+      value: "/opt/axelera/device-1.5.3-1/omega"
     - name: AXELERA_RISCV_TOOLCHAIN_DIR
       value: "/opt/axelera/riscv-gnu-newlib-toolchain-409b951ba662-7"
     - name: PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION
@@ -315,8 +315,8 @@ repositories:
       - https://packages.microsoft.com/repos/code stable main
   - list: /etc/apt/sources.list.d/axelera.list
     packages:
-      - axelera-device-1.5.2
-      - axelera-runtime-1.5.2
+      - axelera-device-1.5.3
+      - axelera-runtime-1.5.3
       - axelera-riscv-gnu-newlib-toolchain-409b951ba662-7
       - axelera-riscv-openocd
       - metis-dkms

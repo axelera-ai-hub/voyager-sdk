@@ -2,10 +2,13 @@
 # Voyager SDK release notes v1.5
 
 - [Voyager SDK release notes v1.5](#voyager-sdk-release-notes-v15)
-  - [Voyager SDK release notes v1.5.2](#voyager-sdk-release-notes-v152)
+  - [Voyager SDK release notes v1.5.3](#voyager-sdk-release-notes-v153)
+  - [Fixed Issues Since v1.5.2](#fixed-issues-since-v152)
+  - [New Features / Support Since v1.5.2](#new-features--support-since-v152)
+  - [Document Updates Since v1.5.2](#document-updates-since-v152)
   - [Fixed Issues Since v1.5.1](#fixed-issues-since-v151)
-  - [New Features / Support (v1.5.2)](#new-features--support-v152)
-  - [Document Updates](#document-updates)
+  - [New Features / Support Since v1.5.1](#new-features--support-since-v151)
+  - [Document Updates Since v1.5.1](#document-updates-since-v151)
   - [Voyager SDK release notes v1.5.1](#voyager-sdk-release-notes-v151)
   - [Release Qualification](#release-qualification)
   - [New Features / Support (v1.5.1)](#new-features--support-v151)
@@ -31,25 +34,51 @@
     - [Runtime Environment](#runtime-environment)
   - [Further Support](#further-support)
 
-## Voyager SDK release notes v1.5.2
-This release addresses several issues found in v1.5.1 and delivers targeted improvements to stability, compatibility, and developer experience.
+## Voyager SDK release notes v1.5.3
+This release adds support for YOLO26 from Ultralytics(TM). The model is available for in the
+n/s/m/l configurations.
+
+See [Ultralytics YOLO26](https://docs.ultralytics.com/models/yolo26/) for more information.
+
+This release also addresses several issues found in v1.5.2 and delivers targeted improvements to
+stability, compatibility, and developer experience.
+
+## Fixed Issues Since v1.5.2
+- Fixed resource leaks occurring during shutting down of a GStreamer or AxInferenceNet pipeline.
+- Fixed a segmentation fault when recreating a pipeline with a tracker.
+- Fixed an OpenCL Event per-frame memory leak.
+- Fixed a segmentation fault in the face recognition pipeline when no faces were detected in the primary model.
+- Ensure an OpenCL color convert is used for secondary models in a cascaded pipeline improving end-to-end pipeline performance.
+- Prevent a deadlock on systems with more than 8 Metis devices and a single input stream.
+
+## New Features / Support Since v1.5.2
+- Support for YOLO26s, YOLO26m, YOLO26l, YOLO26x. Prebuilt models trained on coco are available under...
+  - [YOLO26n](/ax_models/zoo/yolo/object_detection/yolo26n-coco-onnx.yaml)
+  - [YOLO26s](/ax_models/zoo/yolo/object_detection/yolo26s-coco-onnx.yaml)
+  - [YOLO26m](/ax_models/zoo/yolo/object_detection/yolo26m-coco-onnx.yaml)
+  - [YOLO26l](/ax_models/zoo/yolo/object_detection/yolo26l-coco-onnx.yaml)
+
+  See performance and accuracy data [here](/docs/reference/model_zoo.md#object-detection).
+- Optimised DMA Buf handling for better performance, particularly on systems with a discrete GPU.
+- Optimised Semantic Segmentation network decoding by avoiding some unnecessary copies of
+  segmentation data.
+
+## Document Updates Since v1.5.2
+- Added troubleshooting and verification sections to axmonitor documentation.
 
 ## Fixed Issues Since v1.5.1
 - Fixed build failures for ImageNet networks using HINT instructions.
 - Fixed `NormaliseCL` to correctly handle non‑4‑channel inputs.
 - Prevented segmentation faults in YOLO decoders when receiving an unexpected number of input tensors.
 
-## New Features / Support (v1.5.2)
-- Runtime now supports executing AXM files directly, streamlining deployment.
+## New Features / Support Since v1.5.1
 - Added selectable network protocol for RTSP sources in `inference.py` to improve input flexibility.
 - Added `create_inference_net` overloads to allow existing code to compile without a context parameter.
 
-## Document Updates
+## Document Updates Since v1.5.1
 - General refinements across tutorials and references aligned with the above changes.
 
 ## Voyager SDK release notes v1.5.1
-
-- [Voyager SDK release notes v1.5.1](#voyager-sdk-release-notes-v151)
 - Support for Ubuntu 24.04 with Python 3.12 for development and running inference.
 - A new computer vision task Oriented Bounding Boxes Object Detection added to the model zoo.
 - New models added for image classification, instance segmentation and keypoint detection.

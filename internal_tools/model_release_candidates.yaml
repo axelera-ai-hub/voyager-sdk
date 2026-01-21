@@ -138,16 +138,21 @@ READY_FOR_RELEASE:
   - yolo11nseg-coco-onnx
   - yolo11lpose-coco-onnx
   - yolo11lseg-coco-onnx
+  - yolo26n-coco-onnx
+  - yolo26s-coco-onnx
+  - yolo26m-coco-onnx
+  - yolo26l-coco-onnx
 
 # minimal set of models to run, for quick validation of platforms/machines
 MINIMAL:
   - resnet18-imagenet
+  - retinaface-mobilenet0.25-widerface-onnx
   - ssd-mobilenetv1-coco-poc-onnx
   - yolov5s-relu-coco-onnx
   - yolov7-640x480-coco
   - yolov8npose-coco-onnx
   - yolov8nseg-coco-onnx
-  - retinaface-mobilenet0.25-widerface-onnx
+  - yolo26n-coco-onnx
 
 # set of networks that sales like to talk about
 PERFORMANCE:
@@ -245,6 +250,10 @@ VALIDATION:
   - yolo11lpose-coco-onnx
   - yolo11nseg-coco-onnx
   - yolo11lseg-coco-onnx
+  - yolo26n-coco-onnx
+  - yolo26s-coco-onnx
+  - yolo26m-coco-onnx
+  - yolo26l-coco-onnx
 
 # should be a subset of READY_FOR_RELEASE
 WITH_LICENSE_CONCERNS: []
@@ -314,11 +323,6 @@ READY_BUT_NOT_RELEASED:
   - ax-yolov8m-lite-coco-onnx
   - ax-yolov8s-coco-onnx
   - ax-yolov8n-coco-onnx
-  - yolo26n-coco-onnx
-  - yolo26s-coco-onnx
-  - yolo26m-coco-onnx
-  - yolo26l-coco-onnx
-
 
 
 READY_FOR_RELEASE_LLM:

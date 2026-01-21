@@ -86,7 +86,7 @@ Python and C/C++ applications using libraries that provide an `InferenceStream` 
 An InferenceStream can be configured at runtime with
 one or more input sources, and it returns a sequence of input images and
 associated inference metadata. The Voyager SDK provides additional libraries to parse,
-analyse and render metadata visually.
+analyze and render metadata visually.
 
 The sample file [``application.py``](/examples/application.py) and
 [associated tutorial](/docs/tutorials/application.md) gives a minimal working

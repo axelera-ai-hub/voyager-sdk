@@ -18,6 +18,7 @@
     - [1. Start the System Monitoring Backend Service](#1-start-the-system-monitoring-backend-service)
       - [Linux](#linux-1)
       - [Windows](#windows-1)
+      - [Verify the Service is Running](#verify-the-service-is-running)
     - [2. Run axmonitor](#2-run-axmonitor)
     - [axmonitor Command-Line Options](#axmonitor-command-line-options)
   - [User Interface modes](#user-interface-modes)
@@ -28,6 +29,8 @@
     - [Topics](#topics)
       - [Device Topics](#device-topics)
   - [Communication Architecture](#communication-architecture)
+  - [Troubleshooting](#troubleshooting)
+    - [No Data Displayed in axmonitor](#no-data-displayed-in-axmonitor)
   - [Notes](#notes)
   - [Next Steps](#next-steps)
   - [Related Documentation](#related-documentation)
@@ -140,6 +143,36 @@ sc.exe start axsystemserver --bind IP:PORT
 
 Alternatively, you can start or stop the service by using the Services application, which you can access by searching for "services" and
 opening it, or by using the `services.msc` command in the Run dialog.
+
+#### Verify the Service is Running
+
+After starting the service, verify that it has launched successfully.
+
+**Linux:**
+
+Check the service status:
+```bash
+sudo systemctl status axsystemserver.service
+```
+
+If the service is running correctly, you should see an `active (running)` status. If there are any issues, you can view detailed logs:
+```bash
+sudo journalctl -u axsystemserver.service
+```
+
+> [!NOTE]
+> If you're running inside a docker container, use `sudo service axsystemserver status` instead.
+
+**Windows:**
+
+You can verify the service status using the Services application (`services.msc`) or by running:
+```
+sc.exe query axsystemserver
+```
+
+Look for the `STATE` field showing `RUNNING`. If there are issues, check the Windows Event Viewer for error logs.
+
+If the service is not running or you encounter errors, refer to the [Troubleshooting](#troubleshooting) section for common issues and solutions.
 
 ### 2. Run axmonitor
 
@@ -262,6 +295,67 @@ axmonitor acts as a TCP client, subscribing to a specific address/port opened by
 
 - axsystemservice: Backend service collecting and broadcasting metrics
 - axmonitor: Frontend CLI/GUI displaying metrics
+
+## Troubleshooting
+
+### No Data Displayed in axmonitor
+
+If `axmonitor` is running but you don't see any data being displayed, the most likely cause is that the `axsystemserver` service is not started, or it failed to start. This can happen for a number of reasons, the most common one being that the port is already in use by another application or service.
+
+**Verify the service is running:**
+
+First, check if the service is running and review the logs if needed. See the [Verify the Service is Running](#verify-the-service-is-running) section for instructions on how to check the service status and logs for both Linux and Windows.
+
+**Check if axmonitor is receiving messages:**
+
+You can verify whether `axmonitor` is receiving messages from the service by running it with the info log level:
+
+```bash
+axmonitor --server-address "IP:PORT" -l info
+```
+
+Replace `IP:PORT` with your server address (e.g., 127.0.0.1:5555 for the default). If you see logs indicating that no messages are being received from the host, this confirms that the service is either not running or failed to start.
+
+**Check if the port is in use:**
+
+If the service failed to start, the most common cause is a port conflict. You can check if the port is already in use:
+
+**Linux:**
+```bash
+sudo lsof -i :<PORT>
+```
+Or alternatively:
+```bash
+sudo netstat -tulpn | grep <PORT>
+```
+
+**Windows:**
+```
+netstat -ano | findstr :<PORT>
+```
+
+Replace `<PORT>` with the port number you're trying to use (e.g., 5555 for the default). If the command returns any output, the port is already in use by another process.
+
+**Solution:**
+
+Change the address/port configuration to use a different available port. Refer to the [Configuring the Axelera System Service](#configuring-the-axelera-system-service) section for instructions on how to change the address and port for both Linux and Windows.
+
+After changing the configuration, restart the `axsystemserver` service:
+
+**Linux:**
+```bash
+sudo systemctl restart axsystemserver.service
+```
+
+**Windows:**
+```
+sc.exe stop axsystemserver
+sc.exe start axsystemserver
+```
+
+Then:
+1. [Verify the service is running](#verify-the-service-is-running) with the new settings
+2. Launch `axmonitor` with the new address: `axmonitor --server-address "IP:PORT"`
 
 ## Notes
 

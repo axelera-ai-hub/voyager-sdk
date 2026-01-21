@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2026
 #include "AxOpenCl.hpp"
 
 #include <iostream>
@@ -403,6 +403,16 @@ CLProgram::create_buffers(int elem_size, int num_elems, int flags,
     const buffer_initializer &ptr, int num_planes) const
 {
   cl_int error = CL_SUCCESS;
+  if (auto *p = std::get_if<opencl_buffer *>(&ptr)) {
+    auto *p1 = *p;
+    if (p1->event) {
+      //  If we get here then upstream has begun mapping the buffer, so we
+      //  need to wait for that to complete and then unmap
+      clWaitForEvents(1, &*p1->event);
+      p1->event.reset();
+      clEnqueueUnmapMemObject(cl_details.commands, p1->buffer, p1->mapped, 0, NULL, NULL);
+    }
+  }
   auto buffers = create_optimal_buffer(cl_details.context, cl_details.extensions,
       elem_size, num_elems, flags, ptr, num_planes, error);
   auto wrapped_buffers = std::vector<ax_buffer>{};
@@ -415,7 +425,9 @@ CLProgram::ax_buffer
 CLProgram::create_buffer(int elem_size, int num_elems, int flags,
     const buffer_initializer &ptr, int num_planes) const
 {
-  return create_buffers(elem_size, num_elems, flags, ptr, num_planes)[0];
+  auto buffers = create_buffers(elem_size, num_elems, flags, ptr, num_planes);
+  auto buffer = buffers.empty() ? ax_buffer{ nullptr } : std::move(buffers[0]);
+  return buffer;
 }
 
 CLProgram::ax_buffer
@@ -425,50 +437,28 @@ CLProgram::create_buffer(const buffer_details &details, int flags)
       details.data, details.offsets.size());
 }
 
-int
-CLProgram::write_buffer(const ax_buffer &buffer, int elem_size, int num_elems, const void *data)
-{
-  return clEnqueueWriteBuffer(cl_details.commands, *buffer, CL_TRUE, 0,
-      elem_size * num_elems, data, 0, NULL, NULL);
-}
-
-int
-CLProgram::read_buffer(const ax_buffer &buffer, int elem_size, int num_elems, void *data)
-{
-  return clEnqueueReadBuffer(cl_details.commands, *buffer, CL_TRUE, 0,
-      elem_size * num_elems, data, 0, NULL, NULL);
-}
-
 CLProgram::flush_details
 CLProgram::flush_output_buffer_async(const ax_buffer &out, int size)
 {
   int ret = CL_SUCCESS;
-  auto event = cl_event{};
+  auto event = ax_event{ nullptr };
   auto mapped = clEnqueueMapBuffer(cl_details.commands, *out, CL_FALSE,
-      CL_MAP_READ, 0, size, 0, NULL, &event, &ret);
-  return { ret, event, mapped };
+      CL_MAP_READ, 0, size, 0, NULL, &*event, &ret);
+  return { ret, std::move(event), mapped };
 }
 
 int
-CLProgram::unmap_buffer(const ax_buffer &out, void *mapped)
+CLProgram::unmap_buffer(ax_event event, const ax_buffer &out, void *mapped)
 {
-  auto ret = clEnqueueUnmapMemObject(cl_details.commands, *out, mapped, 0, NULL, NULL);
+  auto num_events = event ? 1 : 0;
+  cl_event *events = event ? &*event : nullptr;
+  auto ret = clEnqueueUnmapMemObject(
+      cl_details.commands, *out, mapped, num_events, events, NULL);
   if (ret != CL_SUCCESS) {
     throw std::runtime_error(
         "Failed to unmap output buffer, error: " + cl_error_to_string(ret));
   }
   return ret;
-}
-
-int
-CLProgram::unmap_buffer(cl_event event, const ax_buffer &out, void *mapped)
-{
-  auto ret = clWaitForEvents(1, &event);
-  if (ret != CL_SUCCESS) {
-    throw std::runtime_error("Failed to wait for event, error: " + cl_error_to_string(ret));
-  }
-  clReleaseEvent(event);
-  return unmap_buffer(out, mapped);
 }
 
 int
@@ -479,9 +469,7 @@ CLProgram::flush_output_buffer(const ax_buffer &out, int size)
     throw std::runtime_error(
         "Failed to map output buffer, error: " + cl_error_to_string(result));
   }
-
-  int ret = clWaitForEvents(1, &event);
-  return unmap_buffer(out, mapped);
+  return unmap_buffer(std::move(event), out, mapped);
 }
 
 CLProgram::flush_details
@@ -509,7 +497,7 @@ CLProgram::releaseva(std::span<cl_mem> input_buffers)
 
 
 int
-CLProgram::execute_kernel(const ax_kernel &kernel, int num_dims, size_t global_work_size[3])
+CLProgram::execute_kernel(cl_kernel kernel, int num_dims, size_t global_work_size[3])
 {
   auto local_size = determine_local_work_size(max_work_group_size);
   size_t local[3] = { local_size.width, local_size.height, 1 };
@@ -518,12 +506,12 @@ CLProgram::execute_kernel(const ax_kernel &kernel, int num_dims, size_t global_w
   global[1] = (global_work_size[1] + local[1] - 1) & ~(local[1] - 1);
   global[2] = global_work_size[2];
   auto *local_ptr = RPi_Hack ? nullptr : local;
-  auto result = clEnqueueNDRangeKernel(cl_details.commands, *kernel, num_dims,
+  auto result = clEnqueueNDRangeKernel(cl_details.commands, kernel, num_dims,
       NULL, global, local_ptr, 0, NULL, NULL);
   if (result != CL_SUCCESS) {
     RPi_Hack = true;
-    result = clEnqueueNDRangeKernel(cl_details.commands, *kernel, num_dims,
-        NULL, global, nullptr, 0, NULL, NULL);
+    result = clEnqueueNDRangeKernel(cl_details.commands, kernel, num_dims, NULL,
+        global, nullptr, 0, NULL, NULL);
     if (result != CL_SUCCESS) {
       throw std::runtime_error(
           "Failed to execute kernel, error: " + cl_error_to_string(result));

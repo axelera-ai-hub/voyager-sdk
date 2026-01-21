@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2026
 /**
  * Custom UDMABUF Allocator
  */
@@ -109,8 +109,7 @@ release_buffer_dependencies(GstOpenCLMemory *ocl_mem)
   }
   ocl_mem->buffer.gst_memories.clear();
   if (ocl_mem->buffer.event) {
-    clReleaseEvent(ocl_mem->buffer.event);
-    ocl_mem->buffer.event = nullptr;
+    ocl_mem->buffer.event.reset();
   }
 }
 
@@ -145,9 +144,8 @@ gst_opencl_map(GstMemory *mem, gsize maxsize, GstMapFlags flags)
     }
     int error = CL_SUCCESS;
     if (ocl_mem->buffer.event) {
-      clWaitForEvents(1, &ocl_mem->buffer.event);
-      clReleaseEvent(ocl_mem->buffer.event);
-      ocl_mem->buffer.event = nullptr;
+      clWaitForEvents(1, &*ocl_mem->buffer.event);
+      ocl_mem->buffer.event.reset();
     } else {
       auto cl_flags = (flags & GST_MAP_WRITE) != 0 ? CL_MAP_WRITE_INVALIDATE_REGION : CL_MAP_READ;
       ocl_mem->buffer.mapped = clEnqueueMapBuffer(commands, ocl_mem->buffer.buffer,

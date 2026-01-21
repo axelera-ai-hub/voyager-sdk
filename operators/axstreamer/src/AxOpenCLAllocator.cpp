@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2026
 #include "AxLog.hpp"
 #include "AxOpenCl.hpp"
 #include "AxStreamerUtils.hpp"
@@ -33,8 +33,7 @@ struct opencl_buffer_details : opencl_buffer {
       buffer = nullptr;
     }
     if (event) {
-      clReleaseEvent(event);
-      event = nullptr;
+      event.reset();
     }
     mapped = nullptr;
     dependent_buffers.clear();
@@ -72,9 +71,8 @@ class OpenCLAllocator : public Ax::DataInterfaceAllocator
   {
     if (ocl_buffer.buffer) {
       if (ocl_buffer.event) {
-        clWaitForEvents(1, &ocl_buffer.event);
-        clReleaseEvent(ocl_buffer.event);
-        ocl_buffer.event = nullptr;
+        clWaitForEvents(1, &*ocl_buffer.event);
+        ocl_buffer.event.reset();
       } else {
         cl_int error = CL_SUCCESS;
         auto *mapped = clEnqueueMapBuffer(context_.commands, ocl_buffer.buffer, CL_TRUE,
@@ -97,7 +95,7 @@ class OpenCLAllocator : public Ax::DataInterfaceAllocator
     ocl_buffer.mapped = nullptr;
   }
 
-  void map(Ax::ManagedDataInterface &buffer) override
+  void map(Ax::ManagedDataInterface &buffer, Ax::MapType /*unused*/) override
   {
     if (!buffer.is_mapped()) {
       std::vector<std::shared_ptr<void>> buffers;
@@ -151,16 +149,6 @@ class OpenCLAllocator : public Ax::DataInterfaceAllocator
   ax_utils::opencl_details context_;
   Ax::Logger &logger;
 };
-
-void
-reset_ocl_buffer(opencl_buffer &ocl_buffer)
-{
-  if (ocl_buffer.buffer) {
-    clReleaseMemObject(ocl_buffer.buffer);
-    ocl_buffer.buffer = nullptr;
-  }
-  ocl_buffer.mapped = nullptr;
-}
 
 std::unique_ptr<Ax::DataInterfaceAllocator>
 Ax::create_opencl_allocator(AxAllocationContext *context, Ax::Logger &logger)

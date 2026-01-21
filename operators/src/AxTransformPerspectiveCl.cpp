@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2026
 #include <array>
 #include <string_view>
 #include <unordered_map>
@@ -211,7 +211,7 @@ class CLPerspective
   {
   }
 
-  int run_kernel(kernel &k, const buffer_details &out, buffer &outbuf)
+  int run_kernel(cl_kernel k, const buffer_details &out, buffer &outbuf)
   {
     size_t global_work_size[3] = { 1, 1, 1 };
     const int numpix_per_kernel = 1;
@@ -225,7 +225,7 @@ class CLPerspective
     return error;
   }
 
-  int run_kernel(kernel &k, const buffer_details &out, buffer &inbuf, buffer &outbuf)
+  int run_kernel(cl_kernel k, const buffer_details &out, buffer &inbuf, buffer &outbuf)
   {
     return run_kernel(k, out, outbuf);
   }
@@ -245,12 +245,11 @@ class CLPerspective
 
       cl_int out_format = ax_utils::get_output_format(out.format);
       cl_uchar is_input_bgr = in.format == AxVideoFormat::BGR ? 1 : 0;
-      program.set_kernel_args(rgb_perspective, 0, *inbuf, *outbuf, in.width,
+      program.set_kernel_args(*rgb_perspective, 0, *inbuf, *outbuf, in.width,
           in.height, out.width, out.height, in.stride, out.stride,
           *perspective_matrix, out_format, is_input_bgr);
 
-      return run_kernel(rgb_perspective, out, inbuf, outbuf);
-
+      return run_kernel(*rgb_perspective, out, inbuf, outbuf);
     } else if (in.format == AxVideoFormat::NV12) {
       auto inbuf_y = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
 
@@ -258,10 +257,10 @@ class CLPerspective
       cl_int uv_stride = in.strides[1];
 
       cl_int out_format = ax_utils::get_output_format(out.format);
-      program.set_kernel_args(nv12_perspective, 0, *inbuf_y, *outbuf, uv_offset,
-          in.width, in.height, out.width, out.height, in.stride, uv_stride,
-          out.stride, *perspective_matrix, out_format);
-      return run_kernel(nv12_perspective, out, inbuf_y, outbuf);
+      program.set_kernel_args(*nv12_perspective, 0, *inbuf_y, *outbuf,
+          uv_offset, in.width, in.height, out.width, out.height, in.stride,
+          uv_stride, out.stride, *perspective_matrix, out_format);
+      return run_kernel(*nv12_perspective, out, inbuf_y, outbuf);
 
     } else if (in.format == AxVideoFormat::I420) {
       auto inbuf_y = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
@@ -271,28 +270,27 @@ class CLPerspective
       cl_int v_offset = in.offsets[2];
       cl_int v_stride = in.strides[2];
       cl_int out_format = ax_utils::get_output_format(out.format);
-      program.set_kernel_args(i420_perspective, 0, *inbuf_y, *outbuf, u_offset,
+      program.set_kernel_args(*i420_perspective, 0, *inbuf_y, *outbuf, u_offset,
           v_offset, in.width, in.height, out.width, out.height, in.stride,
           u_stride, v_stride, out.stride, *perspective_matrix, out_format);
 
-      return run_kernel(i420_perspective, out, inbuf_y, outbuf);
-
+      return run_kernel(*i420_perspective, out, inbuf_y, outbuf);
     } else if (in.format == AxVideoFormat::YUY2) {
       auto inbuf_y = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
 
       cl_int out_format = ax_utils::get_output_format(out.format);
-      program.set_kernel_args(yuyv_perspective, 0, *inbuf_y, *outbuf, in.width,
+      program.set_kernel_args(*yuyv_perspective, 0, *inbuf_y, *outbuf, in.width,
           in.height, out.width, out.height, in.stride, out.stride,
           *perspective_matrix, out_format);
 
-      return run_kernel(yuyv_perspective, out, inbuf_y, outbuf);
+      return run_kernel(*yuyv_perspective, out, inbuf_y, outbuf);
     } else if (in.format == AxVideoFormat::GRAY8) {
       auto inbuf_y = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
 
-      program.set_kernel_args(gray_perspective, 0, *inbuf_y, *outbuf, in.width,
+      program.set_kernel_args(*gray_perspective, 0, *inbuf_y, *outbuf, in.width,
           in.height, out.width, out.height, in.stride, out.stride, *perspective_matrix);
 
-      return run_kernel(gray_perspective, out, inbuf_y, outbuf);
+      return run_kernel(*gray_perspective, out, inbuf_y, outbuf);
 
     } else {
       throw std::runtime_error("Unsupported format: " + AxVideoFormatToString(in.format));

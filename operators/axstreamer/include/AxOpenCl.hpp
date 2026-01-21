@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2026
 #pragma once
 
 #define CL_TARGET_OPENCL_VERSION 210
@@ -22,105 +22,6 @@
 #include "AxLog.hpp"
 #include "AxOpUtils.hpp"
 #include "AxOpenClExtensions.hpp"
-
-namespace ax_utils
-{
-
-inline void
-release_clobject(cl_mem obj)
-{
-  if (obj)
-    clReleaseMemObject(obj);
-}
-
-inline void
-release_clobject(cl_kernel obj)
-{
-  if (obj)
-    clReleaseKernel(obj);
-}
-
-inline void
-release_clobject(cl_event obj)
-{
-  if (obj)
-    clReleaseEvent(obj);
-}
-
-inline void
-retain_clobject(cl_mem obj)
-{
-  if (obj)
-    clRetainMemObject(obj);
-}
-
-inline void
-retain_clobject(cl_kernel obj)
-{
-  if (obj)
-    clRetainKernel(obj);
-}
-
-inline void
-retain_clobject(cl_event obj)
-{
-  if (obj)
-    clRetainEvent(obj);
-}
-
-template <typename T> class cl_object
-{
-  public:
-  explicit cl_object(T obj) : object(obj)
-  {
-  }
-
-  cl_object(const cl_object &rhs)
-  {
-    object = rhs.object;
-    if (object) {
-      retain_clobject(object);
-    }
-  }
-
-  cl_object &operator=(const cl_object &rhs)
-  {
-    auto o = rhs.object;
-    if (o) {
-      retain_clobject(o);
-    }
-    if (object) {
-      release_clobject(object);
-    }
-    object = o;
-    return *this;
-  }
-
-  T &operator*()
-  {
-    return object;
-  }
-
-  const T &operator*() const
-  {
-    return object;
-  }
-
-  operator bool() const
-  {
-    return object != nullptr;
-  }
-
-  ~cl_object()
-  {
-    if (object)
-      release_clobject(object);
-  }
-
-  // private:
-  T object;
-};
-} // namespace ax_utils
 
 constexpr int AX_ALLOCATION_CONTEXT_VERSION = 1;
 struct AxAllocationContext {
@@ -190,22 +91,6 @@ class CLProgram
   /// @return A handle to the buffer
   ax_buffer create_buffer(const buffer_details &details, int flags);
 
-  /// @brief Wrires data into an OpenCL buffer
-  /// @param buffer - The handle to the buffer
-  /// @param elem_size - The size of the elements in the buffer
-  /// @param num_elems - The number of elements in the buffer
-  /// @param data - Pointer to the data to write
-  /// @return -
-  int write_buffer(const ax_buffer &buffer, int elem_size, int num_elems, const void *data);
-
-  /// @brief Read data from an OpenCL buffer
-  /// @param buffer - The handle to the buffer
-  /// @param elem_size - The size of the elements in the buffer
-  /// @param num_elems - The number of elements in the buffer
-  /// @param data - Pointer to the buffer to store the data
-  /// @return - Any status code
-  int read_buffer(const ax_buffer &buffer, int elem_size, int num_elems, void *data);
-
   /// @brief  Set a kernel argument of tyoe T
   /// @param kernel - The kernel handle
   /// @param arg_index - The index of the argument
@@ -213,10 +98,10 @@ class CLProgram
   /// @return - Any status code
 
   template <typename T>
-  void set_kernel_args(const ax_kernel &kernel, int arg_index, const std::vector<T> &arg)
+  void set_kernel_args(cl_kernel kernel, int arg_index, const std::vector<T> &arg)
   {
-    if (auto error = clSetKernelArg(
-            *kernel, arg_index, sizeof(arg[0]) * arg.size(), arg.data());
+    if (auto error
+        = clSetKernelArg(kernel, arg_index, sizeof(arg[0]) * arg.size(), arg.data());
         error != CL_SUCCESS) {
       throw std::runtime_error("Failed to set kernel argument " + std::to_string(arg_index)
                                + ", error: " + ax_utils::cl_error_to_string(error));
@@ -224,9 +109,9 @@ class CLProgram
   }
 
   template <typename T>
-  void set_kernel_args(const ax_kernel &kernel, int arg_index, T arg)
+  void set_kernel_args(cl_kernel kernel, int arg_index, T arg)
   {
-    if (auto error = clSetKernelArg(*kernel, arg_index, sizeof arg, &arg); error != CL_SUCCESS) {
+    if (auto error = clSetKernelArg(kernel, arg_index, sizeof arg, &arg); error != CL_SUCCESS) {
       throw std::runtime_error("Failed to set kernel argument " + std::to_string(arg_index)
                                + ", error: " + ax_utils::cl_error_to_string(error));
     }
@@ -239,7 +124,7 @@ class CLProgram
   /// @param rest - The rest of the arguments
   /// @return - Any status code
   template <typename T, typename... Rest>
-  void set_kernel_args(const ax_kernel &kernel, int arg_index, T arg, Rest... rest)
+  void set_kernel_args(cl_kernel kernel, int arg_index, T arg, Rest... rest)
   {
     set_kernel_args(kernel, arg_index, arg);
     set_kernel_args(kernel, arg_index + 1, rest...);
@@ -249,7 +134,7 @@ class CLProgram
   /// @param kernel - The kernel handle
   /// @param num_dims - The number of dimensions
   /// @param global_work_size - The actual dimensions
-  int execute_kernel(const ax_kernel &kernel, int num_dims, size_t global_work_size[3]);
+  int execute_kernel(cl_kernel kernel, int num_dims, size_t global_work_size[3]);
 
   /// @brief Ensures the output buffer is mapped to the host
   /// @param out - The buffer to map
@@ -271,9 +156,11 @@ class CLProgram
     return can_import_va(cl_details.extensions);
   }
 
+  using ax_event = cl_object<cl_event>;
+
   struct flush_details {
     int result{};
-    cl_event event{};
+    ax_event event{ nullptr };
     void *mapped{};
   };
 
@@ -281,7 +168,7 @@ class CLProgram
 
   flush_details start_flush_output_buffer(const ax_buffer &out, int size);
 
-  int unmap_buffer(cl_event event, const ax_buffer &out, void *mapped);
+  int unmap_buffer(ax_event event, const ax_buffer &out, void *mapped);
 
   ~CLProgram();
 
@@ -289,8 +176,6 @@ class CLProgram
   opencl_details cl_details;
 
   private:
-  int unmap_buffer(const ax_buffer &out, void *mapped);
-
   bool has_host_arm_import{};
   bool has_dma_buf_arm_import{};
 

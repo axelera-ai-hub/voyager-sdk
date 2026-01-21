@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2026
 #include <cstdlib>
 #include <cstring>
 #include <gst/gst.h>
@@ -43,6 +43,49 @@ static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE("src", GST_PA
 G_DEFINE_TYPE_WITH_CODE(GstAxInferenceNet, gst_axinferencenet, GST_TYPE_ELEMENT,
     GST_DEBUG_CATEGORY_INIT(gst_axinferencenet_debug, "axinferencenet", 0,
         "axinferencenet element"));
+
+// Custom query implementation for buffer requirements
+GstQuery *
+gst_query_new_ax_buffer_requirements(void)
+{
+  GstStructure *structure = gst_structure_new(
+      "GstQueryAxBufferRequirements", "num_buffers", G_TYPE_UINT, 0, NULL);
+  return gst_query_new_custom(GST_QUERY_AX_BUFFER_REQUIREMENTS, structure);
+}
+
+void
+gst_query_set_ax_buffer_requirements(GstQuery *query, guint num_buffers)
+{
+  g_return_if_fail(GST_QUERY_TYPE(query) == GST_QUERY_AX_BUFFER_REQUIREMENTS);
+
+  if (GstStructure *structure = gst_query_writable_structure(query)) {
+    gst_structure_set(structure, "num_buffers", G_TYPE_UINT, num_buffers, NULL);
+  }
+}
+
+guint
+gst_query_parse_ax_buffer_requirements(GstQuery *query)
+{
+  if (GST_QUERY_TYPE(query) != GST_QUERY_AX_BUFFER_REQUIREMENTS) {
+    return 0;
+  }
+  guint num_buffers = 0;
+  const GstStructure *structure = gst_query_get_structure(query);
+  return structure && gst_structure_get_uint(structure, "num_buffers", &num_buffers) ?
+             num_buffers :
+             0;
+}
+
+guint
+query_downstream_buffers(GstPad *pad)
+{
+  auto *query = gst_query_new_ax_buffer_requirements();
+  auto required_buffers = gst_pad_peer_query(pad, query) ?
+                              gst_query_parse_ax_buffer_requirements(query) :
+                              0;
+  gst_query_unref(query);
+  return required_buffers;
+}
 
 enum {
   PROP_PREPROC0_SHARED_LIB_PATH = Ax::AXINFERENCE_PROP_NEXT_AVAILABLE,
@@ -266,12 +309,6 @@ insert_event_end_marker(GstAxInferenceNet *inf)
   inf->event_queue->queue.push({ nullptr, Ax::GstHandle<GstEvent>() });
 }
 
-Ax::GstHandle<GstCaps>
-as_handle(GstCaps *p)
-{
-  return { p, ::gst_caps_unref };
-}
-
 static std::string
 get_pad_name(GstPad *pad)
 {
@@ -302,7 +339,7 @@ gst_axinferencenet_sink_chain(GstPad *sinkpad, GstObject *parent, GstBuffer *buf
     return GST_FLOW_EOS;
   }
   if (sinkpad_has_buffer) {
-    auto sinkpad_caps = as_handle(gst_pad_get_current_caps(sinkpad));
+    auto sinkpad_caps = Ax::as_handle(gst_pad_get_current_caps(sinkpad));
     if (!sinkpad_caps) {
       return GST_FLOW_EOS;
     }
@@ -367,13 +404,6 @@ process_queued_events(GstAxInferenceNet *inf)
     }
     process_sink_event(pad, inf, event.release());
   }
-}
-
-Ax::GstHandle<GstEvent>
-as_handle(GstEvent *event)
-{
-  return Ax::GstHandle<GstEvent>(
-      event, [](auto *event) { gst_event_unref(event); });
 }
 
 static GstElement *
@@ -470,7 +500,7 @@ gst_axinferencenet_sink_event(GstPad *pad, GstObject *parent, GstEvent *event)
     //  Serialized events should only be handled *after* the previous buffer has been processed
     //  and before the next. So we put them in a queue and handle them in the chain function
     std::lock_guard<std::mutex> lock(inf->event_queue->mutex);
-    inf->event_queue->queue.push({ pad, as_handle(event) });
+    inf->event_queue->queue.push({ pad, Ax::as_handle(event) });
     return TRUE;
   }
   return process_sink_event(pad, inf, event);
@@ -492,8 +522,9 @@ gst_axinferencenet_push_done(GstAxInferenceNet *inf, Ax::CompletedFrame &frame)
     GST_ERROR_OBJECT(inf, "AxInference has lost the source pad: %s", g_module_error());
   } else {
     process_queued_events(inf);
-    auto out_caps = as_handle(caps_from_interface(frame.video));
-    auto current_caps = as_handle(gst_pad_get_current_caps(GST_PAD_CAST(srcpads->data)));
+    auto out_caps = Ax::as_handle(caps_from_interface(frame.video));
+    auto current_caps
+        = Ax::as_handle(gst_pad_get_current_caps(GST_PAD_CAST(srcpads->data)));
     if (!current_caps || !gst_caps_is_equal(out_caps.get(), current_caps.get())) {
       gst_pad_set_caps(GST_PAD_CAST(srcpads->data), out_caps.get());
     }
@@ -521,28 +552,34 @@ count_sink_pads(GstElement *element)
 }
 
 static int
+determine_required_buffers(GstAxInferenceNet *sink)
+{
+  auto *properties = sink->properties.get();
+  auto pre_fill = Ax::pipeline_pre_fill(*properties);
+  auto output_drop = Ax::output_drop(*properties);
+  return sink->net->frames_required_for_inference() * (pre_fill + output_drop);
+}
+
+static int
 determine_max_pool_buffers(GstAxInferenceNet *sink)
 {
   auto *properties = sink->properties.get();
   auto max_buffers = properties->max_buffers;
-  auto pre_fill = Ax::pipeline_pre_fill(*properties);
-  auto output_drop = Ax::output_drop(*properties);
-  //  We need to ensure that we have enough buffers to handle the pre-fill and
-  //  output drop, otherwise we could block permanently
-  auto min_buffers = pre_fill + output_drop + 4;
-
-  if (max_buffers < min_buffers) {
+  auto required_buffers = determine_required_buffers(sink);
+  if (max_buffers < required_buffers) {
     if (max_buffers > 0) {
       GST_WARNING_OBJECT(sink, "Max buffers %d is less than min required %d, using default",
-          max_buffers, min_buffers);
+          max_buffers, required_buffers);
     }
-    //  This assumes 4 pre and 4 post processing operators with double
-    //  buffering and 50 buffers for the last layer
-    auto num_sinks = count_sink_pads(GST_ELEMENT(sink));
-    auto other_buffers = 8 + 50 / (num_sinks > 0 ? num_sinks : 1);
-    max_buffers = pre_fill + output_drop + other_buffers;
+    max_buffers = required_buffers;
   }
-  return max_buffers;
+  //  Query downstream axinferencenets for their requirements
+  //  Get reuqired buffers from downstream
+  auto *srcpad = GST_PAD_CAST(sink->parent.srcpads->data);
+  auto downstream_buffers = query_downstream_buffers(srcpad);
+  auto num_sinks = count_sink_pads(GST_ELEMENT(sink));
+  auto other_buffers = 8 + 50 / (num_sinks > 0 ? num_sinks : 1);
+  return max_buffers + other_buffers + downstream_buffers;
 }
 
 static gboolean
@@ -591,12 +628,23 @@ add_allocation_proposal(GstAxInferenceNet *sink, GstQuery *query)
   return TRUE;
 }
 
-
 static int
 gst_axinferencenet_sink_query(GstPad *pad, GstObject *parent, GstQuery *query)
 {
   auto *inf = GST_AXINFERENCENET(parent);
   GST_DEBUG_OBJECT(inf, "sink_query");
+
+  if (GST_QUERY_TYPE(query) == GST_QUERY_AX_BUFFER_REQUIREMENTS) {
+    guint required_buffers = determine_required_buffers(inf);
+    auto *srcpad = GST_PAD_CAST(inf->parent.srcpads->data);
+    if (srcpad) {
+      guint downstream_buffers = query_downstream_buffers(srcpad);
+      required_buffers += downstream_buffers;
+      GST_DEBUG_OBJECT(inf, "Downstream requires %u buffers", downstream_buffers);
+    }
+    gst_query_set_ax_buffer_requirements(query, required_buffers);
+    return TRUE;
+  }
 
   return GST_QUERY_TYPE(query) == GST_QUERY_ALLOCATION ?
              add_allocation_proposal(inf, query) :
@@ -780,6 +828,7 @@ gst_axinferencenet_init(GstAxInferenceNet *inf)
 
   auto srcpad = gst_pad_new_from_static_template(&src_template, "src");
   gst_pad_use_fixed_caps(srcpad);
+  // gst_pad_set_query_function(srcpad, GST_DEBUG_FUNCPTR(gst_axinferencenet_src_query));
   gst_pad_set_active(srcpad, TRUE);
   gst_element_add_pad(&inf->parent, srcpad);
   g_signal_connect(&inf->parent, "pad-removed", G_CALLBACK(axnet_on_pad_removed), nullptr);
@@ -792,15 +841,17 @@ gst_axinferencenet_finalize(GObject *object)
   auto *inf = GST_AXINFERENCENET(object);
   GST_DEBUG_OBJECT(object, "finalizing");
   net(inf).stop();
-  inf->net.reset();
-  inf->properties.reset();
-  gst_object_unref(inf->element_latency);
-  inf->event_queue.reset();
-  inf->allocator.reset();
-  inf->pool.reset();
-  inf->stream_select.reset();
   inf->logger.reset();
-  G_OBJECT_CLASS(gst_axinferencenet_parent_class)->dispose(object);
+  inf->stream_select.reset();
+  inf->flushing_pads.reset();
+  inf->flushing_mutex.reset();
+  inf->pool.reset();
+  inf->allocator.reset();
+  inf->event_queue.reset();
+  inf->properties.reset();
+  inf->net.reset();
+  gst_object_unref(inf->element_latency);
+  G_OBJECT_CLASS(gst_axinferencenet_parent_class)->finalize(object);
   GST_DEBUG_OBJECT(object, "disposed");
 }
 

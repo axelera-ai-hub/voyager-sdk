@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2026
 #pragma once
 
 #include <atomic>
@@ -62,5 +62,17 @@ struct _GstAxInferenceNetClass {
 };
 
 G_GNUC_INTERNAL GType gst_axinferencenet_get_type(void);
+
+// Custom query type for querying buffer pool requirements
+#define GST_QUERY_AX_BUFFER_REQUIREMENTS ((GstQueryType) (GST_QUERY_CUSTOM))
+
+// Create a new buffer requirements query
+GstQuery *gst_query_new_ax_buffer_requirements(void);
+
+// Set the number of required buffers in the query
+void gst_query_set_ax_buffer_requirements(GstQuery *query, guint num_buffers);
+
+// Parse the number of required buffers from the query
+gboolean gst_query_parse_ax_buffer_requirements(GstQuery *query, guint *num_buffers);
 
 G_END_DECLS

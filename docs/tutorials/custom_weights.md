@@ -384,12 +384,11 @@ yolo export model=yolov8n_licenseplate.pt format=onnx opset=17
 
 > [!NOTE]
 > The Axelera compiler defaults to [ONNX opset17](/docs/reference/onnx-opset17-support.md).
-
-default supports opset 17 (not all operators fully supports opset 17 and  model zoo YOLO model has been fully verified using only opsets 14-17.
+> Not all operators fully support opset 17, and the model zoo YOLO models have been fully verified using only opsets 14-17.
 
 To create a new project based on this ONNX model, copy the file `yolov8n-licenseplate.yaml`
 (defined in the previous section) to a new file `yolov8n-licenseplate-onnx.yaml` and update
-the the following sections.
+the following sections.
 
 ```yaml
 name: yolov8n-licenseplate-onnx
@@ -472,7 +471,7 @@ The torchvision implementation of ResNet provides a number of parameters includi
 Model-specific parameterisation options are usually provided as `extra_kwargs` section.
 
 In this case, the dataset
-clss specified is `TorchvisionDataAdapter`. The Axelera data adapter
+class specified is `TorchvisionDataAdapter`. The Axelera data adapter
 [`TorchvisionDataAdapter`](/ax_datasets/torchvision.py)
 is a flexible generic adapter that can be configured with any dataset that uses the standard
 ImageNet label format. This means that the calibration images are put into a single directory

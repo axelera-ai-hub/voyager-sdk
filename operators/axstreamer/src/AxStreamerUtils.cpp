@@ -11,6 +11,9 @@
 #include "AxInferenceNet.hpp"
 #include "AxLog.hpp"
 
+#include <linux/dma-buf.h>
+
+namespace fs = std::filesystem;
 using namespace std::string_literals;
 
 // TODO: We need to keep number of channels and number of planes for each format
@@ -426,7 +429,7 @@ class HeapDataInterfaceAllocator : public Ax::DataInterfaceAllocator
     return res;
   }
 
-  void map(Ax::ManagedDataInterface &) override
+  void map(Ax::ManagedDataInterface &, Ax::MapType) override
   {
   }
   void unmap(Ax::ManagedDataInterface &) override
@@ -468,18 +471,18 @@ class DmaBufDataInterfaceAllocator : public Ax::DataInterfaceAllocator
     return buffer;
   }
 
-  void map(Ax::ManagedDataInterface &buffer) override
+  void map(Ax::ManagedDataInterface &buffer, Ax::MapType type) override
   {
     if (!buffer.is_mapped()) {
       std::vector<std::shared_ptr<void>> buffers;
       auto &fds = buffer.fds();
       if (auto *video = std::get_if<AxVideoInterface>(&buffer.data())) {
-        auto p = map_buf(fds[0]->fd, video->info.stride * video->info.height);
+        auto p = map_buf(*fds[0], video->info.stride * video->info.height, type);
         buffers.push_back(std::move(p));
       } else if (auto *tensors = std::get_if<AxTensorsInterface>(&buffer.data())) {
         size_t n = 0;
         for (auto &tensor : *tensors) {
-          auto p = map_buf(fds[n]->fd, tensor.total_bytes());
+          auto p = map_buf(*fds[n], tensor.total_bytes(), type);
           buffers.push_back(std::move(p));
           ++n;
         }
@@ -528,20 +531,30 @@ class DmaBufDataInterfaceAllocator : public Ax::DataInterfaceAllocator
           "Failed to alloc dmabuf for " + std::to_string(aligned_size)
           + " bytes : got invalid fd : " + std::string(strerror(errno)));
     }
-    return std::make_shared<Ax::DmaBufHandle>(data.fd);
-  }
-
-  std::shared_ptr<void> map_buf(int fd, size_t size)
-  {
-    const auto aligned_size = align_to_page_size(size);
     const int prot = PROT_READ | PROT_WRITE;
     const int flags = MAP_SHARED;
-    void *const ptr = ::mmap(nullptr, aligned_size, prot, flags, fd, 0);
+    void *const ptr = ::mmap(nullptr, aligned_size, prot, flags, data.fd, 0);
     if (ptr == MAP_FAILED) {
       throw std::runtime_error("Failed to mmap dmabuf for " + std::to_string(aligned_size)
                                + " bytes : " + std::string(strerror(errno)));
     }
-    return { ptr, [aligned_size](void *p) { ::munmap(p, aligned_size); } };
+    return std::make_shared<Ax::DmaBufHandle>(data.fd, aligned_size, ptr);
+  }
+
+  std::shared_ptr<void> map_buf(const Ax::DmaBufHandle &fd, size_t size, Ax::MapType type)
+  {
+    uint64_t flags = DMA_BUF_SYNC_RW;
+    if (type == Ax::MAP_READ_ONLY) {
+      flags = DMA_BUF_SYNC_READ;
+    } else if (type == Ax::MAP_WRITE_ONLY) {
+      flags = DMA_BUF_SYNC_WRITE;
+    }
+    struct dma_buf_sync sync = {
+      .flags = DMA_BUF_SYNC_START | flags, // or WRITE
+    };
+    ioctl(fd.fd, DMA_BUF_IOCTL_SYNC, &sync);
+    return { fd.mapped,
+      [sync, fd = fd.fd](void *p) { ioctl(fd, DMA_BUF_IOCTL_SYNC, &sync); } };
   }
 
   std::string device_name_;
@@ -688,7 +701,7 @@ Ax::LoadedPlugin<PluginType, PluginBase>::LoadedPlugin(Ax::Logger &logger,
     : logger(logger), shared_(std::move(shared)),
       name_(make_plugin_name(shared_.libname())), mode_(mode)
 {
-  Ax::load_v1_plugin(shared, fns);
+  Ax::load_v1_plugin(shared_, fns);
   if (fns.allowed_properties) {
     allowed_ = fns.allowed_properties();
   }
@@ -750,9 +763,9 @@ Ax::BatchedBuffer::BatchedBuffer(int batch_size, const AxDataInterface &iface,
 
 
 void
-Ax::BatchedBuffer::map()
+Ax::BatchedBuffer::map(Ax::MapType flags)
 {
-  allocator.map(batched);
+  allocator.map(batched, flags);
   update_views();
 }
 

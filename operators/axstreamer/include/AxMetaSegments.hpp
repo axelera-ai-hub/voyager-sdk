@@ -59,7 +59,7 @@ class AxMetaSegments : public virtual AxMetaBase
     }
     return segmentlist[idx];
   }
-  void set_prototype_tensor(const std::vector<float> &tensor)
+  void set_prototype_tensor(std::vector<float> tensor)
   {
     prototype_tensor = std::move(tensor);
   }

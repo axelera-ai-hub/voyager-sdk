@@ -36,6 +36,13 @@ struct opencl_buffer_details;
 namespace Ax
 {
 
+enum MapType {
+  MAP_NONE,
+  MAP_READ_ONLY,
+  MAP_WRITE_ONLY,
+  MAP_READ_WRITE,
+};
+
 template <typename T>
 T
 pop_queue(std::queue<T> &q)
@@ -65,10 +72,19 @@ clear_queue(std::queue<T> &q)
 }
 
 struct DmaBufHandle {
-  explicit DmaBufHandle(int fd, bool should_close = true)
-      : fd(fd), should_close(should_close)
+  explicit DmaBufHandle(int fd, size_t size, void *p)
+      : fd(fd), mapped(p), size(size), should_close(true)
   {
+    //  Size should always be non-zero if we own the fd
+    assert(size != 0);
   }
+  explicit DmaBufHandle(int fd, size_t size)
+      : fd(fd), size(size), should_close(false)
+  {
+    //  We should only close if we own the fd
+    assert(should_close != (size == 0));
+  }
+
   DmaBufHandle(const DmaBufHandle &) = delete;
   DmaBufHandle &operator=(const DmaBufHandle &) = delete;
   DmaBufHandle(DmaBufHandle &&) = delete;
@@ -76,12 +92,15 @@ struct DmaBufHandle {
   ~DmaBufHandle()
   {
     if (fd >= 0 && should_close) {
+      ::munmap(mapped, size);
       ::close(fd);
     }
   }
   const int fd;
+  void *mapped = nullptr;
 
   private:
+  const size_t size;
   const bool should_close;
 };
 using SharedFD = std::shared_ptr<DmaBufHandle>;
@@ -368,7 +387,7 @@ class DataInterfaceAllocator
 {
   public:
   virtual ManagedDataInterface allocate(const AxDataInterface &data) = 0;
-  virtual void map(ManagedDataInterface &data) = 0;
+  virtual void map(ManagedDataInterface &data, MapType type) = 0;
   virtual void unmap(ManagedDataInterface &data) = 0;
   virtual void release(ManagedDataInterface &data) = 0;
   virtual ~DataInterfaceAllocator() = default;
@@ -381,7 +400,7 @@ class NullDataInterfaceAllocator : public DataInterfaceAllocator
   {
     return ManagedDataInterface(data);
   }
-  void map(ManagedDataInterface &) override
+  void map(ManagedDataInterface &, MapType) override
   {
     //  Map if it an OpenCL buffer
   }
@@ -466,7 +485,7 @@ class BatchedBuffer
     unmap();
   }
 
-  void map();
+  void map(MapType type);
 
   void unmap();
 
@@ -666,13 +685,16 @@ class SharedLib
   SharedLib &operator=(SharedLib &&) = delete;
 
   SharedLib(Ax::Logger &logger, const std::string &libname, bool close_on_destruct = false)
-      : logger_(logger), module_(dlopen(libname.c_str(), RTLD_LOCAL | RTLD_NOW)),
+      : logger_(logger), module_(dlopen(libname.c_str(), RTLD_NOLOAD | RTLD_NOW)),
         libname_(libname), close_on_destruct_(close_on_destruct)
   {
+
     if (!module_) {
-      logger_(AX_ERROR) << "Failed to open shared library " << libname_ << std::endl;
-      throw std::runtime_error("Shared library " + libname_ + " could not be opened. "
-                               + std::string(dlerror()));
+      module_ = dlopen(libname.c_str(), RTLD_LOCAL | RTLD_NOW);
+      if (!module_) {
+        throw std::runtime_error("Failed to load shared library " + libname
+                                 + ": " + std::string(dlerror()));
+      }
     }
   }
 

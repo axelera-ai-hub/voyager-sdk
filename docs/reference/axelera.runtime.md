@@ -135,7 +135,7 @@ Connection.load_model_instance().
 
 #### read_device_configuration(device)
 
-Read all available configiration properties of the device.
+Read all available configuration properties of the device.
 
 * **Return type:**
   `dict`[`str`, `str`]
@@ -144,7 +144,7 @@ Read all available configiration properties of the device.
 
 Release the context and all its children.
 
-This function is called automatically when Context is used as acontext
+This function is called automatically when Context is used as a context
 manager.
 
 ### *class* axelera.runtime.Connection
@@ -239,7 +239,7 @@ class BoardType(enum.Enum):
 
 ### *class* axelera.runtime.DeviceInfo
 
-The result of enumeraing the available Axelera devices.
+The result of enumerating the available Axelera devices.
 
 DeviceInfo is also used to indicate which device to configure, read configuration, and select desired device.
 

@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2026
 #include <array>
 #include <unordered_map>
 #include <unordered_set>
@@ -277,7 +277,7 @@ class CLResize
   {
   }
 
-  ax_utils::CLProgram::flush_details run_kernel(const kernel &kernel,
+  ax_utils::CLProgram::flush_details run_kernel(cl_kernel kernel,
       const buffer_details &out, const buffer &outbuf, bool start_flush)
   {
     size_t global_work_size[3] = { 1, 1, 1 };
@@ -296,7 +296,7 @@ class CLResize
     return {};
   }
 
-  int run_kernel(kernel &k, const buffer_details &out, buffer &inbuf,
+  int run_kernel(cl_kernel k, const buffer_details &out, buffer &inbuf,
       buffer &outbuf, bool start_flush)
   {
     auto details = run_kernel(k, out, outbuf, start_flush);
@@ -306,11 +306,11 @@ class CLResize
       //  Store this away so that when the buffer is mapped we just wait on the
       //  event.
       if (auto *p = std::get_if<opencl_buffer *>(&out.data)) {
-        (*p)->event = details.event;
+        (*p)->event = std::move(details.event);
         (*p)->mapped = details.mapped;
       } else {
-        clWaitForEvents(1, &details.event);
-        clReleaseEvent(details.event);
+        clWaitForEvents(1, &*details.event);
+        details.event.reset();
       }
     }
     return 0;
@@ -318,17 +318,7 @@ class CLResize
 
   ax_utils::CLProgram::ax_buffer create_buffer(const buffer_details &info, cl_mem_flags flags)
   {
-    if (last_buffer.mem) {
-      //  We have a cached value, check if it is the same size
-      if (last_buffer.in.data == info.data
-          && ax_utils::determine_buffer_size(info)
-                 == ax_utils::determine_buffer_size(last_buffer.in)) {
-        return last_buffer.mem;
-      }
-    }
-    auto mem = program.create_buffer(info, flags);
-    last_buffer = { mem, info };
-    return mem;
+    return program.create_buffer(info, flags);
   }
 
   int run(const buffer_details &in, const buffer_details &out, const resize_properties &prop)
@@ -370,8 +360,8 @@ class CLResize
 
       cl_char is_bgr = add_alpha(in.format) != out.format;
       auto kernel = in.format == AxVideoFormat::RGB || in.format == AxVideoFormat::BGR ?
-                        rgb_resize :
-                        rgba_resize;
+                        *rgb_resize :
+                        *rgba_resize;
       program.set_kernel_args(kernel, 0, *inbuf, *outbuf, in.width, in.height,
           in.crop_x, in.crop_y, out.width, out.height, in.stride, out.stride, xscale,
           yscale, scaled_width, scaled_height, fill, is_bgr, prop.mul, prop.add);
@@ -383,12 +373,11 @@ class CLResize
       cl_int uv_offset = in.offsets[1];
       cl_int uv_stride = in.strides[1];
       cl_char is_bgr = out.format == AxVideoFormat::BGRA;
-      program.set_kernel_args(nv12_resize, 0, *inbuf_y, *outbuf, uv_offset,
+      program.set_kernel_args(*nv12_resize, 0, *inbuf_y, *outbuf, uv_offset,
           in.width, in.height, in.crop_x, in.crop_y, out.width, out.height,
           in.stride, uv_stride, out.stride, xscale, yscale, scaled_width,
           scaled_height, fill, is_bgr, prop.mul, prop.add);
-      return run_kernel(nv12_resize, out, inbuf_y, outbuf, start_flush);
-
+      return run_kernel(*nv12_resize, out, inbuf_y, outbuf, start_flush);
     } else if (in.format == AxVideoFormat::I420) {
       auto inbuf_y = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
 
@@ -397,29 +386,28 @@ class CLResize
       cl_int v_offset = in.offsets[2];
       cl_int v_stride = in.strides[2];
       cl_char is_bgr = out.format == AxVideoFormat::BGRA;
-      program.set_kernel_args(i420_resize, 0, *inbuf_y, *outbuf, u_offset,
+      program.set_kernel_args(*i420_resize, 0, *inbuf_y, *outbuf, u_offset,
           v_offset, in.width, in.height, in.crop_x, in.crop_y, out.width,
           out.height, in.stride, u_stride, v_stride, out.stride, xscale, yscale,
           scaled_width, scaled_height, fill, is_bgr, prop.mul, prop.add);
 
-      return run_kernel(i420_resize, out, inbuf_y, outbuf, start_flush);
+      return run_kernel(*i420_resize, out, inbuf_y, outbuf, start_flush);
 
     } else if (in.format == AxVideoFormat::YUY2) {
       auto inbuf_y = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
 
       cl_char is_bgr = out.format == AxVideoFormat::BGRA;
-      program.set_kernel_args(yuyv_resize, 0, *inbuf_y, *outbuf, in.width, in.height,
+      program.set_kernel_args(*yuyv_resize, 0, *inbuf_y, *outbuf, in.width, in.height,
           in.crop_x, in.crop_y, out.width, out.height, in.stride, out.stride, xscale,
           yscale, scaled_width, scaled_height, fill, is_bgr, prop.mul, prop.add);
 
-      return run_kernel(yuyv_resize, out, inbuf_y, outbuf, start_flush);
-
+      return run_kernel(*yuyv_resize, out, inbuf_y, outbuf, start_flush);
     } else if (in.format == AxVideoFormat::GRAY8) {
       auto inbuf = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
-      program.set_kernel_args(gray8_resize, 0, *inbuf, *outbuf, in.width, in.height,
+      program.set_kernel_args(*gray8_resize, 0, *inbuf, *outbuf, in.width, in.height,
           in.crop_x, in.crop_y, out.width, out.height, in.stride, out.stride, xscale,
           yscale, scaled_width, scaled_height, fill, prop.mul[0], prop.add[0]);
-      return run_kernel(gray8_resize, out, inbuf, outbuf, start_flush);
+      return run_kernel(*gray8_resize, out, inbuf, outbuf, start_flush);
     } else {
       throw std::runtime_error("Unsupported input format in resize_cl2: "
                                + AxVideoFormatToString(in.format));

@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2026
 #include "GstAxTransform.hpp"
 #include <cstring>
 #include <gmodule.h>
@@ -251,7 +251,7 @@ plugin_has_set_output_interface(GstAxtransform *axtransform)
          || axtransform->data->plugin->has_set_output_interface_from_meta();
 }
 
-static GstCaps *
+static Ax::GstHandle<GstCaps>
 gst_axtransform_outcaps(GstAxtransform *axtransform, GstCaps *from_event, GstBuffer *buffer)
 {
   /*
@@ -271,7 +271,8 @@ gst_axtransform_outcaps(GstAxtransform *axtransform, GstCaps *from_event, GstBuf
           dimensions: 160:160:3:1
                types: float32
   */
-  GstCaps *from_srctemplate_and_peer = gst_pad_get_allowed_caps(axtransform->srcpad);
+  auto from_srctemplate_and_peer
+      = Ax::as_handle(gst_pad_get_allowed_caps(axtransform->srcpad));
 
   if (!plugin_has_set_output_interface(axtransform)
       && axtransform->data->plugin->has_transform()) {
@@ -314,16 +315,18 @@ gst_axtransform_outcaps(GstAxtransform *axtransform, GstCaps *from_event, GstBuf
     }
   }
 
-  GstCaps *from_event_and_properties = caps_from_interface(template_for_outcaps);
-  GstCaps *to = gst_caps_intersect(from_srctemplate_and_peer, from_event_and_properties);
+  auto from_event_and_properties
+      = Ax::as_handle(caps_from_interface(template_for_outcaps));
+  auto to = Ax::as_handle(gst_caps_intersect(
+      from_srctemplate_and_peer.get(), from_event_and_properties.get()));
 
-  if (gst_caps_is_empty(to)) {
+  if (gst_caps_is_empty(to.get())) {
     GST_ERROR_OBJECT(axtransform, "Caps compatible to the following elements %" GST_PTR_FORMAT,
-        from_srctemplate_and_peer);
+        from_srctemplate_and_peer.get());
     GST_ERROR_OBJECT(axtransform, "Caps compatible to -set_output_interface- %" GST_PTR_FORMAT,
-        from_event_and_properties);
-    auto *in_caps = gst_caps_to_string(from_event_and_properties);
-    auto *out_caps = gst_caps_to_string(from_srctemplate_and_peer);
+        from_event_and_properties.get());
+    auto *in_caps = gst_caps_to_string(from_event_and_properties.get());
+    auto *out_caps = gst_caps_to_string(from_srctemplate_and_peer.get());
     std::stringstream s;
     s << "Output caps provided by -set_output_interface- do not intersect with allowed caps\n"
       << in_caps << "\n"
@@ -332,9 +335,6 @@ gst_axtransform_outcaps(GstAxtransform *axtransform, GstCaps *from_event, GstBuf
     g_free(out_caps);
     throw std::runtime_error(s.str());
   }
-
-  gst_caps_unref(from_srctemplate_and_peer);
-  gst_caps_unref(from_event_and_properties);
 
   return to;
 }
@@ -357,26 +357,21 @@ static gboolean
 gst_axtransform_setcaps(GstAxtransform *axtransform, GstCaps *from_event, GstBuffer *buffer)
 {
   initialise_options(axtransform);
-  GstCaps *to = gst_axtransform_outcaps(axtransform, from_event, buffer);
+  auto to = gst_axtransform_outcaps(axtransform, from_event, buffer);
 
-  copy_or_fixate_framerate(from_event, to);
-  to = gst_caps_fixate(to);
-  auto *current_caps = gst_pad_get_current_caps(axtransform->srcpad);
+  copy_or_fixate_framerate(from_event, to.get());
+  to = Ax::as_handle(gst_caps_fixate(to.release()));
+  auto current_caps = Ax::as_handle(gst_pad_get_current_caps(axtransform->srcpad));
   gboolean ret = TRUE;
   //  Only set caps if they have changed
-  if (!current_caps || !gst_caps_is_equal(to, current_caps)) {
-    ret = gst_pad_set_caps(axtransform->srcpad, to);
+  if (!current_caps || !gst_caps_is_equal(to.get(), current_caps.get())) {
+    ret = gst_pad_set_caps(axtransform->srcpad, to.get());
   }
-  axtransform->data->output_template = interface_from_caps_and_meta(to, nullptr);
+  axtransform->data->output_template = interface_from_caps_and_meta(to.get(), nullptr);
   axtransform->outsize = size_from_interface(axtransform->data->output_template);
   if (axtransform->data->plugin->has_transform()) {
-    gst_axtransform_do_bufferpool(axtransform, to);
+    gst_axtransform_do_bufferpool(axtransform, to.get());
   }
-
-  if (current_caps) {
-    gst_caps_unref(current_caps);
-  }
-  gst_caps_unref(to);
   return ret;
 }
 
@@ -558,9 +553,9 @@ gst_axtransform_sink_chain(GstPad *pad, GstObject *parent, GstBuffer *buffer)
   if (!self->event_queue.empty()) {
     process_queued_events(axtransform, buffer);
   }
-  GstCaps *in_caps = gst_pad_get_current_caps(pad);
-  AxDataInterface input = interface_from_caps_and_meta(in_caps, buffer);
-  gst_caps_unref(in_caps);
+
+  auto in_caps = Ax::as_handle(gst_pad_get_current_caps(pad));
+  AxDataInterface input = interface_from_caps_and_meta(in_caps.get(), buffer);
 
   //  If no changes are required to the data, simply pass the buffer through
   if (can_passthrough(axtransform, input)) {
@@ -577,17 +572,14 @@ gst_axtransform_sink_chain(GstPad *pad, GstObject *parent, GstBuffer *buffer)
     if (!has_width_and_height(out)) {
       throw(std::runtime_error("Bounding box width or height is 0."));
     }
-    auto *caps = caps_from_interface(out);
-    auto *current_caps = gst_pad_get_current_caps(axtransform->srcpad);
+    auto caps = Ax::as_handle(caps_from_interface(out));
+    auto current_caps = Ax::as_handle(gst_pad_get_current_caps(axtransform->srcpad));
     bool need_bufferpool = false;
-    if (!current_caps || !gst_caps_is_equal(caps, current_caps)) {
-      gst_pad_set_caps(axtransform->srcpad, caps);
+    if (!current_caps || !gst_caps_is_equal(caps.get(), current_caps.get())) {
+      gst_pad_set_caps(axtransform->srcpad, caps.get());
       need_bufferpool = true;
     }
-    if (current_caps) {
-      gst_caps_unref(current_caps);
-    }
-    current_caps = caps;
+    current_caps = std::move(caps);
 
     if (self->downstream_supports_crop) {
       axtransform->outsize = size_from_interface(out);
@@ -596,9 +588,8 @@ gst_axtransform_sink_chain(GstPad *pad, GstObject *parent, GstBuffer *buffer)
       }
     }
     if (need_bufferpool) {
-      gst_axtransform_do_bufferpool(axtransform, current_caps);
+      gst_axtransform_do_bufferpool(axtransform, current_caps.get());
     }
-    gst_caps_unref(current_caps);
   }
 
   if (self->downstream_supports_crop && self->plugin->has_set_output_interface()) {
@@ -607,13 +598,12 @@ gst_axtransform_sink_chain(GstPad *pad, GstObject *parent, GstBuffer *buffer)
       return GST_FLOW_OK;
     }
   }
-  auto *current_caps = gst_pad_get_current_caps(axtransform->srcpad);
+  auto current_caps = Ax::as_handle(gst_pad_get_current_caps(axtransform->srcpad));
   if (!current_caps || !GST_IS_BUFFER(buffer)) {
     //  Caps failed to set, typically happens when stream is aborted
     return GST_FLOW_OK;
   }
-  AxDataInterface output = interface_from_caps_and_meta(current_caps, nullptr);
-  gst_caps_unref(current_caps);
+  AxDataInterface output = interface_from_caps_and_meta(current_caps.get(), nullptr);
 
   std::vector<GstMapInfo> inmap;
   if (should_pass_fds(axtransform, buffer)) {

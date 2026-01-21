@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2026
 // collection of utils taken from axstreamer
 #pragma once
 #include <functional>
@@ -30,6 +30,18 @@ GstHandle<T>
 as_handle(T *p)
 {
   return GstHandle<T>(p, ::gst_object_unref);
+}
+
+inline GstHandle<GstCaps>
+as_handle(GstCaps *p)
+{
+  return { p, ::gst_caps_unref };
+}
+
+inline GstHandle<GstEvent>
+as_handle(GstEvent *event)
+{
+  return { event, ::gst_event_unref };
 }
 
 enum {

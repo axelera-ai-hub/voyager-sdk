@@ -40,6 +40,8 @@ INSTANTIATE_TEST_SUITE_P(ColorConvertTestSuite, PassthroughFixture,
         passthrough_params{ AxVideoFormat::YUY2, "bgra", "none", false },
         passthrough_params{ AxVideoFormat::BGRA, "bgra", "none", true },
         passthrough_params{ AxVideoFormat::RGBA, "rgba", "none", true },
+        passthrough_params{ AxVideoFormat::RGB, "rgb", "none", true },
+        passthrough_params{ AxVideoFormat::BGR, "bgr", "none", true },
         // Test grayscale conversion passthrough cases
         passthrough_params{ AxVideoFormat::NV12, "gray", "none", true },
         passthrough_params{ AxVideoFormat::I420, "gray", "none", true },
@@ -122,6 +124,37 @@ TEST(Conversions1, rgb2bgr)
     GTEST_SKIP();
   }
   std::unordered_map<std::string, std::string> input = {
+    { "format", "bgr" },
+  };
+  auto xform = Ax::LoadTransform("colorconvert_cl", input);
+  auto in_buf = std::vector<uint8_t>{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+    13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+    32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47 };
+
+  auto out_buf = std::vector<uint8_t>(in_buf.size());
+  auto expected = std::vector<uint8_t>{ 2, 1, 0, 5, 4, 3, 8, 7, 6, 11, 10, 9,
+    14, 13, 12, 17, 16, 15, 20, 19, 18, 23, 22, 21, 26, 25, 24, 29, 28, 27, 32,
+    31, 30, 35, 34, 33, 38, 37, 36, 41, 40, 39, 44, 43, 42, 47, 46, 45 };
+
+  std::vector<size_t> strides{ 8 * 3 };
+  std::vector<size_t> offsets{ 0 };
+
+  auto in = AxVideoInterface{ { 8, 2, int(strides[0]), 0, AxVideoFormat::RGB },
+    in_buf.data(), strides, offsets, -1 };
+
+  auto out = AxVideoInterface{ { 8, 2, 8 * 3, 0, AxVideoFormat::BGR },
+    out_buf.data(), { 8 * 3 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
+TEST(Conversions1, rgba2bgra)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
     { "format", "bgra" },
   };
   auto xform = Ax::LoadTransform("colorconvert_cl", input);
@@ -149,7 +182,39 @@ TEST(Conversions1, rgb2bgr)
   ASSERT_EQ(out_buf, expected);
 }
 
+
 TEST(Conversions, bgr2rgb)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "format", "rgb" },
+  };
+  auto xform = Ax::LoadTransform("colorconvert_cl", input);
+  auto in_buf = std::vector<uint8_t>{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+    13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+    32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47 };
+
+  auto out_buf = std::vector<uint8_t>(in_buf.size());
+  auto expected = std::vector<uint8_t>{ 2, 1, 0, 5, 4, 3, 8, 7, 6, 11, 10, 9,
+    14, 13, 12, 17, 16, 15, 20, 19, 18, 23, 22, 21, 26, 25, 24, 29, 28, 27, 32,
+    31, 30, 35, 34, 33, 38, 37, 36, 41, 40, 39, 44, 43, 42, 47, 46, 45 };
+
+  std::vector<size_t> strides{ 8 * 3 };
+  std::vector<size_t> offsets{ 0 };
+
+  auto in = AxVideoInterface{ { 8, 2, int(strides[0]), 0, AxVideoFormat::BGR },
+    in_buf.data(), strides, offsets, -1 };
+
+  auto out = AxVideoInterface{ { 8, 2, 8 * 3, 0, AxVideoFormat::RGB },
+    out_buf.data(), { 8 * 3 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
+TEST(Conversions, bgra2rgba)
 {
   if (!has_opencl_platform()) {
     GTEST_SKIP();
@@ -181,6 +246,7 @@ TEST(Conversions, bgr2rgb)
   xform->transform(in, out, 0, 1, metadata);
   ASSERT_EQ(out_buf, expected);
 }
+
 
 TEST(Conversion, yuyv2rgb)
 {
@@ -437,6 +503,104 @@ TEST(Conversion, i4202rgb_clockwise)
     in_buf.data(), strides, offsets, -1 };
 
   auto out = AxVideoInterface{ { 2, 6, 2 * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { 2 * 4 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
+TEST(ConversionsFlip, rgb_clockwise)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "format", "rgb" },
+    { "flip_method", "clockwise" },
+  };
+  auto xform = Ax::LoadTransform("colorconvert_cl", input);
+  auto in_buf = std::vector<uint8_t>{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+  auto out_buf = std::vector<uint8_t>(in_buf.size(), 0xff);
+  auto expected = std::vector<uint8_t>{ 6, 7, 8, 0, 1, 2, 9, 10, 11, 3, 4, 5 };
+  std::vector<size_t> strides{ 2 * 3 };
+  std::vector<size_t> offsets{ 0 };
+  auto in = AxVideoInterface{ { 2, 2, int(strides[0]), 0, AxVideoFormat::RGB },
+    in_buf.data(), strides, offsets, -1 };
+  auto out = AxVideoInterface{ { 2, 2, 2 * 3, 0, AxVideoFormat::RGB },
+    out_buf.data(), { 2 * 3 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
+TEST(ConversionsFlip, rgba_clockwise)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "format", "rgba" },
+    { "flip_method", "clockwise" },
+  };
+  auto xform = Ax::LoadTransform("colorconvert_cl", input);
+  auto in_buf = std::vector<uint8_t>{ 0, 1, 2, 0, 3, 4, 5, 0, 6, 7, 8, 0, 9, 10, 11, 0 };
+  auto out_buf = std::vector<uint8_t>(in_buf.size(), 0xff);
+  auto expected
+      = std::vector<uint8_t>{ 6, 7, 8, 0, 0, 1, 2, 0, 9, 10, 11, 0, 3, 4, 5, 0 };
+  std::vector<size_t> strides{ 2 * 4 };
+  std::vector<size_t> offsets{ 0 };
+  auto in = AxVideoInterface{ { 2, 2, int(strides[0]), 0, AxVideoFormat::RGBA },
+    in_buf.data(), strides, offsets, -1 };
+  auto out = AxVideoInterface{ { 2, 2, 2 * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { 2 * 4 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
+TEST(ConversionsFlip, bgr_counterclockwise)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "format", "bgr" },
+    { "flip_method", "counterclockwise" },
+  };
+  auto xform = Ax::LoadTransform("colorconvert_cl", input);
+  auto in_buf = std::vector<uint8_t>{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+  auto out_buf = std::vector<uint8_t>(in_buf.size(), 0xff);
+  auto expected = std::vector<uint8_t>{ 3, 4, 5, 9, 10, 11, 0, 1, 2, 6, 7, 8 };
+  std::vector<size_t> strides{ 2 * 3 };
+  std::vector<size_t> offsets{ 0 };
+  auto in = AxVideoInterface{ { 2, 2, int(strides[0]), 0, AxVideoFormat::BGR },
+    in_buf.data(), strides, offsets, -1 };
+  auto out = AxVideoInterface{ { 2, 2, 2 * 3, 0, AxVideoFormat::BGR },
+    out_buf.data(), { 2 * 3 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
+TEST(ConversionsFlip, bgra_counterclockwise)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "format", "bgra" },
+    { "flip_method", "counterclockwise" },
+  };
+  auto xform = Ax::LoadTransform("colorconvert_cl", input);
+  auto in_buf = std::vector<uint8_t>{ 0, 1, 2, 0, 3, 4, 5, 0, 6, 7, 8, 0, 9, 10, 11, 0 };
+  auto out_buf = std::vector<uint8_t>(in_buf.size(), 0xff);
+  auto expected
+      = std::vector<uint8_t>{ 3, 4, 5, 0, 9, 10, 11, 0, 0, 1, 2, 0, 6, 7, 8, 0 };
+  std::vector<size_t> strides{ 2 * 4 };
+  std::vector<size_t> offsets{ 0 };
+  auto in = AxVideoInterface{ { 2, 2, int(strides[0]), 0, AxVideoFormat::BGRA },
+    in_buf.data(), strides, offsets, -1 };
+  auto out = AxVideoInterface{ { 2, 2, 2 * 4, 0, AxVideoFormat::BGRA },
     out_buf.data(), { 2 * 4 }, { 0 }, -1 };
   Ax::MetaMap metadata;
   xform->transform(in, out, 0, 1, metadata);

@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2026
 #include <array>
 #include <unordered_map>
 #include <unordered_set>
@@ -77,7 +77,7 @@ class CLNormalize
   {
   }
 
-  CLProgram::flush_details run_kernel(const kernel &kernel,
+  CLProgram::flush_details run_kernel(cl_kernel kernel,
       const buffer_details &out, const buffer &outbuf, bool start_flush)
   {
     size_t global_work_size[3] = { 1, 1, 1 };
@@ -93,14 +93,14 @@ class CLNormalize
                          CLProgram::flush_details{};
   }
 
-  kernel get_kernel(const buffer_details &in)
+  cl_kernel get_kernel(const buffer_details &in)
   {
     if (in.channels == 4) {
-      return quantize_rgba;
+      return *quantize_rgba;
     } else if (in.channels == 3) {
-      return quantize_rgb;
+      return *quantize_rgb;
     } else if (in.channels == 1) {
-      return quantize_grey;
+      return *quantize_grey;
     } else {
       throw std::runtime_error("Unsupported number of channels for normalize: "
                                + std::to_string(in.channels));
@@ -124,11 +124,11 @@ class CLNormalize
     }
     if (!event) {
       if (auto *p = std::get_if<opencl_buffer *>(&out.data)) {
-        (*p)->event = event;
+        (*p)->event = std::move(event);
         (*p)->mapped = mapped;
       } else {
-        clWaitForEvents(1, &event);
-        clReleaseEvent(event);
+        clWaitForEvents(1, &*event);
+        event.reset();
       }
     }
   }

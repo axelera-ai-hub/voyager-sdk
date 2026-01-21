@@ -101,6 +101,10 @@ struct tracker_properties {
   TrackerParams algo_params{};
   std::unordered_map<std::string, KeepBoxCallback> keep_box_callback_map;
   std::unordered_map<std::string, DetermineObjectAttributeCallback> determine_object_attribute_callback_map;
+
+  // Store per-stream tracker state here instead of static variable
+  // This ensures tracker state is destroyed when properties are destroyed (pipeline restart)
+  mutable std::unordered_map<int, PerStreamTracker> stream_tracker_map;
 };
 
 extern "C" const std::unordered_set<std::string> &
@@ -211,9 +215,6 @@ inplace(const AxDataInterface &data, const tracker_properties *prop,
     unsigned int subframe_index, unsigned int number_of_subframes,
     std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> &map, Ax::Logger &logger)
 {
-  // Static map to hold Tracker Records for each stream_id
-  static std::unordered_map<int, PerStreamTracker> stream_tracker_map;
-
   if (!std::holds_alternative<AxVideoInterface>(data)) {
     throw std::runtime_error("inplace_tracker: buffer not of type AxVideoInterface");
   }
@@ -287,9 +288,9 @@ inplace(const AxDataInterface &data, const tracker_properties *prop,
     algo_params["img_height"] = static_cast<int>(video_info.height);
   }
 
-  auto &per_stream_tracker
-      = stream_tracker_map.try_emplace(stream_id, prop->algorithm, algo_params)
-            .first->second;
+  auto &per_stream_tracker = prop->stream_tracker_map
+                                 .try_emplace(stream_id, prop->algorithm, algo_params)
+                                 .first->second;
 
   // Compute CMC transform if enabled
   std::optional<Eigen::Matrix<float, 2, 3>> cmc_transform;

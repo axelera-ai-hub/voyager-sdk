@@ -60,7 +60,7 @@ namespace
 {
 struct GstDmaBufHandle : public Ax::DmaBufHandle {
   explicit GstDmaBufHandle(GstMemory *mem)
-      : Ax::DmaBufHandle(gst_fd_memory_get_fd(mem), false), mem(gst_memory_ref(mem))
+      : Ax::DmaBufHandle(gst_fd_memory_get_fd(mem), 0), mem(gst_memory_ref(mem))
   {
   }
   ~GstDmaBufHandle()

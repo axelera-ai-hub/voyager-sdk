@@ -208,7 +208,9 @@ class InputFromROI(AxOperator):
             )
 
         if self._need_color_convert:
-            utils.insert_color_convert(gst, self.color_format)
+            vaapi = gst.getconfig() is not None and gst.getconfig().vaapi
+            opencl = gst.getconfig() is not None and gst.getconfig().opencl
+            utils.insert_color_convert(gst, self.color_format, vaapi, opencl)
 
         gst.start_axinference()
         gst.distributor(meta=str(self._association))

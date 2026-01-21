@@ -18,7 +18,7 @@
   - [Related Documentation](#related-documentation)
   - [Further support](#further-support)
 
-> ** WHICH FIRMWARE GUIDE DO YOU NEED?**  
+> **WHICH FIRMWARE GUIDE DO YOU NEED?**  
 > See the [Firmware Update Decision Tree](firmware_update_decision_tree.md) to determine which firmware guide to follow.
 
 ## Prerequisites
