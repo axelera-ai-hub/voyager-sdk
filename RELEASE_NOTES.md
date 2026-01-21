@@ -5,13 +5,14 @@
   - [Voyager SDK release notes v1.5.3](#voyager-sdk-release-notes-v153)
   - [Fixed Issues Since v1.5.2](#fixed-issues-since-v152)
   - [New Features / Support Since v1.5.2](#new-features--support-since-v152)
-  - [Document Updates Since v1.5.2](#document-updates-since-v152)
+  - [Document Updates Since v1.5.2](#document-updates-since-v152) 
+  - [Voyager SDK release notes v1.5.2](#voyager-sdk-release-notes-v152)
   - [Fixed Issues Since v1.5.1](#fixed-issues-since-v151)
   - [New Features / Support Since v1.5.1](#new-features--support-since-v151)
   - [Document Updates Since v1.5.1](#document-updates-since-v151)
   - [Voyager SDK release notes v1.5.1](#voyager-sdk-release-notes-v151)
   - [Release Qualification](#release-qualification)
-  - [New Features / Support (v1.5.1)](#new-features--support-v151)
+  - [New Features / Support](#new-features--support)
     - [New Axelera AI Cards and Systems](#new-axelera-ai-cards-and-systems)
     - [New Platforms](#new-platforms)
     - [New Networks Supported](#new-networks-supported)
@@ -33,6 +34,7 @@
     - [Development Environment](#development-environment)
     - [Runtime Environment](#runtime-environment)
   - [Further Support](#further-support)
+
 
 ## Voyager SDK release notes v1.5.3
 This release adds support for YOLO26 from Ultralytics(TM). The model is available for in the
@@ -66,12 +68,16 @@ stability, compatibility, and developer experience.
 ## Document Updates Since v1.5.2
 - Added troubleshooting and verification sections to axmonitor documentation.
 
+## Voyager SDK release notes v1.5.2
+This release addresses several issues found in v1.5.1 and delivers targeted improvements to stability, compatibility, and developer experience.
+
 ## Fixed Issues Since v1.5.1
 - Fixed build failures for ImageNet networks using HINT instructions.
 - Fixed `NormaliseCL` to correctly handle non‑4‑channel inputs.
 - Prevented segmentation faults in YOLO decoders when receiving an unexpected number of input tensors.
 
-## New Features / Support Since v1.5.1
+## New Features / Support Since 1.5.1
+- Runtime now supports executing AXM files directly, streamlining deployment.
 - Added selectable network protocol for RTSP sources in `inference.py` to improve input flexibility.
 - Added `create_inference_net` overloads to allow existing code to compile without a context parameter.
 
@@ -89,7 +95,7 @@ This is a production-ready release of Voyager SDK. Software components and featu
 development are marked "\[Beta\]" indicating tested functionality that will continue to grow in
 future releases or "\[Experimental\]" indicating early-stage feature with limited testing.
 
-## New Features / Support (v1.5.1)
+## New Features / Support
 
 ### New Axelera AI Cards and Systems
 - The release adds support for
