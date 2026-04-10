@@ -39,9 +39,8 @@
     preprocess1_mode: write
     preprocess2_lib: libtransform_padding.so
     preprocess2_options: padding:0,0,1,1,1,15,0,0;fill:-128
-    preprocess2_batch: 1
     postprocess0_lib: libdecode_yolov8.so
-    postprocess0_options: meta_key:{{task_name0}};confidence_threshold:0.25;scales:0.055154770612716675,0.05989416316151619,0.06476129591464996,0.10392487794160843,0.17826798558235168,0.16040770709514618,0.04365239664912224,0.057816002517938614,0.066075898706913;padding:0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,63|0,0,0,0,0,0,0,63|0,0,0,0,0,0,0,63|0,0,0,0,0,0,0,13|0,0,0,0,0,0,0,13|0,0,0,0,0,0,0,13;zero_points:-65,-65,-56,109,109,107,12,7,15;classes:1;kpts_shape:17,3;model_width:640;model_height:640;scale_up:1;decoder_name:CocoBodyKeypointsMeta;
+    postprocess0_options: meta_key:{{task_name0}};confidence_threshold:0.25;scales:0.055154770612716675,0.05989416316151619,0.06476129591464996,0.10392487794160843,0.17826798558235168,0.16040770709514618,0.04365239664912224,0.057816002517938614,0.066075898706913;padding:0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,63|0,0,0,0,0,0,0,63|0,0,0,0,0,0,0,63|0,0,0,0,0,0,0,13|0,0,0,0,0,0,0,13|0,0,0,0,0,0,0,13;zero_points:-65,-65,-56,109,109,107,12,7,15;classes:1;kpts_shape:17,3;dfl_size:16;model_width:640;model_height:640;scale_up:1;decoder_name:CocoBodyKeypointsMeta;
     postprocess0_mode: read
     postprocess1_lib: libinplace_nms.so
     postprocess1_options: meta_key:{{task_name0}};max_boxes:300;nms_threshold:0.45;class_agnostic:1;location:CPU;
@@ -67,7 +66,6 @@
     preprocess2_mode: write
     preprocess3_lib: libtransform_padding.so
     preprocess3_options: padding:0,0,1,1,1,15,0,0;fill:-128
-    preprocess3_batch: 1
     postprocess0_lib: libdecode_yolov8.so
     postprocess0_options: meta_key:{{task_name1}};master_meta:{{task_name0}};association_meta:{{task_name0}}_adapted_as_input_for_{{task_name1}};classes:80;confidence_threshold:0.25;scales:0.08838965743780136,0.07353860884904861,0.07168316841125488,0.10592737793922424,0.15443256497383118,0.18016019463539124;padding:0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,48|0,0,0,0,0,0,0,48|0,0,0,0,0,0,0,48;zero_points:-60,-57,-44,127,117,104;topk:30000;multiclass:0;classlabels_file:/path/to/sometempfile.txt;model_width:640;model_height:640;scale_up:1;letterbox:1
     postprocess0_mode: read

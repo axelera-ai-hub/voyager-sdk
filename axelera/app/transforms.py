@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,6 +6,7 @@ from fractions import Fraction
 from typing import TYPE_CHECKING, List, Type, get_type_hints
 
 from axelera import types
+
 
 from . import config, logging_utils, operators
 
@@ -220,6 +221,37 @@ def opencl_colorconvert_with_cameraundistort_and_resize(
 
 
 @builtin
+@transformer(priority=60, hardware_caps=['opencl'])
+def opencl_colorconvert_with_polar(
+    convert: operators.ConvertColorInput,
+    polar: operators.custom_preprocessing.Polar,
+):
+    '''Mega operator for OpenCL barrel distortion correction'''
+    # Fusing posibble only if output format is rgb, bgr or gray
+    if (
+        convert.format == types.ColorFormat.RGB
+        or convert.format == types.ColorFormat.BGR
+        or convert.format == types.ColorFormat.GRAY
+    ):
+        return [
+            operators.mega.OpenCLPolar(
+                width=polar.width,
+                height=polar.height,
+                size=polar.size,
+                rotate180=polar.rotate180,
+                center_x=polar.center_x,
+                center_y=polar.center_y,
+                max_radius=polar.max_radius,
+                inverse=polar.inverse,
+                linear_polar=polar.linear_polar,
+                format=convert.format,
+            )
+        ]
+    else:
+        return [convert, polar]
+
+
+@builtin
 @transformer(priority=50, hardware_caps=['opencl'])
 def opencl_cropped_resize_with_extra_crop(
     resize: operators.Resize, center_crop: operators.CenterCrop
@@ -270,6 +302,41 @@ def opencl_cropped_resize_with_extra_crop_and_2norms(
 
 
 @builtin
+@transformer(priority=19, hardware_caps=['opencl'])
+def opencl_cc_cropped_resize_with_extra_crop_and_2norms(
+    color_convert: operators.ConvertColorInput,
+    resize: operators.Resize,
+    center_crop: operators.CenterCrop,
+    totensor: operators.ToTensor,
+    permute: operators.PermuteChannels,
+    type_cast: operators.TypeCast,
+    norm1: operators.Normalize,
+    norm2: operators.Normalize,
+):
+    '''Mega operator that replaces a resize and center crop with an OpenCL one.'''
+    if (
+        permute.input_layout == types.TensorLayout.NHWC
+        and permute.output_layout == types.TensorLayout.NCHW
+        and type_cast.datatype == 'float32'
+        and norm1.std_values == [Fraction(255, 1)]
+        and norm1.mean_values == [0]
+    ):
+        return [
+            operators.mega.OpenCLColorConvertCroppedResizeWithExtraCropAndNormalize(
+                width=resize.width,
+                height=resize.height,
+                size=resize.size,
+                hcrop=resize.effective_width - center_crop.width,
+                vcrop=resize.effective_height - center_crop.height,
+                mean=norm2.mean,
+                std=norm2.std,
+                format=color_convert.format.name.lower(),
+            )
+        ]
+    return [color_convert, resize, center_crop, totensor, permute, type_cast, norm1, norm2]
+
+
+@builtin
 @transformer(priority=40, hardware_caps=['opencl'])
 def opencl_cropped_resize_with_extra_crop_and_color_convert(
     convert: operators.ConvertColorInput,
@@ -304,6 +371,87 @@ def opencl_resize(color: operators.ConvertColorInput, resize: operators.Resize):
 
 
 @builtin
+@transformer(priority=50, hardware_caps=['opencl'])
+def opencl_facealign(color: operators.ConvertColorInput, align: operators.FaceAlign):
+    '''Mega operator that replaces a resize with an OpenCL one.'''
+    return [
+        operators.mega.OpenCLFaceAlign(
+            keypoints_key=align.keypoints_key,
+            width=align.width,
+            height=align.height,
+            padding=align.padding,
+            template_keypoints_x=align.template_keypoints_x,
+            template_keypoints_y=align.template_keypoints_y,
+            use_self_normalizing=align.use_self_normalizing,
+            save_aligned_images=align.save_aligned_images,
+            format=color.format.name.lower(),
+        )
+    ]
+
+
+@builtin
+@transformer(priority=31, hardware_caps=['opencl'])
+def opencl_resize_cc_with_to_tensor(
+    color_convert: operators.ConvertColorInput,
+    resize: operators.Resize,
+    totensor: operators.ToTensor,
+    permute: operators.PermuteChannels,
+    type_cast: operators.TypeCast,
+):
+    '''Mega operator that replaces a resize with an OpenCL one.'''
+    if (
+        permute.input_layout == types.TensorLayout.NHWC
+        and permute.output_layout == types.TensorLayout.NCHW
+        and type_cast.datatype == 'float32'
+    ):
+        _ensure_len3 = lambda seq: list(seq) + [seq[0]] * (3 - len(seq))
+        mean = [x / 255.0 for x in _ensure_len3([0.0])]
+        std = [x / 255.0 for x in _ensure_len3([1])]
+        return [
+            operators.mega.OpenCLResizeColorConverToTensorAndNormalize(
+                width=resize.width,
+                height=resize.height,
+                size=resize.size,
+                mean=mean,
+                std=std,
+                format=color_convert.format,
+            )
+        ]
+    return [color_convert, resize, totensor, permute, type_cast]
+
+
+@builtin
+@transformer(priority=29, hardware_caps=['opencl'])
+def opencl_resize_cc_with_normalize(
+    color_convert: operators.ConvertColorInput,
+    resize: operators.Resize,
+    totensor: operators.ToTensor,
+    permute: operators.PermuteChannels,
+    type_cast: operators.TypeCast,
+    norm: operators.Normalize,
+):
+    '''Mega operator that replaces a resize with an OpenCL one.'''
+    if (
+        permute.input_layout == types.TensorLayout.NHWC
+        and permute.output_layout == types.TensorLayout.NCHW
+        and type_cast.datatype == 'float32'
+    ):
+        mean = [x / 255.0 for x in norm.mean_values]
+        std = [x / 255.0 for x in norm.std_values]
+        return [
+            operators.mega.OpenCLResizeColorConverToTensorAndNormalize(
+                width=resize.width,
+                height=resize.height,
+                size=resize.size,
+                mean=mean,
+                std=std,
+                format=color_convert.format,
+            )
+        ]
+    return [color_convert, resize, totensor, permute, type_cast, norm]
+
+
+@builtin
 @transformer(priority=30, hardware_caps=['opencl'])
 def opencl_resize_with_normalize(
     resize: operators.Resize,
@@ -321,15 +469,48 @@ def opencl_resize_with_normalize(
         mean = [x / 255.0 for x in norm.mean_values]
         std = [x / 255.0 for x in norm.std_values]
         return [
-            operators.mega.OpenCLResizeToTensorAndNormalize(
+            operators.mega.OpenCLResizeColorConverToTensorAndNormalize(
                 width=resize.width,
                 height=resize.height,
                 size=resize.size,
                 mean=mean,
                 std=std,
+                format=None,
             )
         ]
     return [resize, totensor, permute, type_cast, norm]
+
+
+@builtin
+@transformer(priority=19, hardware_caps=['opencl'])
+def opencl_resize_cc_with_2norms(
+    color_convert: operators.ConvertColorInput,
+    resize: operators.Resize,
+    totensor: operators.ToTensor,
+    permute: operators.PermuteChannels,
+    type_cast: operators.TypeCast,
+    norm1: operators.Normalize,
+    norm2: operators.Normalize,
+):
+    '''Mega operator that replaces a resize with an OpenCL one.'''
+    if (
+        permute.input_layout == types.TensorLayout.NHWC
+        and permute.output_layout == types.TensorLayout.NCHW
+        and type_cast.datatype == 'float32'
+        and norm1.std_values == [Fraction(255, 1)]
+        and norm1.mean_values == [0]
+    ):
+        return [
+            operators.mega.OpenCLResizeColorConverToTensorAndNormalize(
+                width=resize.width,
+                height=resize.height,
+                size=resize.size,
+                mean=norm2.mean,
+                std=norm2.std,
+                format=color_convert.format,
+            )
+        ]
+    return [color_convert, resize, totensor, permute, type_cast, norm1, norm2]
 
 
 @builtin
@@ -351,32 +532,66 @@ def opencl_resize_with_2norms(
         and norm1.mean_values == [0]
     ):
         return [
-            operators.mega.OpenCLResizeToTensorAndNormalize(
+            operators.mega.OpenCLResizeColorConverToTensorAndNormalize(
                 width=resize.width,
                 height=resize.height,
                 size=resize.size,
                 mean=norm2.mean,
                 std=norm2.std,
+                format=None,
             )
         ]
     return [resize, totensor, permute, type_cast, norm1, norm2]
 
 
 @builtin
-@transformer(priority=30, hardware_caps=['opencl'])
+@transformer(priority=38, hardware_caps=['opencl'])
 def opencl_letterbox(color: operators.ConvertColorInput, resize: operators.Letterbox):
     '''Mega operator that replaces a resize with an OpenCL one.'''
     return [
         operators.mega.OpenCLetterBoxColorConvert(
             width=resize.width,
             height=resize.height,
-            input_color_format=color.format.name.lower(),
+            half_pixel_centers=resize.half_pixel_centers,
+            format=color.format.name.lower(),
         )
     ]
 
 
 @builtin
-@transformer(priority=30, hardware_caps=['opencl'])
+@transformer(priority=28, hardware_caps=['opencl'])
+def opencl_cc_letterbox_with_normalize(
+    color_convert: operators.ConvertColorInput,
+    resize: operators.Letterbox,
+    totensor: operators.ToTensor,
+    permute: operators.PermuteChannels,
+    type_cast: operators.TypeCast,
+    norm: operators.Normalize,
+):
+    '''Mega operator that replaces a resize with an OpenCL one.'''
+    if (
+        permute.input_layout == types.TensorLayout.NHWC
+        and permute.output_layout == types.TensorLayout.NCHW
+        and type_cast.datatype == 'float32'
+    ):
+        mean = [x / 255.0 for x in norm.mean_values]
+        std = [x / 255.0 for x in norm.std_values]
+        return [
+            operators.mega.OpenCLetterBoxColorConvertToTensorAndNormalize(
+                width=resize.width,
+                height=resize.height,
+                scaleup=resize.scaleup,
+                half_pixel_centers=resize.half_pixel_centers,
+                mean=mean,
+                std=std,
+                format=color_convert.format.name.lower(),
+            )
+        ]
+    return [color_convert, resize, totensor, permute, type_cast, norm]
+
+
+@builtin
+@transformer(priority=29, hardware_caps=['opencl'])
 def opencl_letterbox_with_normalize(
     resize: operators.Letterbox,
     totensor: operators.ToTensor,
@@ -397,11 +612,42 @@ def opencl_letterbox_with_normalize(
                 width=resize.width,
                 height=resize.height,
                 scaleup=resize.scaleup,
+                half_pixel_centers=resize.half_pixel_centers,
                 mean=mean,
                 std=std,
             )
         ]
     return [resize, totensor, permute, type_cast, norm]
+
+
+@builtin
+@transformer(priority=29, hardware_caps=['opencl'])
+def opencl_letterbox_with_cc_linear_scaling(
+    color_convert: operators.ConvertColorInput,
+    resize: operators.Letterbox,
+    totensor: operators.ToTensor,
+    permute: operators.PermuteChannels,
+    type_cast: operators.TypeCast,
+    norm: operators.LinearScaling,
+):
+    '''Mega operator that replaces a resize with an OpenCL one.'''
+    if (
+        permute.input_layout == types.TensorLayout.NHWC
+        and permute.output_layout == types.TensorLayout.NCHW
+        and type_cast.datatype == 'float32'
+    ):
+        return [
+            operators.mega.OpenCLetterBoxColorConvertToTensorAndLinearScaling(
+                width=resize.width,
+                height=resize.height,
+                scaleup=resize.scaleup,
+                half_pixel_centers=resize.half_pixel_centers,
+                mean=norm.mean,
+                shift=norm.shift,
+                format=color_convert.format,
+            )
+        ]
+    return [color_convert, resize, totensor, permute, type_cast, norm]
 
 
 @builtin
@@ -420,15 +666,98 @@ def opencl_letterbox_with_linear_scaling(
         and type_cast.datatype == 'float32'
     ):
         return [
-            operators.mega.OpenCLetterBoxToTensorAndLinearScaling(
+            operators.mega.OpenCLetterBoxColorConvertToTensorAndLinearScaling(
                 width=resize.width,
                 height=resize.height,
                 scaleup=resize.scaleup,
+                half_pixel_centers=resize.half_pixel_centers,
                 mean=norm.mean,
                 shift=norm.shift,
+                format=None,
             )
         ]
     return [resize, totensor, permute, type_cast, norm]
+
+
+@builtin
+@transformer(priority=33, hardware_caps=['opencl'])
+def opencl_letterbox_with_to_tensor(
+    resize: operators.Letterbox,
+    totensor: operators.ToTensor,
+    permute: operators.PermuteChannels,
+    type_cast: operators.TypeCast,
+):
+    '''Mega operator that replaces a resize with an OpenCL one.'''
+    if (
+        permute.input_layout == types.TensorLayout.NHWC
+        and permute.output_layout == types.TensorLayout.NCHW
+        and type_cast.datatype == 'float32'
+    ):
+        return [
+            operators.mega.OpenCLetterBoxColorConvertToTensor(
+                width=resize.width,
+                height=resize.height,
+                scaleup=resize.scaleup,
+                half_pixel_centers=resize.half_pixel_centers,
+                format=None,
+            )
+        ]
+    return [resize, totensor, permute, type_cast]
+
+
+@builtin
+@transformer(priority=32, hardware_caps=['opencl'])
+def opencl_letterbox_cc_with_to_tensor(
+    color_convert: operators.ConvertColorInput,
+    resize: operators.Letterbox,
+    totensor: operators.ToTensor,
+    permute: operators.PermuteChannels,
+    type_cast: operators.TypeCast,
+):
+    '''Mega operator that replaces a resize with an OpenCL one.'''
+    if (
+        permute.input_layout == types.TensorLayout.NHWC
+        and permute.output_layout == types.TensorLayout.NCHW
+        and type_cast.datatype == 'float32'
+    ):
+        return [
+            operators.mega.OpenCLetterBoxColorConvertToTensor(
+                width=resize.width,
+                height=resize.height,
+                scaleup=resize.scaleup,
+                half_pixel_centers=resize.half_pixel_centers,
+                format=color_convert.format.name.lower(),
+            )
+        ]
+    return [color_convert, resize, totensor, permute, type_cast]
+
+
+@builtin
+@transformer(priority=29, hardware_caps=['opencl'])
+def opencl_resize_cc_with_linear_scaling(
+    color_convert: operators.ConvertColorInput,
+    resize: operators.Resize,
+    totensor: operators.ToTensor,
+    permute: operators.PermuteChannels,
+    type_cast: operators.TypeCast,
+    norm: operators.LinearScaling,
+):
+    '''Mega operator that replaces a resize with an OpenCL one.'''
+    if (
+        permute.input_layout == types.TensorLayout.NHWC
+        and permute.output_layout == types.TensorLayout.NCHW
+        and type_cast.datatype == 'float32'
+    ):
+        return [
+            operators.mega.OpenCLColorConvertResizeToTensorAndLinearScaling(
+                width=resize.width,
+                height=resize.height,
+                mean=norm.mean,
+                shift=norm.shift,
+                format=color_convert.format.name.lower(),
+            )
+        ]
+    return [color_convert, resize, totensor, permute, type_cast, norm]
 
 
 @builtin
@@ -458,6 +787,39 @@ def opencl_resize_with_linear_scaling(
 
 
 @builtin
+@transformer(priority=19, hardware_caps=['opencl'])
+def opencl_cc_letterbox_with_2normalize(
+    color_convert: operators.ConvertColorInput,
+    resize: operators.Letterbox,
+    totensor: operators.ToTensor,
+    permute: operators.PermuteChannels,
+    type_cast: operators.TypeCast,
+    norm1: operators.Normalize,
+    norm2: operators.Normalize,
+):
+    '''Mega operator that replaces a resize with an OpenCL one.'''
+    if (
+        permute.input_layout == types.TensorLayout.NHWC
+        and permute.output_layout == types.TensorLayout.NCHW
+        and type_cast.datatype == 'float32'
+        and norm1.std_values == [Fraction(255, 1)]
+        and norm1.mean_values == [0]
+    ):
+        return [
+            operators.mega.OpenCLetterBoxColorConvertToTensorAndNormalize(
+                width=resize.width,
+                height=resize.height,
+                scaleup=resize.scaleup,
+                half_pixel_centers=resize.half_pixel_centers,
+                mean=norm2.mean,
+                std=norm2.std,
+                format=color_convert.format.name.lower(),
+            )
+        ]
+    return [color_convert, resize, totensor, permute, type_cast, norm1, norm2]
+
+
+@builtin
 @transformer(priority=20, hardware_caps=['opencl'])
 def opencl_letterbox_with_2normalize(
     resize: operators.Letterbox,
@@ -480,6 +842,7 @@ def opencl_letterbox_with_2normalize(
                 width=resize.width,
                 height=resize.height,
                 scaleup=resize.scaleup,
+                half_pixel_centers=resize.half_pixel_centers,
                 mean=norm2.mean,
                 std=norm2.std,
             )
@@ -509,6 +872,7 @@ def ax_letterbox_to_tensor_and_inplace(
                 height=letterbox.height,
                 width=letterbox.width,
                 scaleup=letterbox.scaleup,
+                half_pixel_centers=letterbox.half_pixel_centers,
                 std=std,
                 mean=mean,
             )
@@ -539,6 +903,7 @@ def ax_letterbox_with_2normalize(
                 width=resize.width,
                 height=resize.height,
                 scaleup=resize.scaleup,
+                half_pixel_centers=resize.half_pixel_centers,
                 mean=norm2.mean,
                 std=norm2.std,
             )
@@ -585,6 +950,23 @@ def ax_to_tensor_and_inplace(
         std = [x / 255.0 for x in norm.std_values]
         return [operators.mega.ToTensorAndNormalise(std=std, mean=mean)]
     return [totensor, permute, type_cast, norm]
+
+
+@builtin
+@transformer(priority=61)
+def ax_to_tensor_with_quant(
+    totensor: operators.ToTensor,
+    permute: operators.PermuteChannels,
+    type_cast: operators.TypeCast,
+):
+    '''Replace a sequence of preprocessing operators with gst elements.'''
+    if (
+        permute.input_layout == types.TensorLayout.NHWC
+        and permute.output_layout == types.TensorLayout.NCHW
+        and type_cast.datatype == 'float32'
+    ):
+        return [operators.mega.ToTensorAndNoNormalise(datatype='int8')]
+    return [totensor, permute, type_cast]
 
 
 @builtin

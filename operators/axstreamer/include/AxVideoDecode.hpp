@@ -31,10 +31,13 @@ class VideoDecode
    */
   VideoDecode(const std::string &input,
       std::function<void(cv::Mat)> frame_callback, AxVideoFormat format)
-      : input(input), frame_callback(frame_callback), format(format)
+      : input(input),
+        frame_callback(frame_callback),
+        format(format)
   {
-    if (format != AxVideoFormat::RGB && format != AxVideoFormat::BGR) {
-      throw std::invalid_argument("Unsupported video format for OpenCVVideoDecoder");
+    if (format != AxVideoFormat::RGB && format != AxVideoFormat::BGR
+        && format != AxVideoFormat::I420 && format != AxVideoFormat::NV12) {
+      throw std::invalid_argument("Unsupported video format for VideoDecode");
     }
   }
 

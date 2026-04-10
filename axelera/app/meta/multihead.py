@@ -209,19 +209,22 @@ class PoseInsSegMeta(AxTaskMeta):
         if len(self.masks) == 0 or not self.task_render_config.show_annotations:
             return
 
-        draw_bounding_boxes(
-            self,
-            draw,
-            self.task_render_config.show_labels,
-            self.task_render_config.show_annotations,
-        )
+        if draw.options.show_bounding_boxes:
+            draw_bounding_boxes(
+                self,
+                draw,
+                self.task_render_config.show_labels,
+                self.task_render_config.show_annotations,
+            )
         for i, cls in enumerate(self.class_ids):
             color = plot_utils.get_color(int(cls), alpha=125)
-            for x, y, v in self.kpts[i, :, :]:
-                if v > 0.5:
-                    draw.keypoint((x, y), _red, 6)
+            if draw.options.show_keypoints:
+                for x, y, v in self.kpts[i, :, :]:
+                    if v > 0.5:
+                        draw.keypoint((x, y), _red)
 
-            draw.segmentation_mask(self.get_mask(i), color)
+            if draw.options.show_segmentation:
+                draw.segmentation_mask(self.get_mask(i), color)
 
     @classmethod
     def decode(cls, data: Dict[str, Union[bytes, bytearray]]) -> PoseInsSegMeta:

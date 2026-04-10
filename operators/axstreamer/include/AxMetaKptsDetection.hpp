@@ -18,7 +18,9 @@ class AxMetaKptsDetection : public AxMetaBbox, public AxMetaKpts
       std::vector<float> scores, std::vector<int> ids,
       std::vector<int> kpts_shape_, const std::string &decoder_name_ = "")
       : AxMetaBbox(std::move(boxes), std::move(scores), {}, std::move(ids)),
-        AxMetaKpts(std::move(kpts)), kpts_shape(kpts_shape_), decoder_name(decoder_name_)
+        AxMetaKpts(std::move(kpts)),
+        kpts_shape(kpts_shape_),
+        decoder_name(decoder_name_)
   {
   }
 
@@ -67,6 +69,12 @@ class AxMetaKptsDetection : public AxMetaBbox, public AxMetaKpts
   {
     AxMetaBbox::extend(other);
     AxMetaKpts::extend(other);
+  }
+
+  void extend(AxMetaKptsDetection &&other)
+  {
+    AxMetaBbox::extend(std::move(other));
+    AxMetaKpts::extend(std::move(other));
   }
 
   std::vector<int> kpts_shape;

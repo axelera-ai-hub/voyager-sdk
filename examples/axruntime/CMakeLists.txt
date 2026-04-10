@@ -21,7 +21,7 @@ target_compile_options(${PROJECT_NAME} PRIVATE
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${axruntime_INCLUDE_DIRS}/include
+    ${axruntime_INCLUDE_DIRS}
     ${opencv4_INCLUDE_DIRS}
 )
 target_link_libraries(${PROJECT_NAME} PUBLIC

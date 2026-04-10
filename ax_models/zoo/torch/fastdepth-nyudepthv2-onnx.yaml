@@ -44,3 +44,6 @@ datasets:
     data_dir_name: depthestimation
     val_data: val/official
     cal_data: train_subset
+
+model-env:
+  dependencies: [setuptools<72, h5py]

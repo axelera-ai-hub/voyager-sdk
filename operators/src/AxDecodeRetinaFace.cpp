@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2023
+// Copyright Axelera AI, 2025
 #include <unordered_set>
 
 #include "AxDataInterface.h"
@@ -12,6 +12,8 @@ allowed_properties()
 {
   static const std::unordered_set<std::string> allowed_properties{
     "meta_key",
+    "master_meta",
+    "association_meta",
     "width",
     "height",
     "padding",
@@ -69,6 +71,8 @@ generate_priors(float width, float height, std::vector<std::vector<int>> min_siz
 struct retinaface_properties {
   std::string meta_key
       = "meta_" + std::to_string(reinterpret_cast<long long unsigned int>(this));
+  std::string master_meta{};
+  std::string association_meta{};
   unsigned int width{ 0 };
   unsigned int height{ 0 };
   std::vector<std::vector<int>> padding{};
@@ -94,6 +98,10 @@ init_and_set_static_properties(
 
   prop->meta_key = Ax::get_property(
       input, "meta_key", "retinaface_static_properties", prop->meta_key);
+  prop->master_meta = Ax::get_property(
+      input, "master_meta", "retinaface_static_properties", prop->master_meta);
+  prop->association_meta = Ax::get_property(input, "association_meta",
+      "retinaface_static_properties", prop->association_meta);
   prop->width = Ax::get_property(input, "width", "retinaface_static_properties", prop->width);
   prop->height = Ax::get_property(
       input, "height", "retinaface_static_properties", prop->height);
@@ -264,8 +272,8 @@ decode_landm(const AxTensorInterface &tensor, int left_channel_padding,
 }
 
 extern "C" void
-decode_to_meta(const AxTensorsInterface &tensors,
-    const retinaface_properties *prop, unsigned int, unsigned int,
+decode_to_meta(const AxTensorsInterface &tensors, const retinaface_properties *prop,
+    unsigned int subframe_index, unsigned int number_of_subframes,
     std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> &map,
     const AxDataInterface &video_interface, Ax::Logger &logger)
 {
@@ -288,22 +296,25 @@ decode_to_meta(const AxTensorsInterface &tensors,
     auto fboxes = decode_loc(tensors[i], prop->padding[i][6], prop->padding[i][7],
         keep, prop->priors[i], prop->dequantize_variance_tables[i].data(),
         prop->exponential_variance_tables[i].data());
-    auto boxes_i = ax_utils::scale_boxes(fboxes, std::get<AxVideoInterface>(video_interface),
-        prop->width, prop->height, prop->scale_up, prop->letterbox);
 
     auto fkpts = decode_landm(tensors[i + 2 * num_steps],
         prop->padding[i + 2 * num_steps][6], prop->padding[i + 2 * num_steps][7], keep,
         prop->priors[i], prop->dequantize_variance_tables[i + 2 * num_steps].data());
-    auto &vinfo = std::get<AxVideoInterface>(video_interface);
-    auto kpts_i = ax_utils::scale_kpts(fkpts, vinfo.info.width, vinfo.info.height,
-        prop->width, prop->height, prop->scale_up, prop->letterbox);
 
+    auto base_box = ax_utils::get_master_box(prop->master_meta, prop->association_meta,
+        video_interface, subframe_index, map, prop->decoder_name);
+    auto pixel_boxes = ax_utils::scale_shift_boxes(fboxes, base_box,
+        prop->width, prop->height, prop->scale_up, prop->letterbox);
+    auto pixel_kpts = ax_utils::scale_shift_kpts(fkpts, base_box, prop->width,
+        prop->height, prop->scale_up, prop->letterbox);
+    boxes.insert(boxes.end(), pixel_boxes.begin(), pixel_boxes.end());
+    kpts.insert(kpts.end(), pixel_kpts.begin(), pixel_kpts.end());
     scores.insert(scores.end(), scores_i.begin(), scores_i.end());
-    boxes.insert(boxes.end(), boxes_i.begin(), boxes_i.end());
-    kpts.insert(kpts.end(), kpts_i.begin(), kpts_i.end());
   }
 
   std::vector<int> ids;
-  map[prop->meta_key] = std::make_unique<AxMetaKptsDetection>(std::move(boxes),
-      std::move(kpts), std::move(scores), ids, std::vector<int>{ 5, 3 }, prop->decoder_name);
+  ax_utils::insert_and_associate_meta<AxMetaKptsDetection>(map, prop->meta_key,
+      prop->master_meta, subframe_index, number_of_subframes,
+      prop->association_meta, std::move(boxes), std::move(kpts),
+      std::move(scores), ids, std::vector<int>{ 5, 3 }, prop->decoder_name);
 }

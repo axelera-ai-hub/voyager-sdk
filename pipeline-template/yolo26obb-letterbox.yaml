@@ -1,0 +1,28 @@
+input:
+  type: image
+preprocess:
+  - letterbox:
+      width: ${{input_width}}
+      height: ${{input_height}}
+      scaleup: True
+  - torch-totensor:
+inference:
+  handle_all: False
+postprocess:
+  - decodeyolo:
+      box_format: xywhr
+      normalized_coord: False
+      label_filter: ${{label_filter}}
+      conf_threshold: 0.25
+      nms_class_agnostic: True
+      nms_top_k: 300
+      nms_free: True
+      eval:
+        conf_threshold: 0.01
+        nms_class_agnostic: False
+
+
+operators:
+  decodeyolo:
+    class: DecodeYolo
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/yolo.py

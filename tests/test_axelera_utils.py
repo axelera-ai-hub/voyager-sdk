@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 from __future__ import annotations
 
 import builtins
@@ -582,11 +582,12 @@ ACC = pyopencl.device_type.ACCELERATOR
     'platforms, expected, expected_msgs',
     [
         ([], False, ['No OpenCL platforms found']),
-        ([[CPU]], False, ['No OpenCL GPU devices found']),
-        ([[], [CPU]], False, ['No OpenCL GPU devices found']),
-        ([[CPU], [ACC]], False, ['No OpenCL GPU devices found']),
-        ([[ACC]], False, ['No OpenCL GPU devices found']),
-        ([[GPU]], True, []),
+        ([[CPU]], True, []),
+        ([[CPU]], True, []),
+        ([[ACC]], False, ['No OpenCL GPU or CPU devices found']),
+        ([[CPU], [ACC]], True, []),
+        ([[GPU], [ACC]], True, []),
+        ([[GPU], [CPU]], True, []),
         ([[CPU], [ACC, GPU], []], True, []),
         ([[CPU], [GPU], [ACC]], True, []),
         (RuntimeError('spam'), False, ['Failed to get OpenCL platforms', 'spam']),

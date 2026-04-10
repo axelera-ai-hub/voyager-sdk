@@ -829,7 +829,7 @@ class TestFaceAlign:
 
         # Create mock face alignment operator with explicit template values
         face_align = self.FaceAlign(
-            keypoints_submeta_key="face_keypoints",
+            keypoints_key="face_keypoints",
             width=112,
             height=112,
             template_keypoints_x=[
@@ -881,7 +881,7 @@ class TestFaceAlign:
 
         # Create face alignment operator with custom template
         face_align = self.FaceAlign(
-            keypoints_submeta_key="face_keypoints",
+            keypoints_key="face_keypoints",
             width=112,
             height=112,
             template_keypoints_x=custom_x,
@@ -897,7 +897,7 @@ class TestFaceAlign:
         import numpy as np
 
         # Create face alignment operator to test standard 51-point template
-        face_align = self.FaceAlign(keypoints_submeta_key="face_keypoints", width=112, height=112)
+        face_align = self.FaceAlign(keypoints_key="face_keypoints", width=112, height=112)
 
         # Get the standard 51-point template
         x, y = face_align._get_standard_51_point_template()
@@ -910,7 +910,7 @@ class TestFaceAlign:
         """Test FaceAlign with self-normalizing mode enabled"""
         # Create face alignment operator with self-normalizing mode
         face_align = self.FaceAlign(
-            keypoints_submeta_key="face_keypoints",
+            keypoints_key="face_keypoints",
             width=112,
             height=112,
             use_self_normalizing=True,
@@ -924,7 +924,7 @@ class TestFaceAlign:
         # Try with mismatched template points
         with pytest.raises(ValueError, match="Number of template keypoints x and y must be equal"):
             self.FaceAlign(
-                keypoints_submeta_key="face_keypoints",
+                keypoints_key="face_keypoints",
                 width=112,
                 height=112,
                 template_keypoints_x=[0.3, 0.7, 0.5, 0.3],  # 4 points
@@ -938,7 +938,7 @@ class TestFaceAlign:
         import numpy as np
 
         # Create face alignment operator
-        face_align = self.FaceAlign(keypoints_submeta_key="face_keypoints", width=112, height=112)
+        face_align = self.FaceAlign(keypoints_key="face_keypoints", width=112, height=112)
 
         # Create mock landmarks (5 points)
         landmarks = np.array(
@@ -1011,7 +1011,7 @@ class TestFaceAlign:
 
         # Create the face align operator with custom template
         face_align = self.FaceAlign(
-            keypoints_submeta_key="face_keypoints",
+            keypoints_key="face_keypoints",
             width=112,
             height=112,
             template_keypoints_x=[0.25, 0.75, 0.5, 0.3, 0.7],
@@ -1061,7 +1061,7 @@ class TestFaceAlign:
         mock_meta = {"face_keypoints": mock_keypoints_meta}
 
         # Create the face align operator (will automatically use 51-point template for 51 keypoints)
-        face_align = self.FaceAlign(keypoints_submeta_key="face_keypoints", width=112, height=112)
+        face_align = self.FaceAlign(keypoints_key="face_keypoints", width=112, height=112)
 
         # Mock the transformation_from_points method to prevent SVD errors with zero arrays
         with patch.object(face_align, '_transformation_from_points') as mock_transform:
@@ -1094,7 +1094,7 @@ class TestFaceAlign:
         import numpy as np
 
         # Create face align operator
-        face_align = self.FaceAlign(keypoints_submeta_key="face_keypoints", width=112, height=112)
+        face_align = self.FaceAlign(keypoints_key="face_keypoints", width=112, height=112)
 
         # Get the standard 51-point template
         template_x, template_y = face_align._get_standard_51_point_template()
@@ -1147,7 +1147,7 @@ class TestFaceAlign:
 
         # Create the face align operator with self-normalizing enabled
         face_align = self.FaceAlign(
-            keypoints_submeta_key="face_keypoints",
+            keypoints_key="face_keypoints",
             width=112,
             height=112,
             use_self_normalizing=True,  # Enable self-normalizing mode

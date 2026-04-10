@@ -22,7 +22,8 @@ class AxMetaStreamId : public AxMetaBase
   // reading before it can be read by Python.
   mutable int inferences{};
 
-  explicit AxMetaStreamId(int stream_id) : stream_id{ stream_id }
+  explicit AxMetaStreamId(int stream_id)
+      : stream_id{ stream_id }
   {
     auto now = std::chrono::high_resolution_clock::now();
     timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch())

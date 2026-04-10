@@ -261,7 +261,6 @@ void resampleVerticalSIMD(cv::Mat& im_out,
 {
     std::vector<int16_t> kk_16;
     int ysize = static_cast<int>(im_out.size().height);
-    int xsize = static_cast<int>(im_out.size().width);
     int coefs_precision =
         normalize_coeffs_8bpc_original(ysize, ksize, prekk.data(), kk_16);
     std::vector<UINT32*> imPtr;

@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 import functools
 from pathlib import Path
 
@@ -40,6 +40,12 @@ extra_kwargs = lambda operators, compilation_configs: {
         Optional["focus_layer_replacement"]: Bool,
     },
     Optional["compilation_config"]: compilation_configs,
+    Optional["compiler_config_file"]: Str,
+    # Path to a TOML file containing compiler configuration. Supports:
+    # - Absolute paths: /path/to/config.toml
+    # - Relative paths: configs/model.toml (relative to YAML file)
+    # - Filename only: model-config.toml (searches compiler configs directory first)
+    # Settings from inline compilation_config take precedence over TOML file settings.
     Optional["timm_model_args"]: {
         Required["name"]: Str,
     },
@@ -190,6 +196,8 @@ input_operator = lambda operators, compilation_configs: {
     # The backend library to read images. May be OPENCV or PIL
     Optional["type"]: Enum["image"],
     # We now support only 'image'.
+    Optional["margin"]: Float,
+    # Margin for extending ROISs
 }
 
 '''Determine the inference settings for a model.'''

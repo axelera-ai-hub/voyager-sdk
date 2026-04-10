@@ -237,3 +237,19 @@ LFWPairs:
         url: https://media.axelera.ai/artifacts/model_cards/datasets/face/lfw-py.zip
         md5: 0c57a2adf3e7683ba3e28443b6856059
         drop_dirs: 0
+        check_files:
+          - lfw-py/lfw-deepfunneled
+          - lfw-py/pairs.txt
+
+LFWPeople:
+  description: LFW People dataset for face recognition
+  download_hint: Dataset is downloaded automatically into the ./data/LFW/lfw-py folder.
+  splits:
+    val:
+      - name: val
+        url: https://media.axelera.ai/artifacts/model_cards/datasets/face/lfw-py.zip
+        md5: 0c57a2adf3e7683ba3e28443b6856059
+        drop_dirs: 0
+        check_files:
+          - lfw-py/lfw-deepfunneled
+          - lfw-py/people.txt

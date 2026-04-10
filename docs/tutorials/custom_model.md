@@ -91,5 +91,7 @@ one another, interfacing using a common representation of metadata for each supp
 
 
 ## Further support
-- For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
-- For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).
+
+For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
+
+For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).

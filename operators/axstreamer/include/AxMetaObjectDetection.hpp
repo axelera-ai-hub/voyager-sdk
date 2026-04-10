@@ -48,7 +48,7 @@ class AxMetaObjDetectionOBB : public AxMetaBboxXYWHR
   AxMetaObjDetectionOBB(std::vector<box_xywhr> boxes, std::vector<float> scores,
       std::vector<int> class_ids, std::vector<int> ids = {})
       : AxMetaBboxXYWHR(std::move(boxes), std::move(scores),
-          std::move(class_ids), std::move(ids))
+            std::move(class_ids), std::move(ids))
   {
   }
 
@@ -76,5 +76,32 @@ class AxMetaObjDetectionOBB : public AxMetaBboxXYWHR
   const int *get_classes_data() const
   {
     return classes_data();
+  }
+};
+
+class AxMetaObjDetectionTiles : public AxMetaObjDetection
+{
+  public:
+  AxMetaObjDetectionTiles() = default;
+  AxMetaObjDetectionTiles(std::vector<box_xyxy> boxes, std::vector<float> scores,
+      std::vector<int> class_ids, std::vector<int> ids = {})
+      : AxMetaObjDetection(std::move(boxes), std::move(scores),
+            std::move(class_ids), std::move(ids))
+  {
+  }
+
+  std::vector<extern_meta> get_extern_meta() const override
+  {
+    const char *object_meta = "ObjectDetectionMetaTiles";
+    auto meta1 = extern_meta{ object_meta, "scores", int(scores_size() * sizeof(float)),
+      reinterpret_cast<const char *>(scores_data()) };
+    auto meta2 = extern_meta{ object_meta, "classes", int(classes_size() * sizeof(int)),
+      reinterpret_cast<const char *>(classes_data()) };
+
+    auto meta = AxMetaBbox::get_extern_meta();
+    meta[0].type = object_meta;
+    meta.push_back(meta1);
+    meta.push_back(meta2);
+    return meta;
   }
 };

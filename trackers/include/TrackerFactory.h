@@ -1,6 +1,7 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #pragma once
 
+#include <unordered_set>
 #include "../axtracker/include/trackers.hpp"
 #include "MultiObjTracker.hpp"
 
@@ -10,6 +11,10 @@
 
 #ifdef HAVE_OC_SORT
 #include "../algorithms/oc_sort/include/OCSort.hpp"
+#endif
+
+#ifdef HAVE_TRACKTRACK
+#include "../algorithms/tracktrack/include/TrackTrack.hpp"
 #endif
 
 //************** Multiple Object Tracker Factory ***********
@@ -28,7 +33,7 @@
 using TrackerParams
     = std::unordered_map<std::string, std::variant<bool, int, float, std::string>>;
 // Helper function to create TrackerParams after initialization
-TrackerParams
+inline TrackerParams
 CreateTrackerParams(
     std::initializer_list<std::pair<std::string, std::variant<bool, int, float, std::string>>> list)
 {
@@ -61,6 +66,7 @@ class SORTWrapper : public ax::MultiObjTracker
 
   private:
   axtracker::SORT tracker_;
+  int min_hits_;
 };
 
 #ifdef HAVE_BYTETRACK
@@ -74,6 +80,8 @@ class BytetrackWrapper : public ax::MultiObjTracker
 
   private:
   BYTETracker tracker_;
+  bool return_all_states_;
+  std::unordered_set<int> previous_removed_ids_;
 };
 #endif
 
@@ -88,6 +96,23 @@ class OCSortWrapper : public ax::MultiObjTracker
 
   private:
   ocsort::OCSort tracker_;
+  bool return_all_states_;
+};
+#endif
+
+#ifdef HAVE_TRACKTRACK
+class TrackTrackWrapper : public ax::MultiObjTracker
+{
+  public:
+  TrackTrackWrapper(const TrackerParams &params);
+  const std::vector<ax::TrackedObject> Update(const std::vector<ax::ObservedObject> &detections,
+      const std::vector<std::vector<float>> &embeddings,
+      const std::optional<Eigen::Matrix<float, 2, 3>> &transform = std::nullopt) override;
+
+  private:
+  std::unique_ptr<tracktrack::TrackTrack> tracker_;
+  std::vector<tracktrack::Detection> prev_detections_; // For finding deleted detections
+  bool return_all_states_ = false;
 };
 #endif
 

@@ -1,12 +1,13 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 import contextlib
 import importlib
 import logging
 import os
 import pathlib
+import re
 import sys
 import tempfile
-from unittest.mock import ANY, Mock, call, patch
+from unittest.mock import ANY, Mock, call, patch, MagicMock
 
 import PIL
 import pytest
@@ -1603,7 +1604,7 @@ def test_postamble_onnx_validation_success(tmpdir):
         temp_file.flush()
 
         config = InferenceOpConfig(postamble_onnx=temp_file.name)
-        assert config.postamble_onnx == temp_file.name
+        assert temp_file.name in config.postamble_onnx  # Path gets resolved
 
 
 def test_postamble_onnx_validation_failure():
@@ -1704,3 +1705,137 @@ models:
 
     with pytest.raises(ValueError, match=r"Postamble ONNX model file .* does not exist"):
         parse_net(input_yaml, {})
+
+
+@pytest.mark.parametrize(
+    ("module, klass"),
+    [
+        ("ax_models/base_onnx.py", "AxONNXModel"),
+        ("ax_models/yolo/ax_ultralytics.py", "AxUltralyticsYOLO"),
+        ("ax_models/yolo/ax_yolo.py", "AxYolo"),
+        ("ax_models/yolo/ax_darknet.py", "AxYoloDarknet"),
+        ("ax_models/mmlab/mmseg/ax_mmseg.py", "AxMMSegmentationPytorch"),
+        ("ax_models/mmlab/mmseg/ax_mmseg.py", "AxMMSegmentationOnnx"),
+        ("customers/qtec/model_semantic_segmentation.py", "QTec_UNet"),
+        ("ax_models/torchvision/classifiers.py", "AxTorchvisionClassifierModel"),
+        ("ax_models/torch/LPRNet.py", "LPRNetTorchModel"),
+        ("ax_models/torch/facenet.py", "AxFaceNet"),
+        ("ax_models/torch/ax_timm.py", "AxTimmModel"),
+    ],
+)
+@pytest.mark.parametrize("bad_class", [True, False])
+def test_network_weights_and_anchors_download_messages_and_class_fails(
+    bad_class, module, klass, tmp_path
+):
+    path = 'whatever.thingy'
+    url = 'http://whatever/whatever.thingy'
+
+    n = _mini_network()
+    mi = n.find_model('n')
+    mi.weight_path = path
+    mi.weight_url = url
+    if klass == "AxTimmModel":
+        mi.extra_kwargs = {
+            'timm_model_args': {
+                'name': 'tiny_tim',
+            },
+        }
+
+    class DummyModel(types.Model):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+
+    with patch.dict(
+        sys.modules,
+        onnx=MagicMock(),
+        ultralytics=MagicMock(YOLO=Mock()),
+        ax_models=MagicMock(base_torch=MagicMock(TorchModel=types.Model)),
+        models=MagicMock(
+            yolo=MagicMock(Model=DummyModel),
+            common=MagicMock(),
+            darknet=MagicMock(Darknet=DummyModel),
+        ),
+        torch=MagicMock(nn=MagicMock(Module=DummyModel)),
+        numpy=MagicMock(),
+        PIL=MagicMock(),
+        timm=MagicMock(),
+        utils=MagicMock(),
+    ), patch.dict(
+        sys.modules,
+        {
+            "mmseg.apis": MagicMock(),
+            "mmengine.config": MagicMock(),
+            "mmengine.registry": MagicMock(),
+            "torch.utils.data": MagicMock(),
+            "ax_models.base_torch": MagicMock(TorchModel=types.Model),
+            "torch.nn": MagicMock(Module=DummyModel),
+        },
+    ):
+        ModelClass = utils.import_class_from_file(klass, module)
+        ModelClass.__init__ = lambda self, *args, **kwargs: None
+        if bad_class:
+            # force the class to fail here to provoke the appropriate error message
+            ModelClass.init_model_deploy = lambda self, *args, **kwargs: 1 / 0
+    with patch.object(n, 'model_class', return_value=ModelClass):
+        # ensure weights error message has all the parts we expect with quotes around path and url
+        with patch.object(utils, 'download', side_effect=RuntimeError("download failed")):
+            # n.instantiate_model('n')
+            expected = re.compile(
+                rf'Failed to initialize model.+ failed to download weights at "{path}" from "{url}".+ check settings for "weight_url" and "weight_path"',
+            )
+            with pytest.raises(RuntimeError) as e:
+                n.instantiate_model('n')
+            msg = str(e.value).replace('\n', ' ')
+            if bad_class:
+                assert 'appropriate class' in msg, msg
+            else:
+                assert expected.match(msg), msg
+                assert 'appropriate class' not in msg, msg
+
+            mi.weight_url = None
+            expected = re.compile(
+                rf'Failed to initialize model.+ no suitable weights found at "{path}" and no "weight_url" specified',
+            )
+
+            with pytest.raises(RuntimeError) as e:
+                n.instantiate_model('n')
+            msg = str(e.value).replace('\n', ' ')
+            if bad_class:
+                assert 'appropriate class' in msg, msg
+            else:
+                assert expected.match(msg), msg
+                assert 'appropriate class' not in msg, msg
+
+        if klass == "AxONNXModel" and not bad_class:
+            # check anchor messages similarly
+            file = tmp_path / path
+            file.write_text("dummy weights")
+            mi.weight_path = str(file)
+
+            anchors_path = 'anchors.thingy'
+            anchors_url = 'http://whatever/anchors.thingy'
+            mi.extra_kwargs = {
+                'YOLO': {
+                    'anchors_path': anchors_path,
+                    'anchors_url': anchors_url,
+                }
+            }
+            with patch.object(utils, 'download', side_effect=RuntimeError("download failed")):
+                expected = re.compile(
+                    rf'Failed to initialize model.+ failed to download anchors at "{anchors_path}" from "{anchors_url}".+ check settings for "anchors_url" and "anchors_path"',
+                )
+                with pytest.raises(RuntimeError) as e:
+                    n.instantiate_model('n')
+                assert expected.match(str(e.value).replace('\n', ' ')), str(e.value)
+
+                mi.extra_kwargs = {
+                    'YOLO': {
+                        'anchors_path': anchors_path,
+                    }
+                }
+                expected = re.compile(
+                    rf'Failed to initialize model.+ no "anchors" specified, no suitable anchors found at "{anchors_path}" and no "anchors_url" specified',
+                )
+                with pytest.raises(RuntimeError) as e:
+                    n.instantiate_model('n')
+                assert expected.match(str(e.value).replace('\n', ' ')), str(e.value)

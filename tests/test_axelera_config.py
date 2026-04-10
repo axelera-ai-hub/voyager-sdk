@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 import argparse
 import builtins
 import contextlib
@@ -13,7 +13,7 @@ import pytest
 
 from axelera import types
 from axelera.app import config, utils, yaml_parser
-from axelera.app.config import Source, SourceType
+from axelera.app.config import Source, SourceType, TilingConfig
 
 
 @pytest.fixture
@@ -709,6 +709,31 @@ def test_task_render_config_from_dict():
         ('/dir/', Source.IMAGE_FILES('/dir', images=[Path('/dir/a.jpg'), Path('/dir/b.jpg')])),
         ('dataset', Source.DATASET('val')),
         ('dataset:wibble', Source.DATASET('wibble')),
+        ('loop:cwd/cwd-based.mp4', Source.VIDEO_FILE('cwd/cwd-based.mp4', loop=True)),
+        ('loop:cwd/cwd-based.mp4@30', Source.VIDEO_FILE('cwd/cwd-based.mp4', fps=30, loop=True)),
+        ('loop:cwd/cwd-based.mp4@auto', Source.VIDEO_FILE('cwd/cwd-based.mp4', fps=-1, loop=True)),
+        (
+            'loop:~/videos/special_chars-123!@#$.mp4',
+            Source.VIDEO_FILE('/homer/videos/special_chars-123!@#$.mp4', loop=True),
+        ),
+        (
+            'loop:~/videos/special_chars-123!@#$.mp4@24',
+            Source.VIDEO_FILE('/homer/videos/special_chars-123!@#$.mp4', fps=24, loop=True),
+        ),
+        (
+            'loop:/dir/',
+            Source.IMAGE_FILES('/dir', images=[Path('/dir/a.jpg'), Path('/dir/b.jpg')], loop=True),
+        ),
+        (
+            '/dir/@15',
+            Source.IMAGE_FILES('/dir', images=[Path('/dir/a.jpg'), Path('/dir/b.jpg')], fps=15),
+        ),
+        (
+            'loop:/dir/@10',
+            Source.IMAGE_FILES(
+                '/dir', images=[Path('/dir/a.jpg'), Path('/dir/b.jpg')], fps=10, loop=True
+            ),
+        ),
     ],
 )
 def test_source_from_str(source_str, exp):
@@ -985,3 +1010,95 @@ def test_source_data_source_copy_with_reader():
     gen2 = image_generator()
     source2 = Source(source1, reader=gen2)
     assert source2.reader is gen2
+
+
+@pytest.mark.parametrize(
+    'source_str, exp_tiling_kwargs, exp_preprocessing_names',
+    [
+        (
+            'tile[size=640,overlap=50,position=left,show=1]:usb',
+            dict(size=640, overlap=50, position='left', show=True, file=''),
+            [],
+        ),
+        (
+            'tile[size=320]:usb',
+            dict(size=320, overlap=0, position='none', show=False, file=''),
+            [],
+        ),
+        (
+            'tile[file=tiles.json]:usb',
+            dict(size=0, overlap=0, position='none', show=False, file='tiles.json'),
+            [],
+        ),
+        (
+            'tile[file=tiles.json,show=True]:usb',
+            dict(size=0, overlap=0, position='none', show=True, file='tiles.json'),
+            [],
+        ),
+        (
+            'tile[size=512,overlap=25]:usb',
+            dict(size=512, overlap=25, position='none', show=False, file=''),
+            [],
+        ),
+        (
+            'tile[position=right]:usb',
+            dict(size=0, overlap=0, position='right', show=False, file=''),
+            [],
+        ),
+        (
+            'tile[size=640]:rotate90:usb',
+            dict(size=640, overlap=0, position='none', show=False, file=''),
+            ['videoflip'],
+        ),
+        (
+            'rotate90:tile[size=640]:usb',
+            dict(size=640, overlap=0, position='none', show=False, file=''),
+            ['videoflip'],
+        ),
+        (
+            'tile[size=640,show=0]:usb',
+            dict(size=640, overlap=0, position='none', show=False, file=''),
+            [],
+        ),
+    ],
+)
+def test_tiling_config_from_source_string(source_str, exp_tiling_kwargs, exp_preprocessing_names):
+    source = Source(source_str)
+    tiling = [o.args[0] for o in source.preprocessing if o.is_tiling][0]
+    assert isinstance(tiling, TilingConfig)
+    assert [op.name for op in source.preprocessing if not op.is_tiling] == exp_preprocessing_names
+    for field_name, expected_value in exp_tiling_kwargs.items():
+        assert getattr(tiling, field_name) == expected_value, (
+            f"TilingConfig.{field_name}: expected {expected_value!r}, "
+            f"got {getattr(tiling, field_name)!r}"
+        )
+
+
+@pytest.mark.parametrize(
+    'source_str, error_pattern',
+    [
+        (
+            'tile[file=tiles.json,size=640]:usb',
+            r'Cannot specify both file and other parameters for til',
+        ),
+        (
+            'tile[file=tiles.json,position=left]:usb',
+            r'Cannot specify both file and other parameters for til',
+        ),
+        (
+            'tile[position=meh]:usb',
+            r'Invalid tile position: meh',
+        ),
+        (
+            'tile[file=tiles.json,overlap=50]:usb',
+            r'Cannot specify both file and other parameters for til',
+        ),
+        (
+            'tile[size=640]:tile[size=320]:usb',
+            r'Only one tile preproc is allowed per source',
+        ),
+    ],
+)
+def test_tiling_config_from_source_string_errors(source_str, error_pattern):
+    with pytest.raises(ValueError, match=error_pattern):
+        Source(source_str)

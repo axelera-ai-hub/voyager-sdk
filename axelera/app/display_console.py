@@ -195,7 +195,7 @@ class ConsoleApp(display.App):
             self._closed_sources.discard(msg.stream_id)
             return
         blocking = isinstance(msg, display._BlockingFrame)
-        if msg.stream_id in self._closed_sources:
+        if getattr(msg, 'stream_id', None) in self._closed_sources:
             if blocking:
                 LOG.error(f"Received blocking frame from closed source {msg.stream_id}")
             return  # ignore messages from closed sources

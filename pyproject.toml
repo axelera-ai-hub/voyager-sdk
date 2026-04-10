@@ -33,7 +33,6 @@ known_third_party = ["torch", "torchvision", "numpy", "PIL", "onnx", "onnxruntim
 testpaths = [
     "tests",
     "internal_tools_tests",
-    "llm_tests",
     "run_tests.py",
 ]
 pythonpath = [".", "internal_tools"]
@@ -41,6 +40,9 @@ filterwarnings = """\
     ignore:.*call to `pkg_resources.declare_namespace.*:DeprecationWarning
     ignore:.*pkg_resources is deprecated as an API.*:DeprecationWarning
 """
+markers = [
+    "onnx_opt: marks ONNX optimization tests (deselect with '-m \"not onnx_opt\"')",
+]
 
 [tool.ruff]
 line-length=99

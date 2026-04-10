@@ -16,7 +16,6 @@ pipeline:
             conf_threshold: 0.25
             nms_iou_threshold: 0.45
             nms_top_k: 300
-            unpad: True
   - poses:
       model_name: yolov8lpose-coco-onnx
       input:

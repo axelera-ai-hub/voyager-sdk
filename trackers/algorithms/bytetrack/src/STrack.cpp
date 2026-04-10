@@ -1,3 +1,4 @@
+// Copyright Axelera AI, 2024
 #include "STrack.h"
 
 STrack::STrack(vector<float> tlwh_, float score, int label)
@@ -80,6 +81,7 @@ STrack::re_activate(STrack &new_track, int frame_id, bool new_id)
   this->is_activated = true;
   this->frame_id = frame_id;
   this->score = new_track.score;
+  this->latest_det_id = new_track.latest_det_id;
   if (new_id)
     this->track_id = next_id();
 }
@@ -108,6 +110,7 @@ STrack::update(STrack &new_track, int frame_id)
   this->is_activated = true;
 
   this->score = new_track.score;
+  this->latest_det_id = new_track.latest_det_id;
 }
 
 void

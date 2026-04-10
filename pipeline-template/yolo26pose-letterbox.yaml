@@ -1,0 +1,26 @@
+input:
+  type: image
+preprocess:
+  - letterbox:
+      width: ${{input_width}}
+      height: ${{input_height}}
+      scaleup: True
+  - torch-totensor:
+inference:
+  handle_all: False
+postprocess:
+  - decodeyolopose:
+      box_format: xyxy
+      normalized_coord: False
+      conf_threshold: 0.25
+      nms_top_k: 300
+      nms_free: True
+      dfl_size: 1
+      eval:
+        conf_threshold: 0.001
+
+
+operators:
+  decodeyolopose:
+    class: DecodeYoloPose
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/yolopose.py

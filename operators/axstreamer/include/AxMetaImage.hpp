@@ -9,7 +9,9 @@ class AxMetaImage : public AxMetaBase
 {
   public:
   AxMetaImage(VectorType data, int channels, int width, int height)
-      : datavec(std::move(data)), imagechannels(channels), imagewidth(width),
+      : datavec(std::move(data)),
+        imagechannels(channels),
+        imagewidth(width),
         imageheight(height)
   {
     if (std::get_if<std::vector<uint8_t>>(&data) != nullptr) {

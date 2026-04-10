@@ -44,6 +44,8 @@ models:
     num_classes: 1
     dataset: CocoDataset-keypoint-COCO2017
     extra_kwargs:
+      m2:
+        mvm_limitation: 65
 
 datasets:
   CocoDataset-keypoint-COCO2017:

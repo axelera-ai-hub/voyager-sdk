@@ -8,7 +8,6 @@
 #include <execution>
 #include <fstream>
 #include <numeric>
-//#include <opencv2/opencv.hpp>
 #include <unordered_set>
 #include <vector>
 #include "AxDataInterface.h"
@@ -30,7 +29,7 @@ struct properties {
   std::vector<float> zero_points{};
   std::vector<float> scales{};
   std::vector<std::string> class_labels{};
-  std::vector<int> filter{};
+  std::vector<uint8_t> filter{};
   std::array<float, weights_size> weights;
 
   float confidence{ 0.25F };
@@ -39,6 +38,7 @@ struct properties {
   bool multiclass{ true };
   std::vector<int> kpts_shape{ 0, 0 };
   std::string meta_name{};
+  std::string association_meta{};
   std::string decoder_name{};
   bool scale_up{ true };
   int model_width{};
@@ -60,32 +60,36 @@ dequantize(int8_t value, const float *the_table)
 }
 
 void
-build_prototype_vector(const AxTensorsInterface &depadded,
+build_prototype_vector(const AxTensorsInterface &depadded, int prototype_stride,
     const std::vector<tensor_pair> &tensor_order, const properties &props, inferences &outputs)
 {
-
-  constexpr int aipu_allignment = 64;
   const auto [unused1, unused2, unused3, unused4, idx] = tensor_order[0];
   auto [prototype_width, prototype_height, prototype_depth]
       = ax_utils::get_dims(depadded, idx, true);
   const auto prototype_tensor = depadded[idx];
   const auto *prototype_data = static_cast<const int8_t *>(prototype_tensor.data);
 
-  const auto &prototype_lookups = props.dequantize_tables[idx].data();
+  auto scale = props.scales[idx];
+  auto zero = props.zero_points[idx];
 
   // Dequantize and remove padding of prototype maps
-  const auto prototype_size = prototype_width * prototype_height * prototype_depth;
-  const auto prototype_tensor_size = prototype_width * prototype_height * aipu_allignment;
-  outputs.prototype_coefs.resize(prototype_size);
-  auto it = outputs.prototype_coefs.begin();
-
-  for (auto i = 0; i < prototype_tensor_size; i += aipu_allignment) {
-    std::transform(prototype_data + i, prototype_data + i + prototype_depth, it,
-        [&prototype_lookups](
-            int8_t index) { return prototype_lookups[128 + index]; });
-    it = std::next(it, prototype_depth);
+  const size_t prototype_size = prototype_width * prototype_height * prototype_depth;
+  const auto prototype_tensor_size = prototype_width * prototype_height * prototype_stride;
+  ax_utils::prototype_details proto_details = {
+    prototype_width,
+    prototype_height,
+    prototype_depth,
+    scale,
+    zero,
+    std::make_unique_for_overwrite<uint8_t[]>(prototype_size),
+    prototype_size,
+  };
+  auto *p = proto_details.coefs.get();
+  for (int i = 0; i < prototype_tensor_size; i += prototype_stride) {
+    std::memcpy(p, &prototype_data[i], prototype_depth);
+    p += prototype_depth;
   }
-  outputs.set_prototype_dims(prototype_width, prototype_height, prototype_depth);
+  outputs.set_prototype(std::move(proto_details));
 }
 
 /// @brief Sort the tensors into the order that they are expected to be in and
@@ -138,12 +142,9 @@ decode_cell(const int8_t *box_data, const int8_t *score_data,
     int score_level, int box_level, int kpt_level, int mask_level,
     float recip_width, int xpos, int ypos, inferences &outputs)
 {
-
-  const auto dummy = float{};
   const auto &lookups = props.sigmoid_tables[score_level].data();
-  const auto confidence = props.confidence;
 
-  auto num_predictions = ax_utils::decode_scores(score_data, lookups, 1,
+  auto num_predictions = ax_utils::decode_scores(score_data, lookups,
       props.filter, props.confidence, props.multiclass, outputs);
   if (num_predictions != 0) {
     const auto &softmax_lookups = props.softmax_tables[box_level].data();
@@ -154,7 +155,7 @@ decode_cell(const int8_t *box_data, const int8_t *score_data,
     auto *box_ptr = box_data;
     auto next_box = softmaxed.size();
     for (auto &b : box) {
-      ax_utils::softmax(box_ptr, softmaxed.size(), 1, softmax_lookups, softmaxed.data());
+      ax_utils::softmax(box_ptr, softmaxed.size(), softmax_lookups, softmaxed.data());
       b = std::transform_reduce(
           props.weights.begin(), props.weights.end(), softmaxed.begin(), 0.0F);
       box_ptr = std::next(box_ptr, next_box);
@@ -177,6 +178,8 @@ decode_cell(const int8_t *box_data, const int8_t *score_data,
     const auto &sigmoid_lookups = props.sigmoid_tables[kpt_level].data();
     auto *kpts_ptr = kpts_data;
 
+    std::vector<ax_utils::fkpt> kpts;
+    kpts.reserve(props.kpts_shape[0]);
     for (auto i = 0; i < props.kpts_shape[0]; ++i) {
       const auto x = (xpos + 2.0F * yolov8multihead_decode::dequantize(kpts_ptr[0], dequantize_lookups))
                      * recip_width;
@@ -186,58 +189,28 @@ decode_cell(const int8_t *box_data, const int8_t *score_data,
                          ax_utils::sigmoid(kpts_ptr[2], sigmoid_lookups) :
                          1.0F;
 
-      outputs.kpts.insert(outputs.kpts.end(), {
-                                                  std::clamp(x, 0.0F, 1.0F),
-                                                  std::clamp(y, 0.0F, 1.0F),
-                                                  v,
-                                              });
+      kpts.push_back({ std::clamp(x, 0.0F, 1.0F), std::clamp(y, 0.0F, 1.0F), v });
       kpts_ptr = std::next(kpts_ptr, props.kpts_shape[1]);
     }
 
-    for (auto i = 0; i < num_predictions - 1; ++i) {
-      outputs.kpts.insert(outputs.kpts.end(), outputs.kpts.begin(),
-          std::next(outputs.kpts.begin(), props.kpts_shape[0]));
+    for (auto i = 0; i < num_predictions; ++i) {
+      outputs.kpts.insert(outputs.kpts.end(), kpts.begin(),
+          std::next(kpts.begin(), props.kpts_shape[0]));
     }
 
-    const auto &mask_lookups = props.dequantize_tables[mask_level].data();
-    std::vector<float> mask_coefs(outputs.prototype_depth);
-    std::transform(mask_data, mask_data + outputs.prototype_depth, mask_coefs.begin(),
-        [&mask_lookups](int8_t index) { return mask_lookups[128 + index]; });
+    const auto scale = props.scales[mask_level];
+    const auto zero = props.zero_points[mask_level];
 
-    segment_func task([x1, y1, x2, y2, &props, prototype_width = outputs.prototype_width,
-                          prototype_height = outputs.prototype_height,
-                          prototype_depth = outputs.prototype_depth,
-                          mask_coefs](const std::vector<float> &prototype_coefs,
-                          size_t out_width, size_t out_height) {
-      if (prototype_coefs.empty()) {
-        throw std::runtime_error("invalid prototype tensor");
-      }
-
-      // TODO: Use OpenCL kernel for MVM and sigmoid
-      auto bbox = std::array{ std::clamp(static_cast<int>(std::round(x1 * prototype_width)),
-                                  0, prototype_width - 1),
-        std::clamp(static_cast<int>(std::round(y1 * prototype_height)), 0, prototype_height - 1),
-        std::clamp(static_cast<int>(std::round(x2 * prototype_width)), 0, prototype_width - 1),
-        std::clamp(static_cast<int>(std::round(y2 * prototype_height)), 0,
-            prototype_height - 1) };
-
-      const auto row_offset = prototype_width * prototype_depth;
-      const auto segment_map_size = (bbox[3] - bbox[1]) * (bbox[2] - bbox[0]);
-      std::vector<float> segment_map(segment_map_size);
-      auto idx = 0;
-      for (int sy = bbox[1]; sy < bbox[3]; ++sy) {
-        for (int sx = bbox[0]; sx < bbox[2]; ++sx) {
-          auto prototype = prototype_coefs.begin() + sy * row_offset + sx * prototype_depth;
-          const auto dot = std::transform_reduce(std::execution::unseq,
-              mask_coefs.begin(), mask_coefs.end(), prototype, 0.0F,
-              std::plus<>(), std::multiplies<>());
-          segment_map[idx++] = ax_utils::sigmoid(dot, 0);
-        }
-      }
-      return ax_utils::segment{ bbox[0], bbox[1], bbox[2], bbox[3], std::move(segment_map) };
-    });
-
-    outputs.seg_funcs.insert(outputs.seg_funcs.end(), num_predictions, task);
+    auto seg_details = segment_details{
+      x1,
+      y1,
+      x2,
+      y2,
+      scale,
+      zero,
+      std::vector<int8_t>(mask_data, mask_data + outputs.prototype.depth),
+    };
+    outputs.seg_info.insert(outputs.seg_info.end(), num_predictions, std::move(seg_details));
   }
 
   return num_predictions;
@@ -343,12 +316,15 @@ decode_tensors(const AxTensorsInterface &tensors, const properties &prop,
   constexpr int default_detections = 1000;
   inferences predictions(default_detections, default_detections * prop.kpts_shape[0]);
   predictions.kpts_shape = prop.kpts_shape;
+  auto idx = tensor_order[0].prototype_idx;
+  auto prototype_stride = ax_utils::get_dims(tensors, idx, true).depth;
 
-  yolov8multihead_decode::build_prototype_vector(depadded, tensor_order, prop, predictions);
+  yolov8multihead_decode::build_prototype_vector(
+      depadded, prototype_stride, tensor_order, prop, predictions);
   for (int level = 0; level != tensor_order.size(); ++level) {
     const auto [loc_tensor, kpt_tensor, mask_tensor, conf_tensor, _] = tensor_order[level];
-    auto num = decode_tensor(tensors, conf_tensor, loc_tensor, kpt_tensor,
-        mask_tensor, prop, level, predictions, logger);
+    decode_tensor(tensors, conf_tensor, loc_tensor, kpt_tensor, mask_tensor,
+        prop, level, predictions, logger);
   }
   return predictions;
 }
@@ -390,32 +366,24 @@ decode_to_meta(const AxTensorsInterface &in_tensors,
   auto predictions
       = yolov8multihead_decode::decode_tensors(tensors, *prop, padding, logger);
 
-  predictions = ax_utils::topk(predictions, prop->topk);
-
-  std::vector<BboxXyxy> pixel_boxes;
-  BboxXyxy base_box;
-  // TODO: Add support for cascaded pipelines
-  pixel_boxes = ax_utils::scale_boxes(predictions.boxes,
-      std::get<AxVideoInterface>(video_interface), prop->model_width,
-      prop->model_height, prop->scale_up, false);
-  auto vinfo = std::get<AxVideoInterface>(video_interface);
-  base_box = { 0, 0, vinfo.info.width, vinfo.info.height };
+  predictions = ax_utils::topk(std::move(predictions), prop->topk);
 
 
-  auto pixel_kpts = ax_utils::scale_kpts(predictions.kpts, vinfo.info.width,
-      vinfo.info.height, prop->model_width, prop->model_height, prop->scale_up, false);
-
-
-  auto sizes = SegmentShape{ static_cast<size_t>(predictions.prototype_width),
-    static_cast<size_t>(predictions.prototype_height) };
+  auto base_box = ax_utils::get_master_box(prop->meta_name, prop->association_meta,
+      video_interface, subframe_index, map, "yolov8multihead_decode");
+  auto pixel_boxes = ax_utils::scale_shift_boxes(predictions.boxes, base_box,
+      prop->model_width, prop->model_height, prop->scale_up, false);
+  auto pixel_kpts = ax_utils::scale_shift_kpts(predictions.kpts, base_box,
+      prop->model_width, prop->model_height, prop->scale_up, false);
+  auto sizes = SegmentShape{ static_cast<size_t>(predictions.prototype.width),
+    static_cast<size_t>(predictions.prototype.height) };
 
   std::vector<int> ids;
   ax_utils::insert_meta<AxMetaPoseSegmentsDetection>(map, prop->meta_name, "",
-      subframe_index, number_of_subframes, std::move(pixel_boxes),
-      std::move(pixel_kpts), std::move(predictions.seg_funcs),
-      std::move(predictions.scores), std::move(predictions.class_ids), ids,
-      sizes, std::move(predictions.prototype_coefs), prop->kpts_shape,
-      std::move(base_box), prop->decoder_name);
+      subframe_index, number_of_subframes, std::move(pixel_boxes), std::move(pixel_kpts),
+      std::move(predictions.seg_info), std::move(predictions.scores),
+      std::move(predictions.class_ids), ids, sizes, std::move(predictions.prototype),
+      prop->kpts_shape, std::move(base_box), prop->decoder_name);
 
   auto end_time = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
@@ -517,18 +485,12 @@ init_and_set_static_properties(
       = ax_utils::build_exponential_tables(props->zero_points, props->scales);
   props->dequantize_tables
       = ax_utils::build_dequantization_tables(props->zero_points, props->scales);
-  props->filter = Ax::get_property(
-      input, "label_filter", "detection_static_properties", props->filter);
-  if (props->filter.empty()) {
-    auto size = props->num_classes;
-    props->filter.resize(size);
-    std::iota(props->filter.begin(), props->filter.end(), 0);
-  }
+  auto filter = Ax::get_property(
+      input, "label_filter", "detection_static_properties", std::vector<int>{});
+  props->filter = ax_utils::build_filter(filter, props->num_classes);
+
   props->padding = Ax::get_property(
       input, "padding", "detection_static_properties", props->padding);
-  std::sort(props->filter.begin(), props->filter.end());
-  props->filter.erase(std::unique(props->filter.begin(), props->filter.end()),
-      props->filter.end());
   std::iota(props->weights.begin(), props->weights.end(), 0);
 
   return props;

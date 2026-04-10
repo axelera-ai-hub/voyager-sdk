@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Custom pre-processing operators
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .. import config, gst_builder, logging_utils
 from ..torch_utils import torch
 from .base import PreprocessOperator, builtin
 from .context import PipelineContext
-from .utils import insert_color_convert, inspect_resize_status
+from .utils import insert_color_convert, inspect_resize_status, add_alpha_channel
 
 if not hasattr(Image, "Resampling"):  # if Pillow<9.0
     Image.Resampling = Image
@@ -36,9 +36,11 @@ class PermuteChannels(PreprocessOperator):
             self._dimchg = _get_dimchg(self.input_layout, self.output_layout)
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
-        if self.input_layout == self.output_layout:
-            return
-        raise NotImplementedError("PermuteChannels is not implemented for gst pipeline")
+        # GST pipe expects only NHWC
+        if self.input_layout != types.TensorLayout.NHWC:
+            raise ValueError(
+                "PermuteChannels is only supported for NHWC layout in GStreamer, skipping"
+            )
 
     def exec_torch(self, image: torch.Tensor) -> torch.Tensor:
         if not isinstance(image, torch.Tensor):
@@ -284,7 +286,7 @@ class ConvertColorInput(PreprocessOperator):
 
 @builtin
 class FaceAlign(PreprocessOperator):
-    keypoints_submeta_key: Optional[str] = None
+    keypoints_key: Optional[str] = None  # Only used for torch pipeline
     width: int = 0
     height: int = 0
     padding: float = 0.0
@@ -338,16 +340,14 @@ class FaceAlign(PreprocessOperator):
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
         master_key = f'master_meta:{self._where};' if self._where else str()
         association_key = f'association_meta:{self._association};' if self._association else str()
-        keypoints_submeta_option = (
-            f'keypoints_submeta_key:{self.keypoints_submeta_key};'
-            if self.keypoints_submeta_key
-            else str()
-        )
 
+        if gst.getconfig().opencl:
+            lib = 'libtransform_facealign_cl.so'
+        else:
+            lib = 'libtransform_facealign.so'
         gst.axtransform(
-            lib='libtransform_facealign.so',
-            options=f'{keypoints_submeta_option}'
-            f'{master_key}'
+            lib=lib,
+            options=f'{master_key}'
             f'{association_key}'
             f'width:{self.width};'
             f'height:{self.height};'
@@ -369,15 +369,11 @@ class FaceAlign(PreprocessOperator):
         Returns:
             Aligned face image
         """
-        if (
-            meta is None
-            or self.keypoints_submeta_key is None
-            or self.keypoints_submeta_key not in meta
-        ):
+        if meta is None or self.keypoints_key is None or self.keypoints_key not in meta:
             LOG.warning("FaceAlign requires metadata with keypoints")
             return image
 
-        keypoints_meta = meta[self.keypoints_submeta_key]
+        keypoints_meta = meta[self.keypoints_key]
         if not hasattr(keypoints_meta, 'keypoints') or keypoints_meta.keypoints is None:
             LOG.warning("No keypoints found in metadata")
             return image
@@ -1008,14 +1004,7 @@ class FaceAlign(PreprocessOperator):
 
 
 def get_output_format_spec(format: types.ColorFormat) -> str:
-    OUT_FORMATS = {
-        types.ColorFormat.RGBA: 'rgb',
-        types.ColorFormat.BGRA: 'bgr',
-        types.ColorFormat.RGB: 'rgb',
-        types.ColorFormat.BGR: 'bgr',
-        types.ColorFormat.GRAY: 'gray8',
-    }
-    return f';format:{OUT_FORMATS[format]}' if format else ''
+    return f';format:{add_alpha_channel(format)}' if format else ''
 
 
 @builtin
@@ -1029,7 +1018,7 @@ class Polar(PreprocessOperator):
     max_radius: int = None
     inverse: bool = False
     linear_polar: bool = True
-    format: types.ColorFormat = types.ColorFormat.RGB
+    format: types.ColorFormat = None
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
         opencl = gst.getconfig() is not None and gst.getconfig().opencl
@@ -1122,7 +1111,7 @@ class Perspective(PreprocessOperator):
     def exec_torch(self, image):
         matrix = np.array(self.camera_matrix).reshape(3, 3)
         transformed_image = cv2.warpPerspective(image.asarray(), matrix, image.size)
-        return types.Image.fromarray(transformed_image)
+        return types.Image.fromarray(transformed_image, color_format=image.color_format)
 
 
 @builtin
@@ -1181,7 +1170,7 @@ class CameraUndistort(PreprocessOperator):
         )
         new_image = cv2.remap(image.asarray(), mapx, mapy, cv2.INTER_LINEAR)
 
-        return types.Image.fromarray(new_image)
+        return types.Image.fromarray(new_image, color_format=image.color_format)
 
 
 def _convert_color_torch(img, format):
@@ -1255,7 +1244,23 @@ class _AddTiles(PreprocessOperator):
     """
 
     tiling: config.TilingConfig
-    input_shape: tuple[int]
+    model_width: int = 0
+    model_height: int = 0
+
+    def configure_model_and_context_info(
+        self,
+        model_info: types.ModelInfo,
+        context: PipelineContext,
+        task_name: str,
+        taskn: int,
+        compiled_model_dir: Path | None,
+        task_graph,
+    ):
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
+        self.model_width = model_info.input_width
+        self.model_height = model_info.input_height
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
         options = (
@@ -1263,8 +1268,9 @@ class _AddTiles(PreprocessOperator):
             f'tile_size:{self.tiling.size};'
             f'tile_overlap:{self.tiling.overlap};'
             f'tile_position:{self.tiling.position};'
-            f'model_width:{self.input_shape[3]};'
-            f'model_height:{self.input_shape[2]}'
+            f'model_width:{self.model_width};'
+            f'model_height:{self.model_height}'
+            + (f';tile_json:{self.tiling.file}' if self.tiling.file else '')
         )
         gst.axinplace(lib="libinplace_addtiles.so", options=options)
 

@@ -20,12 +20,10 @@ postprocess:
       nms_top_k: 300
       use_multi_label: False
       nms_class_agnostic: False
-      unpad: True
       eval: # overrides for evaluating accuracy
         conf_threshold: 0.001
         nms_iou_threshold: 0.7
         use_multi_label: True
-        unpad: False
 
 
 operators:

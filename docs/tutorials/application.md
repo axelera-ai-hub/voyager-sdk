@@ -399,6 +399,12 @@ stream = create_inference_stream(
     tracers=tracers,
     specified_frame_rate=10,
     # rtsp_latency=500,
+    render_config=config.RenderConfig(
+        detections=config.TaskRenderConfig(
+            show_annotations=False,
+            show_labels=False,
+        ),
+    ),
 )
 ```
 
@@ -756,5 +762,7 @@ See the [axinferencenet_tensor.cpp](/examples/axinferencenet/axinferencenet_tens
 
 
 ## Further support
-- For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
-- For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).
+
+For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
+
+For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).

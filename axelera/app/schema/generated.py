@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 import enum
 import functools
 import importlib
@@ -64,7 +64,10 @@ def _find_template_operators(network):
                     utils.make_paths_in_dict_absolute(template_base_dir, template_yaml)
                     operators.update(template_yaml.get('operators', {}))
                 else:
-                    LOG.warning(f"Cannot read template operators from {path}, ignoring...")
+                    raise FileNotFoundError(
+                        f"Template file not found: {path}\n"
+                        f"Check that the template_path in your model card points to a valid file."
+                    )
     return operators
 
 

@@ -25,7 +25,9 @@ struct extern_meta_container {
   std::vector<char> meta{};
   extern_meta_container(
       const char *_type, const char *_subtype, int _meta_size, const char *_meta)
-      : type(_type), subtype(_subtype), meta(_meta, _meta + _meta_size)
+      : type(_type),
+        subtype(_subtype),
+        meta(_meta, _meta + _meta_size)
   {
   }
 };

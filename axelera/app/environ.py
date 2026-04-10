@@ -73,8 +73,8 @@ def _var(f):
 
     def getter(self):
         v = self._environ.get(var.env_name, var.default)
-        # expand any locally defined variables, e.g. `$framework/build
-        v = re.sub(r'\$AXELERA_([A-Z_]+)\b', lambda m: str(getattr(self, m.group(1).lower())), v)
+        # expand any locally defined variables, e.g. `$AXELERA_FRAMEWORK/build
+        v = self.expandvars(v)
         return converter(v)
 
     _vars.append(var)
@@ -90,6 +90,16 @@ class Environment:
     def __init__(self, environ=os.environ):
         self._environ = environ
 
+    def expandvars(self, value: str) -> str:
+        '''Expand $AXELERA_* variables using the current environment configuration.
+
+        Only variables matching $AXELERA_<NAME> are expanded; other shell variables
+        are left unchanged. Use os.path.expandvars for general shell variable expansion.
+        '''
+        return re.sub(
+            r'\$AXELERA_([A-Z_]+)\b', lambda m: str(getattr(self, m.group(1).lower())), value
+        )
+
     @_var
     def help(self) -> bool:
         '''Set to true to show help and exit.'''
@@ -103,7 +113,7 @@ class Environment:
         Some places assume that axelera/app can also be found here but we should discourage that as
         we should rely on the package being found by importlib as standard
         '''
-        return os.getcwd()
+        return os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
     @_var
     def build_root(self) -> Path:
@@ -228,6 +238,18 @@ class Environment:
         robin buffer pull on its input pads and so this naturally reduces jitter.
         '''
         return 1
+
+    @_var
+    def render_keypoint_skeletons(self) -> bool:
+        return 1
+
+    @_var
+    def render_keypoints(self) -> bool:
+        return 1
+
+    @_var
+    def render_box_keypoints(self) -> bool:
+        return 0
 
     @_var
     def render_low_latency_streams(self) -> list[int]:

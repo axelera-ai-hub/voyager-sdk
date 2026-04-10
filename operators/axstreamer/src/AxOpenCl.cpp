@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2026
+// Copyright Axelera AI, 2024
 #include "AxOpenCl.hpp"
 
 #include <iostream>
@@ -105,26 +105,6 @@ determine_local_work_size(size_t max_work_size)
   return { width, height };
 }
 
-output_format
-get_output_format(AxVideoFormat format, bool ignore_alpha)
-{
-  switch (format) {
-    case AxVideoFormat::RGBA:
-      return ignore_alpha ? RGB_OUTPUT : RGBA_OUTPUT;
-    case AxVideoFormat::BGRA:
-      return ignore_alpha ? BGR_OUTPUT : BGRA_OUTPUT;
-    case AxVideoFormat::RGB:
-      return RGB_OUTPUT;
-    case AxVideoFormat::BGR:
-      return BGR_OUTPUT;
-    case AxVideoFormat::GRAY8:
-      return GRAY_OUTPUT;
-    default:
-      throw std::runtime_error(
-          "Unsupported output format: " + AxVideoFormatToString(format));
-  }
-}
-
 std::mutex CLProgram::cl_mutex;
 
 // Test platform functionality
@@ -182,6 +162,8 @@ get_order_preference(std::string_view preference, Ax::Logger &logger)
     return { "NVIDIA"s, "Intel"s, "ARM"s };
   } else if (preference == "nvidia") {
     return { "NVIDIA"s };
+  } else if (preference == "amd") {
+    return { "AMD"s };
   } else if (preference != "auto" && !preference.empty()) { // AUTO or any other value
     logger(AX_WARN) << "Unknown OpenCL preference: " << preference
                     << ", using auto" << std::endl;
@@ -189,6 +171,7 @@ get_order_preference(std::string_view preference, Ax::Logger &logger)
   return std::vector<std::string>{
     "Intel",
     "ARM",
+    "AMD",
     "rusticl",
     "NVIDIA",
     "Portable Computing Language",
@@ -221,10 +204,14 @@ find_preferred_platform(std::string_view preferred, const std::vector<cl_platfor
 }
 
 opencl_details
-build_cl_details(Ax::Logger &logger, const char *which_cl, void *display)
+build_cl_details(Ax::Logger &logger, const char *cl_choice, void *display)
 {
   opencl_details details{};
   details.version = AX_ALLOCATION_CONTEXT_VERSION;
+
+  std::string which_cl = cl_choice ? cl_choice : "";
+  std::transform(which_cl.begin(), which_cl.end(), which_cl.begin(),
+      [](unsigned char c) { return std::tolower(c); });
 
   try {
 
@@ -238,7 +225,7 @@ build_cl_details(Ax::Logger &logger, const char *which_cl, void *display)
 
     // Get OpenCL preference from environment variable
     // AX_OPENCL_PREFERENCE can be: "INTEL", "CPU", "GPU", "AUTO" (default)
-    std::string preference = which_cl ? which_cl : "auto";
+    std::string preference = which_cl.empty() ? "auto" : which_cl;
     // Define preference order for each setting
     auto preference_order = get_order_preference(preference, logger);
 
@@ -291,20 +278,29 @@ build_cl_details(Ax::Logger &logger, const char *which_cl, void *display)
     details.extensions = init_extensions(selected_platform, display);
 
     cl_uint num_devices;
-    auto error = get_device_id(
-        selected_platform, &details.device_id, &num_devices, details.extensions);
+    auto error = get_device_id(selected_platform, &details.device_id,
+        &num_devices, details.extensions, which_cl);
     if (error != CL_SUCCESS) {
       logger.throw_error("OpenCL not functional: Failed to get device! Error: "
                          + cl_error_to_string(error));
     }
-
     details.context
         = create_context(selected_platform, details.device_id, details.extensions);
-    if (error != CL_SUCCESS || !details.context) {
-      logger.throw_error("OpenCL not functional: Failed to create OpenCL context, error: "
+    cl_command_queue_properties cq_props{};
+    clGetDeviceInfo(details.device_id, CL_DEVICE_QUEUE_PROPERTIES,
+        sizeof(cq_props), &cq_props, NULL);
+    auto ooo_enable = (cq_props & CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE) ?
+                          CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE :
+                          0;
+    details.commands
+        = clCreateCommandQueue(details.context, details.device_id, ooo_enable, &error);
+    if (error != CL_SUCCESS) {
+      clReleaseContext(details.context);
+      logger.throw_error("OpenCL not functional: Failed to create OpenCL command queue, error: "
                          + cl_error_to_string(error));
     }
-    details.commands = clCreateCommandQueue(details.context, details.device_id, 0, &error);
+    details.map_commands
+        = clCreateCommandQueue(details.context, details.device_id, 0, &error);
     if (error != CL_SUCCESS) {
       clReleaseContext(details.context);
       logger.throw_error("OpenCL not functional: Failed to create OpenCL command queue, error: "
@@ -320,6 +316,7 @@ build_cl_details(Ax::Logger &logger, const char *which_cl, void *display)
     details.device_id = nullptr;
     details.context = nullptr;
     details.commands = nullptr;
+    details.map_commands = nullptr;
     details.exception = std::current_exception();
   }
   return details;
@@ -343,12 +340,15 @@ copy_context_and_retain(opencl_details *context)
     clRetainContext(details.context);
   if (details.commands)
     clRetainCommandQueue(details.commands);
+  if (details.map_commands)
+    clRetainCommandQueue(details.map_commands);
   return details;
 }
 
 CLProgram::CLProgram(const std::string &source, opencl_details *context, Ax::Logger &log)
-    : logger(log), cl_details(context ? copy_context_and_retain(context) :
-                                        build_cl_details(logger, nullptr, nullptr))
+    : logger(log),
+      cl_details(context ? copy_context_and_retain(context) :
+                           build_cl_details(logger, nullptr, nullptr))
 {
   if (cl_details.version != AX_ALLOCATION_CONTEXT_VERSION) {
     throw std::runtime_error(
@@ -357,11 +357,21 @@ CLProgram::CLProgram(const std::string &source, opencl_details *context, Ax::Log
         + std::to_string(cl_details.version)
         + "\nThis is probably due to an incompatible axstreamer and gstaxstreamer version.");
   }
-  cl_int error = CL_SUCCESS;
   if (!cl_details.context) {
     std::rethrow_exception(cl_details.exception);
   }
+  if (!source.empty()) {
+    build_kernel_from_source(source, "");
+  }
+  clGetDeviceInfo(cl_details.device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE,
+      sizeof max_work_group_size, &max_work_group_size, nullptr);
+}
+
+CLProgram::ax_kernel
+CLProgram::build_kernel_from_source(const std::string &source, const std::string &kernel_name)
+{
   const char *sources[] = { source.c_str() };
+  cl_int error = CL_SUCCESS;
   {
     std::lock_guard<std::mutex> lock(cl_mutex);
     //  We need to lock here as clCreateProgramWithSource and
@@ -381,10 +391,8 @@ CLProgram::CLProgram(const std::string &source, opencl_details *context, Ax::Log
     std::cerr << "Build log:\n" << build_log.data() << std::endl;
     throw std::runtime_error("Failed to create OpenCL program");
   }
-  clGetDeviceInfo(cl_details.device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE,
-      sizeof max_work_group_size, &max_work_group_size, nullptr);
+  return kernel_name.empty() ? ax_kernel{ nullptr } : get_kernel(kernel_name);
 }
-
 
 CLProgram::ax_kernel
 CLProgram::get_kernel(const std::string &kernel_name) const
@@ -405,12 +413,13 @@ CLProgram::create_buffers(int elem_size, int num_elems, int flags,
   cl_int error = CL_SUCCESS;
   if (auto *p = std::get_if<opencl_buffer *>(&ptr)) {
     auto *p1 = *p;
-    if (p1->event) {
-      //  If we get here then upstream has begun mapping the buffer, so we
-      //  need to wait for that to complete and then unmap
-      clWaitForEvents(1, &*p1->event);
+    if (p1->event && p1->mapped) {
+      //  If we get here then upstream has begun mappinng the buffer, so we
+      //  need to wait for that to complete and then unamp
+      clEnqueueUnmapMemObject(
+          cl_details.commands, p1->buffer, p1->mapped, 1, &*p1->event, NULL);
       p1->event.reset();
-      clEnqueueUnmapMemObject(cl_details.commands, p1->buffer, p1->mapped, 0, NULL, NULL);
+      p1->mapped = nullptr;
     }
   }
   auto buffers = create_optimal_buffer(cl_details.context, cl_details.extensions,
@@ -438,13 +447,15 @@ CLProgram::create_buffer(const buffer_details &details, int flags)
 }
 
 CLProgram::flush_details
-CLProgram::flush_output_buffer_async(const ax_buffer &out, int size)
+CLProgram::flush_output_buffer_async(const ax_buffer &out, int size, ax_event ev)
 {
   int ret = CL_SUCCESS;
-  auto event = ax_event{ nullptr };
+  auto event = *ev;
+  auto num_events = event ? 1 : 0;
+  auto new_event = ax_event{ nullptr };
   auto mapped = clEnqueueMapBuffer(cl_details.commands, *out, CL_FALSE,
-      CL_MAP_READ, 0, size, 0, NULL, &*event, &ret);
-  return { ret, std::move(event), mapped };
+      CL_MAP_READ, 0, size, num_events, &event, &*new_event, &ret);
+  return { ret, std::move(new_event), mapped };
 }
 
 int
@@ -461,21 +472,10 @@ CLProgram::unmap_buffer(ax_event event, const ax_buffer &out, void *mapped)
   return ret;
 }
 
-int
-CLProgram::flush_output_buffer(const ax_buffer &out, int size)
-{
-  auto [result, event, mapped] = flush_output_buffer_async(out, size);
-  if (result != CL_SUCCESS) {
-    throw std::runtime_error(
-        "Failed to map output buffer, error: " + cl_error_to_string(result));
-  }
-  return unmap_buffer(std::move(event), out, mapped);
-}
-
 CLProgram::flush_details
-CLProgram::start_flush_output_buffer(const ax_buffer &out, int size)
+CLProgram::start_flush_output_buffer(const ax_buffer &out, int size, ax_event ev)
 {
-  auto details = flush_output_buffer_async(out, size);
+  auto details = flush_output_buffer_async(out, size, std::move(ev));
   if (details.result != CL_SUCCESS) {
     throw std::runtime_error("Failed to map output buffer, error: "
                              + cl_error_to_string(details.result));
@@ -496,8 +496,9 @@ CLProgram::releaseva(std::span<cl_mem> input_buffers)
 }
 
 
-int
-CLProgram::execute_kernel(cl_kernel kernel, int num_dims, size_t global_work_size[3])
+CLProgram::ax_event
+CLProgram::execute_kernel(cl_kernel kernel, int num_dims,
+    size_t global_work_size[3], ax_event wait_event)
 {
   auto local_size = determine_local_work_size(max_work_group_size);
   size_t local[3] = { local_size.width, local_size.height, 1 };
@@ -506,18 +507,21 @@ CLProgram::execute_kernel(cl_kernel kernel, int num_dims, size_t global_work_siz
   global[1] = (global_work_size[1] + local[1] - 1) & ~(local[1] - 1);
   global[2] = global_work_size[2];
   auto *local_ptr = RPi_Hack ? nullptr : local;
+  auto event = ax_event{ nullptr };
+  auto num_wait_events = wait_event ? 1 : 0;
+  cl_event *wait_events = wait_event ? &*wait_event : nullptr;
   auto result = clEnqueueNDRangeKernel(cl_details.commands, kernel, num_dims,
-      NULL, global, local_ptr, 0, NULL, NULL);
+      NULL, global, local_ptr, num_wait_events, wait_events, &*event);
   if (result != CL_SUCCESS) {
     RPi_Hack = true;
     result = clEnqueueNDRangeKernel(cl_details.commands, kernel, num_dims, NULL,
-        global, nullptr, 0, NULL, NULL);
+        global, nullptr, num_wait_events, wait_events, &*event);
     if (result != CL_SUCCESS) {
       throw std::runtime_error(
           "Failed to execute kernel, error: " + cl_error_to_string(result));
     }
   }
-  return CL_SUCCESS;
+  return event;
 }
 
 CLProgram::~CLProgram()
@@ -526,6 +530,8 @@ CLProgram::~CLProgram()
     clReleaseProgram(program);
   if (cl_details.commands)
     clReleaseCommandQueue(cl_details.commands);
+  if (cl_details.map_commands)
+    clReleaseCommandQueue(cl_details.map_commands);
   if (cl_details.context)
     clReleaseContext(cl_details.context);
 }
@@ -541,194 +547,229 @@ get_kernel_utils(int rotate_type)
 #define advance_uchar3_ptr(ptr, offset) ((__global uchar3 *)((__global uchar *)ptr + offset))
 #define advance_uchar4_ptr(ptr, offset) ((__global uchar4 *)((__global uchar *)ptr + offset))
 
-typedef enum output_format {
-      RGBA_OUTPUT = 0,
-      BGRA_OUTPUT = 1,
-      RGB_OUTPUT = 3,
-      BGR_OUTPUT = 4,
-      GRAY_OUTPUT = 5
-} output_format;
-
-uchar RGB_to_GRAY(uchar3 rgb) {
-    // Convert RGB to grayscale using the formula: Y = 0.299*R + 0.587*G + 0.114*B
-    return (uchar)((rgb.x * 77 + rgb.y * 150 + rgb.z * 29) >> 8);
-}
-
-
-uchar3 YUV_to_RGB(uchar Y, uchar U, uchar V) {
-    int C = (Y - 16) * 19071; // 1.164f * 16384
-    int D = U - 128;
-    int E = V - 128;
-
-    // Integer approximation of YUV to RGB conversion
-    int4 rgb;
-    rgb.x = (C + (26149 * E)) >> 14;            // 1.596 * 16384
-    rgb.y = (C - (6406 * D + 13320 * E)) >> 14; // 0.391F * 16384, 0.813 * 16384
-    rgb.z = (C + (33063 * D)) >> 14;            // 2.018 * 16384
-    return convert_uchar4_sat(rgb).xyz;
-}
-
-//  Convert YUV values to RGBA
-uchar4 convert_YUV2RGBA(float3 yuv) {
-
-    float Y = yuv.x - 16.0f;
-    float U = yuv.y - 128.0f;
-    float V = yuv.z - 128.0f;
-
-    Y *= 1.164f;
-    float4 rgba = (float4)(Y + 1.596F * V, Y - 0.391F * U - 0.813F * V, Y + 2.018F * U, 255.0f);
-    return convert_uchar4_sat(rgba);
-}
-
-float3 bilinear(float3 p00, float3 p01, float3 p10, float3 p11, float xfrac, float yfrac) {
-    float3 i1 = mix(p00, p01, xfrac);
-    float3 i2 = mix(p10, p11, xfrac);
+float4 bilinear(float4 p00, float4 p01, float4 p10, float4 p11, float xfrac, float yfrac) {
+    float4 i1 = mix(p00, p01, xfrac);
+    float4 i2 = mix(p10, p11, xfrac);
     return mix(i1, i2, yfrac);
 }
 
-typedef struct nv12_image {
-    int width;
-    int height;
-    int ystride;
-    int uvstride;
-    int crop_x;
-    int crop_y;
-} nv12_image;
+typedef struct image_description {
+    int4 image_dims;
+    int4 strides;
+    int4 offsets;
+    int4 letterbox;
+    int4 crop;
+} image_description;
 
-uchar4 nv12_sampler(__global const uchar *y_image, __global uchar2 *uv, float fx, float fy, const nv12_image *img) {
+
+uchar4 nv12_sampler(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+  if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
+    return (uchar4)(16, 128, 128, 255);
+  }
+
   float xpixel_left = fx - 0.5f;
   float ypixel_top = fy - 0.5f;
 
   int x1 = xpixel_left;
   int y1 = ypixel_top;
+
+  int adj_x = out_x - img->letterbox.x;
+  int adj_y = out_y - img->letterbox.y;
+  if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
+    return (uchar4)(fill, 128, 128, 255);
+  }
+
   float xfrac = xpixel_left - x1;
   float yfrac = ypixel_top - y1;
 
   x1 = max(x1, 0);
   y1 = max(y1, 0);
-  int x2 = min(x1 + 1,img->width - 1);
-  int y2 = min(y1 + 1,img->height - 1);
-  x1 += img->crop_x;
-  y1 += img->crop_y;
-  x2 += img->crop_x;
-  y2 += img->crop_y;
+  int x2 = min(x1 + 1,img->image_dims.x - 1);
+  int y2 = min(y1 + 1,img->image_dims.y - 1);
+  x1 += img->crop.x;
+  y1 += img->crop.y;
+  x2 += img->crop.x;
+  y2 += img->crop.y;
 
-  float y00 = convert_float(y_image[y1 * img->ystride + x1]);
-  float y01 = convert_float(y_image[y1 * img->ystride + x2]);
-  float y10 = convert_float(y_image[y2 * img->ystride + x1]);
-  float y11 = convert_float(y_image[y2 * img->ystride + x2]);
+  int ystride = img->strides.x;
+  float y00 = convert_float(y_image[y1 * ystride + x1]);
+  float y01 = convert_float(y_image[y1 * ystride + x2]);
+  float y10 = convert_float(y_image[y2 * ystride + x1]);
+  float y11 = convert_float(y_image[y2 * ystride + x2]);
 
   int ux1 = x1 / 2;
   int uy1 = y1 / 2;
   int ux2 = x2 / 2;
   int uy2 = y2 / 2;
 
-  bool need_right = ux1 == ux2;
-  bool need_bottom = uy1 == uy2;
+  bool need_right = ux1 != ux2;
+  bool need_bottom = uy1 != uy2;
 #define NV12_READ(x, y, p, stride) convert_float2(p[y * stride + x])
 
-  float2 uv00 = NV12_READ(ux1, uy1, uv, img->uvstride);
-  float2 uv01 = need_right ? NV12_READ(ux2, uy1, uv, img->uvstride) : uv00;
-  float2 uv10 = need_bottom ? NV12_READ(ux1, uy2, uv, img->uvstride) : uv00;
-  float2 uv11 = need_right ? (need_bottom ? NV12_READ(ux2, uy2, uv, img->uvstride) : uv01) : uv10;
+  __global uchar2 *in_uv = (__global uchar2 *)(y_image + img->offsets.y);
+  int uvstride = img->strides.y / 2;
+  float2 uv00 = NV12_READ(ux1, uy1, in_uv, uvstride);
+  float2 uv01 = need_right ? NV12_READ(ux2, uy1, in_uv, uvstride) : uv00;
+  float2 uv10 = need_bottom ? NV12_READ(ux1, uy2, in_uv, uvstride) : uv00;
+  float2 uv11 = need_right ? (need_bottom ? NV12_READ(ux2, uy2, in_uv, uvstride) : uv01) : uv10;
 
-  float3 yuv0 = (float3)(y00, uv00);
-  float3 yuv1 = (float3)(y01, uv01);
-  float3 yuv2 = (float3)(y10, uv10);
-  float3 yuv3 = (float3)(y11, uv11);
+  float4 yuv0 = (float4)(y00, uv00, 255);
+  float4 yuv1 = (float4)(y01, uv01, 255);
+  float4 yuv2 = (float4)(y10, uv10, 255);
+  float4 yuv3 = (float4)(y11, uv11, 255);
 
-  float3 yuv = bilinear(yuv0, yuv1, yuv2, yuv3, xfrac, yfrac);
-  return convert_YUV2RGBA(yuv);
+  float4 yuv = bilinear(yuv0, yuv1, yuv2, yuv3, xfrac, yfrac);
+  return convert_uchar4_sat(yuv);
 }
 
-typedef struct i420_image {
-    int width;
-    int height;
-    int ystride;
-    int ustride;
-    int vstride;
-    int crop_x;
-    int crop_y;
-} i420_image;
 
-uchar4 i420_sampler(__global const uchar *y_image, __global const uchar *u, __global const uchar *v, float fx, float fy, const i420_image *img) {
+uchar4 nv16_sampler(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+  if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
+    return (uchar4)(16, 128, 128, 255);
+  }
   float xpixel_left = fx - 0.5f;
   float ypixel_top = fy - 0.5f;
 
   int x1 = xpixel_left;
   int y1 = ypixel_top;
+  int adj_x = out_x - img->letterbox.x;
+  int adj_y = out_y - img->letterbox.y;
+  if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
+    return (uchar4)(fill, 128, 128, 255);
+  }
+
   float xfrac = xpixel_left - x1;
   float yfrac = ypixel_top - y1;
 
   x1 = max(x1, 0);
   y1 = max(y1, 0);
-  int x2 = min(x1 + 1,img->width - 1);
-  int y2 = min(y1 + 1,img->height - 1);
-  x1 += img->crop_x;
-  y1 += img->crop_y;
-  x2 += img->crop_x;
-  y2 += img->crop_y;
+  int x2 = min(x1 + 1,img->image_dims.x - 1);
+  int y2 = min(y1 + 1,img->image_dims.y - 1);
+  x1 += img->crop.x;
+  y1 += img->crop.y;
+  x2 += img->crop.x;
+  y2 += img->crop.y;
 
-  float y00 = convert_float(y_image[y1 * img->ystride + x1]);
-  float y01 = convert_float(y_image[y1 * img->ystride + x2]);
-  float y10 = convert_float(y_image[y2 * img->ystride + x1]);
-  float y11 = convert_float(y_image[y2 * img->ystride + x2]);
+  int ystride = img->strides.x;
+  float y00 = convert_float(y_image[y1 * ystride + x1]);
+  float y01 = convert_float(y_image[y1 * ystride + x2]);
+  float y10 = convert_float(y_image[y2 * ystride + x1]);
+  float y11 = convert_float(y_image[y2 * ystride + x2]);
+
+  int ux1 = x1 / 2;
+  int uy1 = y1;
+  int ux2 = x2 / 2;
+  int uy2 = y2;
+
+  bool need_right = ux1 != ux2;
+  bool need_bottom = uy1 != uy2;
+#define NV12_READ(x, y, p, stride) convert_float2(p[y * stride + x])
+
+  __global uchar2 *in_uv = (__global uchar2 *)(y_image + img->offsets.y);
+  int uvstride = img->strides.y / 2;
+  float2 uv00 = NV12_READ(ux1, uy1, in_uv, uvstride);
+  float2 uv01 = need_right ? NV12_READ(ux2, uy1, in_uv, uvstride) : uv00;
+  float2 uv10 = need_bottom ? NV12_READ(ux1, uy2, in_uv, uvstride) : uv00;
+  float2 uv11 = need_right ? (need_bottom ? NV12_READ(ux2, uy2, in_uv, uvstride) : uv01) : uv10;
+
+  float4 yuv0 = (float4)(y00, uv00, 255);
+  float4 yuv1 = (float4)(y01, uv01, 255);
+  float4 yuv2 = (float4)(y10, uv10, 255);
+  float4 yuv3 = (float4)(y11, uv11, 255);
+
+  float4 yuv = bilinear(yuv0, yuv1, yuv2, yuv3, xfrac, yfrac);
+  return convert_uchar4_sat(yuv);
+}
+
+uchar4 i420_sampler(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+  if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
+    return (uchar4)(16, 128, 128, 255);
+  }
+  float xpixel_left = fx - 0.5f;
+  float ypixel_top = fy - 0.5f;
+
+  int x1 = xpixel_left;
+  int y1 = ypixel_top;
+  int adj_x = out_x - img->letterbox.x;
+  int adj_y = out_y - img->letterbox.y;
+  if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
+    return (uchar4)(fill, 128, 128, 255);
+  }
+  float xfrac = xpixel_left - x1;
+  float yfrac = ypixel_top - y1;
+
+  x1 = max(x1, 0);
+  y1 = max(y1, 0);
+  int x2 = min(x1 + 1,img->image_dims.x - 1);
+  int y2 = min(y1 + 1,img->image_dims.y - 1);
+  x1 += img->crop.x;
+  y1 += img->crop.y;
+  x2 += img->crop.x;
+  y2 += img->crop.y;
+
+  int ystride = img->strides.x;
+  float y00 = convert_float(y_image[y1 * ystride + x1]);
+  float y01 = convert_float(y_image[y1 * ystride + x2]);
+  float y10 = convert_float(y_image[y2 * ystride + x1]);
+  float y11 = convert_float(y_image[y2 * ystride + x2]);
 
   int ux1 = x1 / 2;
   int uy1 = y1 / 2;
   int ux2 = x2 / 2;
   int uy2 = y2 / 2;
 
-  bool need_right = ux1 == ux2;
-  bool need_bottom = uy1 == uy2;
+  bool need_right = ux1 != ux2;
+  bool need_bottom = uy1 != uy2;
+
+  __global const uchar *u = y_image + img->offsets.y;
+  __global const uchar *v = y_image + img->offsets.z;
 
 #define I420_READ(x, y, pu, pv, ustride, vstride) convert_float2((uchar2)(pu[y * ustride + x], pv[y * vstride + x]))
 
-  float2 uv00 = I420_READ(ux1, uy1, u, v, img->ustride, img->vstride);
-  float2 uv01 = need_right ? I420_READ(ux2, uy1, u, v, img->ustride, img->vstride) : uv00;
-  float2 uv10 = need_bottom ? I420_READ(ux1, uy2, u, v, img->ustride, img->vstride) : uv00;
-  float2 uv11 = need_right ? (need_bottom ? I420_READ(ux2, uy2, u, v, img->ustride, img->vstride) : uv01) : uv10;
+  float2 uv00 = I420_READ(ux1, uy1, u, v, img->strides.y, img->strides.z);
+  float2 uv01 = need_right ? I420_READ(ux2, uy1, u, v, img->strides.y, img->strides.z) : uv00;
+  float2 uv10 = need_bottom ? I420_READ(ux1, uy2, u, v, img->strides.y, img->strides.z) : uv00;
+  float2 uv11 = need_right ? (need_bottom ? I420_READ(ux2, uy2, u, v, img->strides.y, img->strides.z) : uv01) : uv10;
 
-  float3 yuv0 = (float3)(y00, uv00);
-  float3 yuv1 = (float3)(y01, uv01);
-  float3 yuv2 = (float3)(y10, uv10);
-  float3 yuv3 = (float3)(y11, uv11);
+  float4 yuv0 = (float4)(y00, uv00, 255);
+  float4 yuv1 = (float4)(y01, uv01, 255);
+  float4 yuv2 = (float4)(y10, uv10, 255);
+  float4 yuv3 = (float4)(y11, uv11, 255);
 
-  float3 yuv = bilinear(yuv0, yuv1, yuv2, yuv3, xfrac, yfrac);
-  return convert_YUV2RGBA(yuv);
+  float4 yuv = bilinear(yuv0, yuv1, yuv2, yuv3, xfrac, yfrac);
+  return convert_uchar4_sat(yuv);
 }
 
-
-typedef struct yuyv_image {
-    int width;
-    int height;
-    int stride;
-    int crop_x;
-    int crop_y;
-} yuyv_image;
-
-uchar4  yuyv_sampler(__global uchar4 *in, float fx, float fy, const yuyv_image *img) {
+uchar4  yuyv_sampler(__global const uchar4 *in, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+  if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
+    return (uchar4)(16, 128, 128, 255);
+  }
   float xpixel_left = fx - 0.5f;
   float ypixel_top = fy - 0.5f;
 
   int x1 = xpixel_left;
   int y1 = ypixel_top;
+  int adj_x = out_x - img->letterbox.x;
+  int adj_y = out_y - img->letterbox.y;
+  if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
+    return (uchar4)(fill, 128, 128, 255);
+  }
   float xfrac = xpixel_left - x1;
   float yfrac = ypixel_top - y1;
 
-  int x2 = min(x1 + 1, img->width - 1);
-  int y2 = min(y1 + 1, img->height - 1);
+  int x2 = min(x1 + 1, img->image_dims.x - 1);
+  int y2 = min(y1 + 1, img->image_dims.y - 1);
 
-  x1 += img->crop_x;
-  y1 += img->crop_y;
-  x2 += img->crop_x;
-  y2 += img->crop_y;
-
+  x1 += img->crop.x;
+  y1 += img->crop.y;
+  x2 += img->crop.x;
+  y2 += img->crop.y;
+  int stride = img->strides.x / sizeof(uchar4);
   // Each YUYV pixel pair is stored as Y1 U Y2 V
-  int idx1 = y1 * img->stride + (x1 >> 1);
-  int idx2 = y1 * img->stride + (x2 >> 1);
-  int idx3 = y2 * img->stride + (x1 >> 1);
-  int idx4 = y2 * img->stride + (x2 >> 1);
+  int idx1 = y1 * stride + (x1 >> 1);
+  int idx2 = y1 * stride + (x2 >> 1);
+  int idx3 = y2 * stride + (x1 >> 1);
+  int idx4 = y2 * stride + (x2 >> 1);
 
   float4 p00 = convert_float4(in[idx1]);
   float4 p01 = convert_float4(in[idx2]);
@@ -736,53 +777,47 @@ uchar4  yuyv_sampler(__global uchar4 *in, float fx, float fy, const yuyv_image *
   float4 p11 = convert_float4(in[idx4]);
 
   // Select correct Y and UV values based on even/odd position
-  float3 in00 = (x1 & 1) ? (float3)(p00.z, p00.y, p00.w) : (float3)(p00.x, p00.y, p00.w);
-  float3 in01 = (x2 & 1) ? (float3)(p01.z, p01.y, p01.w) : (float3)(p01.x, p01.y, p01.w);
-  float3 in10 = (x1 & 1) ? (float3)(p10.z, p10.y, p10.w) : (float3)(p10.x, p10.y, p10.w);
-  float3 in11 = (x2 & 1) ? (float3)(p11.z, p11.y, p11.w) : (float3)(p11.x, p11.y, p11.w);
+  float4 in00 = (x1 & 1) ? (float4)(p00.z, p00.y, p00.w, 255) : (float4)(p00.x, p00.y, p00.w, 255);
+  float4 in01 = (x2 & 1) ? (float4)(p01.z, p01.y, p01.w, 255) : (float4)(p01.x, p01.y, p01.w, 255);
+  float4 in10 = (x1 & 1) ? (float4)(p10.z, p10.y, p10.w, 255) : (float4)(p10.x, p10.y, p10.w, 255);
+  float4 in11 = (x2 & 1) ? (float4)(p11.z, p11.y, p11.w, 255) : (float4)(p11.x, p11.y, p11.w, 255);
 
-  float3 yuv = bilinear(in00, in01, in10, in11, xfrac, yfrac);
-  return convert_YUV2RGBA(yuv);
+  float4 yuv = bilinear(in00, in01, in10, in11, xfrac, yfrac);
+  return convert_uchar4_sat(yuv);
 }
 
-typedef struct rgb_image {
-    int width;
-    int height;
-    int stride;
-    int crop_x;
-    int crop_y;
-} rgb_image;
-
-typedef struct gray8_image {
-    int width;
-    int height;
-    int stride;
-    int crop_x;
-    int crop_y;
-} gray8_image;
-
-uchar gray8_sampler_bl(__global const uchar *image, float fx, float fy, const gray8_image *img) {
+uchar gray8_sampler_bl(__global const uchar *image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
     //  Here we add in the offsets to the pixel from the crop meta
-    float xpixel_left = clamp(fx - 0.5f, 0.0f, (float)(img->width - 1));
-    float ypixel_top = clamp(fy - 0.5f, 0.0f, (float)(img->height - 1));
+    if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
+      return fill;
+    }
+    float xpixel_left = clamp(fx - 0.5f, 0.0f, (float)(img->image_dims.x - 1));
+    float ypixel_top = clamp(fy - 0.5f, 0.0f, (float)(img->image_dims.y - 1));
 
     int x1 = (int)floor(xpixel_left);
     int y1 = (int)floor(ypixel_top);
+
+    int adj_x = out_x - img->letterbox.x;
+    int adj_y = out_y - img->letterbox.y;
+    if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
+      return fill;
+    }
+
     float xfrac = xpixel_left - x1;
     float yfrac = ypixel_top - y1;
 
-    int x2 = min(x1 + 1, img->width - 1);
-    int y2 = min(y1 + 1, img->height - 1);
+    int x2 = min(x1 + 1, img->image_dims.x - 1);
+    int y2 = min(y1 + 1, img->image_dims.y - 1);
 
-    x1 += img->crop_x;
-    y1 += img->crop_y;
-    x2 += img->crop_x;
-    y2 += img->crop_y;
+    x1 += img->crop.x;
+    y1 += img->crop.y;
+    x2 += img->crop.x;
+    y2 += img->crop.y;
 
-    float p00 = (float)image[y1 * img->stride + x1];
-    float p01 = (float)image[y1 * img->stride + x2];
-    float p10 = (float)image[y2 * img->stride + x1];
-    float p11 = (float)image[y2 * img->stride + x2];
+    float p00 = (float)image[y1 * img->strides.x + x1];
+    float p01 = (float)image[y1 * img->strides.x + x2];
+    float p10 = (float)image[y2 * img->strides.x + x1];
+    float p11 = (float)image[y2 * img->strides.x + x2];
 
     //  Performs bilinear interpolation with higher precision
     float i1 = mix(p00, p01, xfrac);
@@ -791,29 +826,40 @@ uchar gray8_sampler_bl(__global const uchar *image, float fx, float fy, const gr
 
     return convert_uchar_sat(value);
 }
-uchar4 rgba_sampler_bl(__global const uchar4 *image, float fx, float fy, const rgb_image *img ) {
+
+uchar4 rgba_sampler_bl(__global const uchar4 *image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
     //  Here we add in the offsets to the pixel from the crop meta
+    if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
+      return (uchar4)(fill, fill, fill, 255);
+    }
     float xpixel_left = fx - 0.5f;
     float ypixel_top = fy - 0.5f;
 
     int x1 = xpixel_left;
     int y1 = ypixel_top;
+    int adj_x = out_x - img->letterbox.x;
+    int adj_y = out_y - img->letterbox.y;
+    if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
+      return (uchar4)(fill, fill, fill, 255);
+    }
+
     float xfrac = xpixel_left - x1;
     float yfrac = ypixel_top - y1;
 
     x1 = max(x1, 0);
     y1 = max(y1, 0);
-    int x2 = min(x1 + 1,img->width - 1);
-    int y2 = min(y1 + 1,img->height - 1);
+    int x2 = min(x1 + 1,img->image_dims.x - 1);
+    int y2 = min(y1 + 1,img->image_dims.y - 1);
 
-    x1 += img->crop_x;
-    y1 += img->crop_y;
-    x2 += img->crop_x;
-    y2 += img->crop_y;
-    float4 p00 = convert_float4(image[y1 * img->stride + x1]);
-    float4 p01 = convert_float4(image[y1 * img->stride + x2]);
-    float4 p10 = convert_float4(image[y2 * img->stride + x1]);
-    float4 p11 = convert_float4(image[y2 * img->stride + x2]);
+    x1 += img->crop.x;
+    y1 += img->crop.y;
+    x2 += img->crop.x;
+    y2 += img->crop.y;
+    int stride = img->strides.x / sizeof(uchar4);
+    float4 p00 = convert_float4(image[y1 * stride + x1]);
+    float4 p01 = convert_float4(image[y1 * stride + x2]);
+    float4 p10 = convert_float4(image[y2 * stride + x1]);
+    float4 p11 = convert_float4(image[y2 * stride + x2]);
 
     //  Performs bilinear interpolation
     //  frac is the fraction of the pixel that is color2
@@ -825,117 +871,572 @@ uchar4 rgba_sampler_bl(__global const uchar4 *image, float fx, float fy, const r
     return result;
 }
 
-uchar4 rgb_sampler_bl(__global const uchar *image, float fx, float fy, const rgb_image *img ) {
+uchar4 rgb_sampler_bl(__global const uchar *image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
     //  Here we add in the offsets to the pixel from the crop meta
+    if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
+      return (uchar4)(0, 0, 0, 255);
+    }
     float xpixel_left = fx - 0.5f;
     float ypixel_top = fy - 0.5f;
 
     int x1 = xpixel_left;
     int y1 = ypixel_top;
+    int adj_x = out_x - img->letterbox.x;
+    int adj_y = out_y - img->letterbox.y;
+    if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
+      return (uchar4)(fill, fill, fill, 255);
+    }
+
     float xfrac = xpixel_left - x1;
     float yfrac = ypixel_top - y1;
 
     x1 = max(x1, 0);
     y1 = max(y1, 0);
-    int x2 = min(x1 + 1,img->width - 1);
-    int y2 = min(y1 + 1,img->height - 1);
+    int x2 = min(x1 + 1,img->image_dims.x - 1);
+    int y2 = min(y1 + 1,img->image_dims.y - 1);
 
-    x1 += img->crop_x;
-    y1 += img->crop_y;
-    x2 += img->crop_x;
-    y2 += img->crop_y;
-    __global const uchar * p_in = advance_uchar_ptr(image, y1 * img->stride);
-    float3 p00 = convert_float3(vload3(x1, p_in));
-    float3 p01 = convert_float3(vload3(x2, p_in));
-    p_in = advance_uchar_ptr(image, y2 * img->stride);
-    float3 p10 = convert_float3(vload3(x1, p_in));
-    float3 p11 = convert_float3(vload3(x2, p_in));
+    x1 += img->crop.x;
+    y1 += img->crop.y;
+    x2 += img->crop.x;
+    y2 += img->crop.y;
+    int stride = img->strides.x;
+    __global const uchar * p_in = advance_uchar_ptr(image, y1 * stride);
+    float4 p00 = convert_float4((uchar4)(vload3(x1, p_in), 255));
+    float4 p01 = convert_float4((uchar4)(vload3(x2, p_in), 255));
+    p_in = advance_uchar_ptr(image, y2 * stride);
+    float4 p10 = convert_float4((uchar4)(vload3(x1, p_in), 255));
+    float4 p11 = convert_float4((uchar4)(vload3(x2, p_in), 255));
 
     //  Performs bilinear interpolation
     //  frac is the fraction of the pixel that is color2
     //  color = color1 + (color2 - color1) * frac
 
-    float3 i1 = mix(p00, p01, xfrac);
-    float3 i2 = mix(p10, p11, xfrac);
-    uchar4 result = convert_uchar4_sat((float4)(mix(i1, i2, yfrac), 255.0f));
+    float4 i1 = mix(p00, p01, xfrac);
+    float4 i2 = mix(p10, p11, xfrac);
+    uchar4 result = convert_uchar4_sat(mix(i1, i2, yfrac));
     return result;
 }
 
-//  upper-right-diagonal
-inline int2 get_input_coords_urd(int row, int col, int width, int height) {
-  int new_x = (height - row) - 1;
-  int new_y = (width - col) - 1;
-  return (int2)(new_x, new_y);
-}
-
-//  upper-left-diagonal
-inline int2 get_input_coords_uld(int row, int col, int width, int height) {
-  int new_x = row;
-  int new_y = col;
-  return (int2)(new_x, new_y);
-}
-
-
-//  Rotate 90 clockwise
-inline int2 get_input_coords_clockwise(int row, int col, int width, int height) {
-  int new_x = row;
-  int new_y = (width - col) - 1;
-  return (int2)(new_x, new_y);
-}
-
-//  Rotate 90 counter clockwise
-inline int2 get_input_coords_counter_clockwise(int row, int col, int width, int height) {
-  int new_x = (height - row) - 1;
-  int new_y = col;
-  return (int2)(new_x, new_y);
-}
-
-//  Rotate 180
-inline int2 get_input_coords_rotate180(int row, int col, int width, int height) {
-  int new_x = (width - col) - 1;
-  int new_y = (height - row) - 1;
-  return (int2)(new_x, new_y);
-}
-
-//  Vertical flip
-inline int2 get_input_coords_vertical(int row, int col, int width, int height) {
-  int new_x = col;
-  int new_y = (height - row) - 1;
-  return (int2)(new_x, new_y);
-}
-
-//  Horizontal flip
-inline int2 get_input_coords_horizontal(int row, int col, int width, int height) {
-  int new_x = (width - col) - 1;
-  int new_y = row;
-  return (int2)(new_x, new_y);
-}
-
-//  Do nothing
-inline int2 get_input_coords_none(int row, int col, int width, int height) {
-  return (int2)(col, row);
-}
-
-
 )##";
-
-  std::array xlate_names = {
-    "get_input_coords_none"s,
-    "get_input_coords_clockwise"s,
-    "get_input_coords_rotate180"s,
-    "get_input_coords_counter_clockwise"s,
-    "get_input_coords_horizontal"s,
-    "get_input_coords_vertical"s,
-    "get_input_coords_uld"s,
-    "get_input_coords_urd"s,
-  };
-
-  if (0 <= rotate_type && rotate_type < xlate_names.size()) {
-    utils += "#define get_input_coords " + xlate_names[rotate_type];
-  } else {
-    utils += "#define get_input_coords " + xlate_names[0];
-  }
   return utils;
 }
+
+std::string
+get_rotation(int rotate_type)
+{
+  const char *urd = R"##(
+  int new_x = (height - row) - 1;
+  int new_y = (width - col) - 1;
+  int2 top_left = (int2)(new_x, new_y);
+)##";
+
+  const char *uld = R"##(
+  int new_x = row;
+  int new_y = col;
+  int2 top_left = (int2)(new_x, new_y);
+)##";
+
+  const char *clockwise = R"##(
+  int new_x = row;
+  int new_y = (width - col) - 1;
+  int2 top_left = (int2)(new_x, new_y);
+)##";
+
+  const char *counter_clockwise = R"##(
+  int new_x = (height - row) - 1;
+  int new_y = col;
+  int2 top_left = (int2)(new_x, new_y);
+)##";
+
+  const char *rotate180 = R"##(
+  int new_x = (width - col) - 1;
+  int new_y = (height - row) - 1;
+  int2 top_left = (int2)(new_x, new_y);
+)##";
+
+  const char *vertical = R"##(
+  int new_x = col;
+  int new_y = (height - row) - 1;
+  int2 top_left = (int2)(new_x, new_y);
+)##";
+
+  const char *horizontal = R"##(
+  int new_x = (width - col) - 1;
+  int new_y = row;
+  int2 top_left = (int2)(new_x, new_y);
+)##";
+
+  const char *none = R"##(
+  int2 top_left = (int2)(col, row);
+)##";
+
+  std::array flips = {
+    none,
+    clockwise,
+    rotate180,
+    counter_clockwise,
+    horizontal,
+    vertical,
+    uld,
+    urd,
+  };
+  return 0 <= rotate_type && rotate_type < flips.size() ? flips[rotate_type] : none;
+}
+
+CLProgram::flush_details
+exec_kernel(CLProgram &program, cl_kernel k, const buffer_details &in,
+    const buffer_details &out, CLProgram::ax_buffer &outbuf, bool start_flush)
+{
+  auto event = CLProgram::ax_event{ nullptr };
+  if (auto *p = std::get_if<opencl_buffer *>(&in.data)) {
+    auto *p1 = *p;
+    if (p1->event && !p1->mapped) {
+      //  This event synchronizes the kernel with the upstream kernel
+      event = std::move(p1->event);
+    }
+  }
+  size_t global_work_size[3] = { 1, 1, 1 };
+  global_work_size[0] = out.width;
+  global_work_size[1] = out.height;
+  auto ev = program.execute_kernel(k, 2, global_work_size, std::move(event));
+  if (start_flush) {
+    //  Here the downstream does not support OpenCL buffers, so start the
+    //  mapping now.
+    return program.start_flush_output_buffer(
+        outbuf, out.stride * out.height, std::move(ev));
+  }
+  return { CL_SUCCESS, std::move(ev), nullptr };
+}
+
+int
+run_kernel(CLProgram &program, cl_kernel k, const buffer_details &in,
+    const buffer_details &out, CLProgram::ax_buffer &inbuf,
+    CLProgram::ax_buffer &outbuf, bool start_flush)
+{
+  auto details = exec_kernel(program, k, in, out, outbuf, start_flush);
+  if (details.event) {
+    // The downstream does not support OpenCL buffers so the buffer has begun
+    //  mapping to system memory. The event will be signalled when complete.
+    //  Store this away so that when the buffer is mapped we just wait on the
+    //  event.
+    if (auto *p = std::get_if<opencl_buffer *>(&out.data)) {
+      (*p)->event = std::move(details.event);
+      (*p)->mapped = details.mapped;
+    } else {
+      clWaitForEvents(1, &*details.event);
+      details.event.reset();
+      if (details.mapped) {
+        program.unmap_buffer(std::move(details.event), outbuf, details.mapped);
+      }
+    }
+  }
+  return 0;
+}
+
+bool
+is_rgb(AxVideoFormat format)
+{
+  return format == AxVideoFormat::RGB || format == AxVideoFormat::RGBA;
+}
+
+bool
+is_rgb_or_gray(AxVideoFormat format)
+{
+  return is_rgb(format) || format == AxVideoFormat::GRAY8;
+}
+
+bool
+is_bgr(AxVideoFormat format)
+{
+  return format == AxVideoFormat::BGR || format == AxVideoFormat::BGRA;
+}
+
+bool
+output_needs_swizzle(AxVideoFormat in_format, AxVideoFormat out_format)
+{
+  return is_bgr(in_format) != is_bgr(out_format);
+}
+
+
+std::array<float, 16> yuv_to_rgb_matrix = {
+  // clang-format off
+  1.16406F,  1.16406F, 1.16406F,   0.0F,
+  0.00000F, -0.39100F, 2.01800F,   0.0F,
+  1.59600F, -0.81300F, 0.00000F,   0.0F,
+  -222.91F,   135.48F, -276.92F, 255.0F
+  // clang-format on
+};
+
+std::array<float, 16> yuv_to_gray_matrix = {
+  // clang-format off
+  1.16406F, 1.16406F, 1.16406F,   0.0F,
+  0.00052F, 0.00052F, 0.00052F,   0.0F,
+  0.00003F, 0.00003F, 0.00003F,   0.0F,
+  -18.703F, -18.703F, -18.703F, 255.0F
+  // clang-format on
+};
+
+std::array<float, 16> rgb_to_gray_matrix = {
+  // clang-format off
+  0.299F, 0.299F, 0.299F,   0.0F,
+  0.587F, 0.587F, 0.587F,   0.0F,
+  0.114F, 0.114F, 0.114F,   0.0F,
+    0.0F,   0.0F,   0.0F, 255.0F,
+  // clang-format on
+};
+
+std::array<float, 16> bgr_to_gray_matrix = {
+  // clang-format off
+  0.114F, 0.114F, 0.114F,   0.0F,
+  0.587F, 0.587F, 0.587F,   0.0F,
+  0.299F, 0.299F, 0.299F,   0.0F,
+    0.0F,   0.0F,   0.0F, 255.0F,
+  // clang-format on
+};
+
+std::array<float, 16> identity_matrix = {
+  // clang-format off
+  1.0F, 0.0F, 0.0F, 0.0F,
+  0.0F, 1.0F, 0.0F, 0.0F,
+  0.0F, 0.0F, 1.0F, 0.0F,
+  0.0F, 0.0F, 0.0F, 1.0F,
+  // clang-format on
+};
+
+struct color_matrix_key {
+  AxVideoFormat in_format;
+  AxVideoFormat out_format;
+  std::array<float, 16> *matrix;
+};
+color_matrix_key converters[] = {
+  { AxVideoFormat::NV12, AxVideoFormat::RGB, &yuv_to_rgb_matrix },
+  { AxVideoFormat::NV12, AxVideoFormat::BGR, &yuv_to_rgb_matrix },
+  { AxVideoFormat::NV12, AxVideoFormat::GRAY8, &yuv_to_gray_matrix },
+  { AxVideoFormat::NV16, AxVideoFormat::RGB, &yuv_to_rgb_matrix },
+  { AxVideoFormat::NV16, AxVideoFormat::BGR, &yuv_to_rgb_matrix },
+  { AxVideoFormat::NV16, AxVideoFormat::GRAY8, &yuv_to_gray_matrix },
+  { AxVideoFormat::I420, AxVideoFormat::RGB, &yuv_to_rgb_matrix },
+  { AxVideoFormat::I420, AxVideoFormat::BGR, &yuv_to_rgb_matrix },
+  { AxVideoFormat::I420, AxVideoFormat::GRAY8, &yuv_to_gray_matrix },
+  { AxVideoFormat::YUY2, AxVideoFormat::RGB, &yuv_to_rgb_matrix },
+  { AxVideoFormat::YUY2, AxVideoFormat::BGR, &yuv_to_rgb_matrix },
+  { AxVideoFormat::YUY2, AxVideoFormat::GRAY8, &yuv_to_gray_matrix },
+  { AxVideoFormat::RGB, AxVideoFormat::GRAY8, &rgb_to_gray_matrix },
+  { AxVideoFormat::BGR, AxVideoFormat::GRAY8, &bgr_to_gray_matrix },
+  { AxVideoFormat::RGB, AxVideoFormat::RGB, &identity_matrix },
+  { AxVideoFormat::RGB, AxVideoFormat::BGR, &identity_matrix },
+  { AxVideoFormat::BGR, AxVideoFormat::BGR, &identity_matrix },
+  { AxVideoFormat::BGR, AxVideoFormat::RGB, &identity_matrix },
+  { AxVideoFormat::GRAY8, AxVideoFormat::GRAY8, &identity_matrix },
+};
+
+AxVideoFormat
+remove_alpha_channel(AxVideoFormat format)
+{
+  switch (format) {
+    case AxVideoFormat::RGBA:
+      return AxVideoFormat::RGB;
+    case AxVideoFormat::BGRA:
+      return AxVideoFormat::BGR;
+    default:
+      return format;
+  }
+}
+
+std::array<float, 16>
+get_color_conversion_matrix(AxVideoFormat in_format, AxVideoFormat out_format)
+{
+  auto in = remove_alpha_channel(in_format);
+  auto out = remove_alpha_channel(out_format);
+  auto *p = std::find_if(std::begin(converters), std::end(converters),
+      [in, out](const color_matrix_key &key) {
+        return key.in_format == in && key.out_format == out;
+      });
+  if (p != std::end(converters)) {
+    auto result = *(p->matrix);
+    if (output_needs_swizzle(in_format, out_format)) {
+      // Swizzle R and B channels
+      std::swap(result[0], result[2]);
+      std::swap(result[4], result[6]);
+      std::swap(result[8], result[10]);
+      std::swap(result[12], result[14]);
+    }
+    return result;
+  }
+  throw std::runtime_error("Unsupported color conversion from " + AxVideoFormatToString(in_format)
+                           + " to " + AxVideoFormatToString(out_format));
+}
+
+std::array<cl_int, 4>
+build_strides(const buffer_details &in, const buffer_details &out)
+{
+  if (in.format == AxVideoFormat::NV12 || in.format == AxVideoFormat::NV16) {
+    return {
+      static_cast<cl_int>(in.strides[0]),
+      static_cast<cl_int>(in.strides[1]),
+      0,
+      static_cast<cl_int>(out.strides[0]),
+    };
+  }
+  if (in.format == AxVideoFormat::I420) {
+    return {
+      static_cast<cl_int>(in.strides[0]),
+      static_cast<cl_int>(in.strides[1]),
+      static_cast<cl_int>(in.strides[2]),
+      static_cast<cl_int>(out.strides[0]),
+    };
+  }
+  return {
+    static_cast<cl_int>(in.strides[0]),
+    0,
+    0,
+    static_cast<cl_int>(out.strides[0]),
+  };
+}
+
+std::array<cl_int, 4>
+build_offsets(const buffer_details &in, const buffer_details &out)
+{
+  if (in.format == AxVideoFormat::NV12 || in.format == AxVideoFormat::NV16) {
+    return {
+      0,
+      static_cast<cl_int>(in.offsets[1]),
+      0,
+      0,
+    };
+  }
+  if (in.format == AxVideoFormat::I420) {
+    return {
+      0,
+      static_cast<cl_int>(in.offsets[1]),
+      static_cast<cl_int>(in.offsets[2]),
+      0,
+    };
+  }
+  return { 0, 0, 0, 0 };
+}
+
+const char *rgb_sampler = R"##(
+    uchar4 pixel = rgb_sampler_bl(in, col, row, corrected.x, corrected.y, &img, fill);
+)##";
+
+const char *rgba_sampler = R"##(
+    uchar4 pixel = rgba_sampler_bl(in, col, row, corrected.x, corrected.y, &img, fill);
+)##";
+
+const char *nv12_sampler = R"##(
+    uchar4 pixel = nv12_sampler(in, col, row, corrected.x, corrected.y, &img, fill);
+)##";
+
+const char *nv16_sampler = R"##(
+    uchar4 pixel = nv16_sampler(in, col, row, corrected.x, corrected.y, &img, fill);
+)##";
+
+const char *i420_sampler = R"##(
+    uchar4 pixel = i420_sampler(in, col, row, corrected.x, corrected.y, &img, fill);
+)##";
+
+const char *yuyv_sampler = R"##(
+    uchar4 pixel = yuyv_sampler(in, col, row, corrected.x, corrected.y, &img, fill);
+)##";
+
+const char *gray8_sampler = R"##(
+    uchar pixel = gray8_sampler_bl(in, col, row, corrected.x, corrected.y, &img, fill);
+)##";
+
+const char *nv12_nn_sampler = R"##(
+    uchar y = p_in[top_left.y * strides.x + top_left.x];
+    __global const uchar *inuv = advance_uchar_ptr(p_in, offsets.y);
+    int uv_idx = top_left.y / 2 * strides.y + (top_left.x & ~1);
+    uchar4 pixel = (uchar4)(y, inuv[uv_idx], inuv[uv_idx + 1], 255);
+)##";
+
+const char *nv16_nn_sampler = R"##(
+    uchar y = p_in[top_left.y * strides.x + top_left.x];
+    __global const uchar *inuv = advance_uchar_ptr(p_in, offsets.y);
+    int uv_idx = top_left.y * strides.y + (top_left.x & ~1);
+    uchar4 pixel = (uchar4)(y, inuv[uv_idx], inuv[uv_idx + 1], 255);
+)##";
+
+const char *i420_nn_sampler = R"##(
+    uchar y = p_in[top_left.y * strides.x + top_left.x];
+    __global const uchar *u = advance_uchar_ptr(p_in, offsets.y);
+    __global const uchar *v = advance_uchar_ptr(p_in, offsets.z);
+    uchar4 pixel = (uchar4)(y, u[top_left.y / 2 * strides.y + top_left.x / 2], v[top_left.y / 2 * strides.z + top_left.x / 2], 255);
+)##";
+
+const char *yuyv_nn_sampler = R"##(
+    __global uchar4 *in4 = advance_uchar4_ptr(p_in, top_left.y * strides.x);
+    uchar4 i = in4[top_left.x / 2];
+    uchar y = top_left.x % 2 == 0 ? i.x : i.z;
+    uchar4 pixel = (uchar4)(y, i.y, i.w, 255);
+)##";
+
+const char *rgba_nn_sampler = R"##(
+    __global const uchar4 *row_ptr = advance_uchar4_ptr(p_in, top_left.y * strides.x);
+    uchar4 pixel = row_ptr[top_left.x];
+)##";
+
+const char *rgb_nn_sampler = R"##(
+    __global const uchar *p = advance_uchar_ptr(p_in, top_left.y * strides.x);
+    uchar4 pixel = (uchar4)(vload3(top_left.x, p), 255);
+)##";
+
+const char *gray8_nn_sampler = R"##(
+    uchar pixel = p_in[top_left.y * strides.x + top_left.x];
+)##";
+
+const char *rgb_output_cl = R"##(
+    int strideOut = strides.w;
+    __global uchar* prgb = advance_uchar_ptr(out, row * strideOut);
+    vstore3(color_convert(pixel, color_matrix).xyz, col, prgb);
+}
+)##";
+
+const char *rgba_output_cl = R"##(
+    int strideOut = strides.w;
+    __global uchar4* prgb = advance_uchar4_ptr(out, row * strideOut);
+    prgb[col] = color_convert(pixel, color_matrix);
+}
+)##";
+
+const char *gray_output_cl = R"##(
+    int strideOut = strides.w;
+    __global uchar* p_gray = advance_uchar_ptr(out, row * strideOut);
+    uchar4 rgba = color_convert(pixel, color_matrix);
+    p_gray[col] = rgba.x;
+}
+)##";
+
+const char *gray_in_output_cl = R"##(
+    int strideOut = strides.w;
+    __global uchar* p_gray = advance_uchar_ptr(out, row * strideOut);
+    p_gray[col] = pixel;
+}
+)##";
+
+const char *rgb_output_norm_cl = R"##(
+    int strideOut = strides.w;
+    __global uchar* prgb = advance_uchar_ptr(out, row * strideOut);
+    uchar4 new_pixel = color_convert(pixel, color_matrix);
+    char4 pix = convert_char4_sat(mad(convert_float4(new_pixel), mul, add));
+    new_pixel = convert_uchar4(pix);
+    vstore3(new_pixel.xyz, col, prgb);
+}
+)##";
+
+const char *rgba_output_norm_cl = R"##(
+    int strideOut = strides.w;
+    __global uchar4* prgb = advance_uchar4_ptr(out, row * strideOut);
+    uchar4 new_pixel = color_convert(pixel, color_matrix);
+    char4 pix = convert_char4_sat(mad(convert_float4(new_pixel), mul, add));
+    new_pixel = convert_uchar4(pix);
+    prgb[col] = new_pixel;
+}
+)##";
+
+const char *gray_output_norm_cl = R"##(
+    int strideOut = strides.w;
+    __global uchar* p_gray = advance_uchar_ptr(out, row * strideOut);
+    uchar4 new_pixel = color_convert(pixel, color_matrix);
+    float fgray = convert_float(new_pixel.x);
+    fgray = fgray * mul.x + add.x;
+    uchar gray = convert_uchar_sat(fgray);
+    p_gray[col] = gray;
+}
+)##";
+
+const char *gray_in_output_norm_cl = R"##(
+    int strideOut = strides.w;
+    __global uchar* p_gray = advance_uchar_ptr(out, row * strideOut);
+    float fgray = convert_float(pixel);
+    fgray = fgray * mul.x + add.x;
+    pixel = convert_uchar_sat(fgray);
+    p_gray[col] = pixel;
+}
+)##";
+
+
+std::vector<kernel_arg_details> input_details_tab = {
+  { AxVideoFormat::NV12, "uchar", nv12_sampler },
+  { AxVideoFormat::NV16, "uchar", nv16_sampler },
+  { AxVideoFormat::I420, "uchar", i420_sampler },
+  { AxVideoFormat::YUY2, "uchar4", yuyv_sampler },
+  { AxVideoFormat::RGBA, "uchar4", rgba_sampler },
+  { AxVideoFormat::BGRA, "uchar4", rgba_sampler },
+  { AxVideoFormat::RGB, "uchar", rgb_sampler },
+  { AxVideoFormat::BGR, "uchar", rgb_sampler },
+  { AxVideoFormat::GRAY8, "uchar", gray8_sampler },
+};
+
+std::vector<kernel_arg_details> nn_input_details_tab = {
+  { AxVideoFormat::NV12, "uchar", nv12_nn_sampler },
+  { AxVideoFormat::NV16, "uchar", nv16_nn_sampler },
+  { AxVideoFormat::I420, "uchar", i420_nn_sampler },
+  { AxVideoFormat::YUY2, "uchar4", yuyv_nn_sampler },
+  { AxVideoFormat::RGBA, "uchar4", rgba_nn_sampler },
+  { AxVideoFormat::BGRA, "uchar4", rgba_nn_sampler },
+  { AxVideoFormat::RGB, "uchar", rgb_nn_sampler },
+  { AxVideoFormat::BGR, "uchar", rgb_nn_sampler },
+  { AxVideoFormat::GRAY8, "uchar", gray8_nn_sampler },
+};
+
+kernel_arg_details
+get_input_details(AxVideoFormat format, Interpolation interp)
+{
+  auto &tab = interp == Interpolation::nearest ? nn_input_details_tab : input_details_tab;
+  for (const auto &details : tab) {
+    if (details.in_format == format) {
+      return details;
+    }
+  }
+  throw std::runtime_error("Unsupported input format for barrel correction");
+}
+
+std::vector<kernel_arg_details> out_details_tab = {
+  { AxVideoFormat::RGBA, "uchar4", rgba_output_cl },
+  { AxVideoFormat::BGRA, "uchar4", rgba_output_cl },
+  { AxVideoFormat::RGB, "uchar", rgb_output_cl },
+  { AxVideoFormat::BGR, "uchar", rgb_output_cl },
+  { AxVideoFormat::GRAY8, "uchar", gray_output_cl },
+};
+
+std::vector<kernel_arg_details> out_details_norm_tab = {
+  { AxVideoFormat::RGBA, "uchar4", rgba_output_norm_cl },
+  { AxVideoFormat::BGRA, "uchar4", rgba_output_norm_cl },
+  { AxVideoFormat::RGB, "uchar", rgb_output_norm_cl },
+  { AxVideoFormat::BGR, "uchar", rgb_output_norm_cl },
+  { AxVideoFormat::GRAY8, "uchar", gray_output_norm_cl },
+};
+
+
+kernel_arg_details
+get_output_details(AxVideoFormat in_format, AxVideoFormat out_format)
+{
+  if (in_format == out_format && in_format == AxVideoFormat::GRAY8) {
+    return { in_format, "uchar", gray_in_output_cl };
+  }
+  for (const auto &details : out_details_tab) {
+    if (details.in_format == out_format) {
+      return details;
+    }
+  }
+  throw std::runtime_error("Unsupported output format for barrel correction");
+}
+
+kernel_arg_details
+get_output_norm_details(AxVideoFormat in_format, AxVideoFormat out_format)
+{
+  if (in_format == out_format && in_format == AxVideoFormat::GRAY8) {
+    return { in_format, "uchar", gray_in_output_norm_cl };
+  }
+  for (const auto &details : out_details_norm_tab) {
+    if (details.in_format == out_format) {
+      return details;
+    }
+  }
+  throw std::runtime_error("Unsupported output format for barrel correction");
+}
+
 
 } // namespace ax_utils

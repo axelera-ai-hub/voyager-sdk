@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Metadata for classifier
 from __future__ import annotations
 
@@ -194,6 +194,8 @@ class ClassificationMeta(AxTaskMeta):
         self.extra_info.update(other.extra_info)
 
     def draw(self, draw: display.Draw):
+        if draw.options.show_bounding_boxes is False:
+            return
         boxes = [None] * len(self._class_ids)
         if self.master_meta_name:
             boxes = self.get_master_meta().boxes[self.subframe_index]

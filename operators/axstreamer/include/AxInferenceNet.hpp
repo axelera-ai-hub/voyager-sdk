@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2026
+// Copyright Axelera AI, 2024
 #pragma once
 
 #include <chrono>
@@ -11,6 +11,7 @@
 #include "AxDataInterface.h"
 #include "AxLog.hpp"
 #include "AxMeta.hpp"
+#include "AxPlugin.hpp"
 #include "AxStreamerUtils.hpp"
 
 
@@ -27,6 +28,7 @@ struct InferenceProperties {
   int skip_stride{ 1 };
   int skip_count{ 0 };
   int num_children{ 0 };
+  float margin{ 0 };
   std::string options;
   std::string meta;
   std::string devices;
@@ -37,13 +39,18 @@ struct InferenceProperties {
 struct OperatorProperties {
   std::string lib;
   std::string options;
-  std::string mode;
-  std::string batch;
+  std::string mode; // this property is only relevant to AxInPlace plugins and is now deprecated
+  std::string batch; // this property is ignored.
 };
 
 struct InferenceNetProperties : InferenceProperties {
   OperatorProperties preproc[MAX_OPERATORS];
   OperatorProperties postproc[MAX_OPERATORS];
+};
+
+struct LoadedInferenceNetProperties : InferenceProperties {
+  std::vector<std::unique_ptr<Plugin>> preproc;
+  std::vector<std::unique_ptr<Plugin>> postproc;
 };
 
 using MetaMap = std::unordered_map<std::string, std::unique_ptr<AxMetaBase>>;
@@ -81,7 +88,11 @@ class InferenceNet
   // Stop the inference pipeline, joins all threads and releases resources
   virtual void stop() = 0;
 
+  // Tests whether the first operator supports opencl_buffers
   virtual bool supports_opencl_buffers(const AxVideoInterface &video) = 0;
+
+  // Test whether the first operator supports dmabuf
+  virtual bool supports_dmabuf() = 0;
 
   //  Number of frames required before input can be sent for inference
   //  this is usually the same as batch_size
@@ -147,6 +158,29 @@ std::unique_ptr<InferenceNet> create_inference_net(
     const InferenceNetProperties &properties, Ax::Logger &logger,
     InferenceDoneCallback done_callback, LatencyCallback latency_callback);
 std::unique_ptr<InferenceNet> create_inference_net(const InferenceNetProperties &properties,
+    Ax::Logger &logger, InferenceDoneCallback done_callback,
+    LatencyCallback latency_callback, AxAllocationContext *allocation_context);
+
+/// @brief Load the plugins specified in the InferenceNetProperties.
+/// @param properties - The properties that define the inference net, these can
+/// be manually specified or loaded from a configuration file.
+/// @param logger - The logger to use for logging messages.
+/// @param allocation_context - If non-null then it is used to create plugins
+/// that can avoid copying buffers that are created in axtransform operators
+/// and passed to AxInferenceNet.
+LoadedInferenceNetProperties load_inferencenet_plugins(const InferenceNetProperties &properties,
+    Ax::Logger &logger, AxAllocationContext *allocation_context);
+
+/// @brief Create an InferenceNet with the specified loaded operators.
+/// @param properties - The properties that define the inference net, these can
+/// be manually specified or loaded from a configuration file and then had their
+/// plugins loaded via load_inferencenet_plugins().
+/// @param logger - The logger to use for logging messages.
+/// @param done_callback - called when a frame has completed the pipeline.
+/// @param latency_callback - called to report latency measurements.
+/// @param allocation_context - If non-null then it is used to avoid copying
+/// buffers that were created in axtransform operators to AxInferenceNet.
+std::unique_ptr<InferenceNet> create_inference_net(LoadedInferenceNetProperties &&properties,
     Ax::Logger &logger, InferenceDoneCallback done_callback,
     LatencyCallback latency_callback, AxAllocationContext *allocation_context);
 } // namespace Ax

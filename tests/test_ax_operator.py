@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2024
+# Copyright Axelera AI, 2023
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -97,7 +97,7 @@ def test_gen_torch_unimplemented():
         def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
             raise Exception('overridden gst')
 
-    with pytest.raises(TypeError, match='abstract methods? exec_torch'):
+    with pytest.raises(TypeError, match='abstract method.*exec_torch'):
         ImplementsGstOnly()
 
 
@@ -112,7 +112,7 @@ def test_gen_gst_unimplemented():
         def exec_torch(self, img, result, meta):
             raise Exception('overridden torch')
 
-    with pytest.raises(TypeError, match='abstract methods? build_gst'):
+    with pytest.raises(TypeError, match='abstract method.*build_gst'):
         ImplementsTorchOnly()
 
 

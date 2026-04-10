@@ -26,42 +26,75 @@ def _check_embeddings_shape(embeddings1: np.ndarray, embeddings2: np.ndarray):
         raise ValueError("Input arrays must have the same number of columns")
 
 
-def euclidean_distance(embeddings1: np.ndarray, embeddings2: np.ndarray) -> np.ndarray:
+def _l2_normalize(embeddings: np.ndarray) -> np.ndarray:
+    embeddings = embeddings.astype(float, copy=False)
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    return np.divide(
+        embeddings, norms, out=np.zeros_like(embeddings, dtype=float), where=norms != 0
+    )
+
+
+def euclidean_distance(
+    embeddings1: np.ndarray, embeddings2: np.ndarray, normalize: bool = False
+) -> np.ndarray:
     """
     This is the standard Euclidean distance.
+    If normalize is True, embeddings are L2-normalized before computing distance.
     """
     _check_embeddings_shape(embeddings1, embeddings2)
+
+    if normalize:
+        embeddings1 = _l2_normalize(embeddings1)
+        embeddings2 = _l2_normalize(embeddings2)
 
     diff = np.subtract(embeddings1, embeddings2)
     dist = np.sqrt(np.sum(np.square(diff), 1))
     return dist
 
 
-def squared_euclidean_distance(embeddings1: np.ndarray, embeddings2: np.ndarray) -> np.ndarray:
+def squared_euclidean_distance(
+    embeddings1: np.ndarray, embeddings2: np.ndarray, normalize: bool = False
+) -> np.ndarray:
     """
     Here we use the sum of squares of the differences between the embeddings, which is the squared Euclidean distance.
     This avoids the computational cost of taking the square root, making it faster.
+    If normalize is True, embeddings are L2-normalized before computing distance.
     """
     _check_embeddings_shape(embeddings1, embeddings2)
+
+    if normalize:
+        embeddings1 = _l2_normalize(embeddings1)
+        embeddings2 = _l2_normalize(embeddings2)
 
     diff = np.subtract(embeddings1, embeddings2)
     dist = np.sum(np.square(diff), 1)
     return dist
 
 
-def cosine_similarity(embeddings1: np.ndarray, embeddings2: np.ndarray) -> np.ndarray:
+def cosine_similarity(
+    embeddings1: np.ndarray, embeddings2: np.ndarray, normalize: bool = True
+) -> np.ndarray:
+    """
+    If normalize is False, assumes embeddings are already L2-normalized.
+    """
     _check_embeddings_shape(embeddings1, embeddings2)
+
+    if normalize:
+        embeddings1 = _l2_normalize(embeddings1)
+        embeddings2 = _l2_normalize(embeddings2)
 
     dot = np.sum(np.multiply(embeddings1, embeddings2), axis=1).astype(float)
-    norm = np.linalg.norm(embeddings1, axis=1) * np.linalg.norm(embeddings2, axis=1)
-    similarity = np.divide(dot, norm, out=np.zeros_like(dot), where=norm != 0)
-    return similarity
+    return dot
 
 
-def cosine_distance(embeddings1: np.ndarray, embeddings2: np.ndarray) -> np.ndarray:
+def cosine_distance(
+    embeddings1: np.ndarray, embeddings2: np.ndarray, normalize: bool = True
+) -> np.ndarray:
     _check_embeddings_shape(embeddings1, embeddings2)
 
-    similarity = cosine_similarity(embeddings1, embeddings2)
+    similarity = cosine_similarity(embeddings1, embeddings2, normalize=normalize)
+    # Clamp for numerical drift before arccos.
+    similarity = np.clip(similarity, -1.0, 1.0)
     dist = np.arccos(similarity) / math.pi
     return dist
 

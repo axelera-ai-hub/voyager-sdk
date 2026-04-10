@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 from __future__ import annotations
 
 import contextlib
@@ -17,6 +17,7 @@ import numpy as np
 from axelera import types
 
 from . import config, constants, exceptions, logging_utils, utils
+from .onnx_lowering import expand_onnx_functions
 
 if TYPE_CHECKING:
     from axelera.compiler.quantized_model import AxeleraQuantizedModel
@@ -230,6 +231,25 @@ def prepare_build_directory(output_path: Path, deploy_mode: config.DeployMode):
         output_path.mkdir(parents=True, exist_ok=True)
 
 
+def _add_toml_metadata_to_manifest(manifest, toml_metadata):
+    """Add TOML configuration metadata to the manifest for reproducibility."""
+    if not toml_metadata or not toml_metadata.get('toml_info'):
+        return
+
+    toml_info = toml_metadata['toml_info']
+
+    if manifest.model_metadata is None:
+        manifest.model_metadata = {}
+    manifest.model_metadata['compiler_config_source'] = {
+        'toml_file': toml_info['original_ref'],
+        'toml_source': toml_info['source'],  # 'local' or 'compiler_wheel'
+        'toml_source_path': str(toml_info['path']),
+        'toml_copied_to_manifest': True,
+        'toml_fields': toml_metadata.get('toml_fields', []),
+        'yaml_overrides': toml_metadata.get('yaml_overrides', []),
+    }
+
+
 def _write_manifest(manifest, output_path):
     manifest_json = output_path / constants.K_MANIFEST_FILE_NAME
     j = json.dumps(manifest.__dict__, indent=2, cls=ManifestEncoder)
@@ -393,6 +413,7 @@ def compile(
     metis: config.Metis,
     decoration_flags: str,
     dump_core_model: bool,
+    toml_metadata: dict = None,
 ) -> types.Manifest:
     from axelera.compiler import top_level
 
@@ -405,6 +426,17 @@ def compile(
         compilation_cfg.compiler_mode = "quantize_only"
 
     LOG.debug(f"output path: {output_path}\ndeploy mode: {deploy_mode}")
+
+    # Copy TOML config to model directory for reproducibility
+    # Place at same level as compile_config.json
+    if toml_metadata and toml_metadata.get('toml_info'):
+        toml_info = toml_metadata['toml_info']
+        toml_path = toml_info['path']
+        if toml_path.exists():
+            model_dir.mkdir(parents=True, exist_ok=True)
+            toml_dest = model_dir / constants.K_COMPILER_CONFIG_TOML_FILE_NAME
+            shutil.copy(toml_path, toml_dest)
+            LOG.info(f"Copied TOML config to: {toml_dest}")
 
     quantized_dir = model_dir.joinpath(constants.K_MODEL_QUANTIZED_DIR)
     tmp_dir = Path(tempfile.mkdtemp())
@@ -437,6 +469,7 @@ def compile(
         if deploy_mode == config.DeployMode.QUANTCOMPILE:
             # we don't need _preloaded_manifest but we want the pre/post graphs
             # to be backed up and kept track of
+            _add_toml_metadata_to_manifest(the_manifest, toml_metadata)
             _write_manifest(the_manifest, output_path)
             _preloaded_manifest = load_prequant_manifest(output_path)
             _backup_and_load_quantized(tmp_dir, _preloaded_manifest)
@@ -480,6 +513,8 @@ def compile(
 
         LOG.debug(f"Using prequantized model compiled to: {output_path}")
     _delete_tvm_codegen_files(output_path)
+    _add_toml_metadata_to_manifest(the_manifest, toml_metadata)
+    expand_onnx_functions(the_manifest, output_path)
     _write_manifest(the_manifest, output_path)
     shutil.rmtree(tmp_dir)
 

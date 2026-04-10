@@ -1,11 +1,11 @@
-// Copyright Axelera AI, 2023
+// Copyright Axelera AI, 2024
 #pragma once
 
 #include <algorithm>
 #include <iostream>
 #include <numeric>
-#include <opencv2/dnn.hpp>
-#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/video/tracking.hpp>
 #include <vector>
 
 namespace axtracker
@@ -73,6 +73,16 @@ class KalmanBoxTracker
     return history.back().class_id;
   }
 
+  int getLatestDetectionId() const
+  {
+    return latest_detection_id;
+  }
+
+  void setLatestDetectionId(int det_id)
+  {
+    latest_detection_id = det_id;
+  }
+
   BboxXyxyRelative get_state() const
   {
     return convert_x_to_bbox(kf.statePost);
@@ -93,6 +103,7 @@ class KalmanBoxTracker
   cv::KalmanFilter kf;
   std::vector<BboxXyxyRelative> history;
   int track_id;
+  int latest_detection_id = -1;
 };
 
 //************** Multiple Object Tracker (SORT) ***********
@@ -108,7 +119,10 @@ class SORT
 {
   public:
   SORT(int maxAge = 30, int minHits = 3, float iouThreshold = 0.3)
-      : maxAge(maxAge), minHits(minHits), iouThreshold(iouThreshold), frame_count(0)
+      : maxAge(maxAge),
+        minHits(minHits),
+        iouThreshold(iouThreshold),
+        frame_count(0)
   {
   }
 
@@ -140,7 +154,8 @@ class SORT
 class ScalarMOT
 {
   public:
-  ScalarMOT(int maxLostFrames = 30) : maxLostFrames_(maxLostFrames)
+  ScalarMOT(int maxLostFrames = 30)
+      : maxLostFrames_(maxLostFrames)
   {
   }
 

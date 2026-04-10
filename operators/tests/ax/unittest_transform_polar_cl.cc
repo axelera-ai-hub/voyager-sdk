@@ -320,7 +320,7 @@ TEST_F(PolarTransformExceptionTest, test_unsupported_input_format)
   std::vector<uint8_t> input_buffer(100 * 100 * 4);
   std::vector<uint8_t> output_buffer(100 * 100 * 3);
 
-  auto input_info = AxVideoInterface{ { 100, 100, 100 * 4, 0, AxVideoFormat::RGBA },
+  auto input_info = AxVideoInterface{ { 100, 100, 100 * 4, 0, AxVideoFormat::UNDEFINED },
     input_buffer.data(), { size_t(100 * 4) }, { 0 } };
   auto output_interface = xform->set_output_interface(input_info);
   auto output_info = std::get<AxVideoInterface>(output_interface);

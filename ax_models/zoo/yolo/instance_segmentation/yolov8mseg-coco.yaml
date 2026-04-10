@@ -29,12 +29,10 @@ pipeline:
             nms_iou_threshold: 0.45
             nms_top_k: 300
             normalized_coord: false
-            unpad: true
             use_multi_label: false
             eval:
               conf_threshold: 0.001
               nms_iou_threshold: 0.7
-              unpad: false
               use_multi_label: true
 
 models:
@@ -51,6 +49,8 @@ models:
     num_classes: 80
     dataset: CocoDataset-Segment-COCO2017
     extra_kwargs:
+      m2:
+        mvm_limitation: 75
 
 datasets:
   CocoDataset-Segment-COCO2017:

@@ -792,3 +792,160 @@ TEST_F(TransformPostambleTest, empty_tensor_selection_plan_default_behavior)
   // Second tensor: 2.0 * (15 - 10) = 10.0 (passthrough)
   EXPECT_THAT(out2_data, testing::Each(testing::FloatEq(10.0f)));
 }
+
+// =============================================================================
+// Non-Sequential Tensor Selection with Padding Tests (Bug Exposure)
+// =============================================================================
+
+TEST_F(TransformPostambleTest, non_sequential_selection_with_padding_onnx_inputs)
+{
+  std::string onnx_path = get_onnx_file();
+
+  // Test case: Use tensor 1 for ONNX (skip tensor 0)
+  // Each tensor has DIFFERENT padding that must be correctly applied
+  // Bug: Code uses ONNX input index `i` instead of actual tensor index `tensor_idx`
+  std::unordered_map<std::string, std::string> input = { { "onnx_path", onnx_path },
+    { "tensor_selection_plan", "1" }, // Use tensor index 1 for ONNX input 0
+    { "dequant_scale", "1.0,1.0" }, { "dequant_zeropoint", "0,0" },
+    // padding format: [N_before, N_after, C_before, C_after, H_before, H_after, W_before, W_after]
+    // Tensor 0: no padding (will be unused/passthrough)
+    // Tensor 1: remove 1 pixel from right (depad from 21 to 20)
+    { "padding", "0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,-1" } };
+
+  auto xform = Ax::LoadTransform("postamble", input);
+
+  // Tensor 0: [1,3,20,20] - no padding, will be unused/passthrough
+  auto inp0_data = std::vector<int8_t>(1 * 3 * 20 * 20, 10);
+  // Tensor 1: [1,3,20,21] - padded, will go to ONNX, should be depadded to [1,3,20,20]
+  auto inp1_data = std::vector<int8_t>(1 * 3 * 20 * 21, 5);
+
+  AxTensorsInterface inp{ { { 1, 3, 20, 20 }, 1, inp0_data.data() },
+    { { 1, 3, 20, 21 }, 1, inp1_data.data() } };
+
+  auto out = std::get<AxTensorsInterface>(xform->set_output_interface(inp));
+  ASSERT_EQ(out.size(), 2); // 1 ONNX output + 1 unused input
+
+  // Output 0: ONNX result from tensor 1 (depadded)
+  // Output 1: passthrough from tensor 0 (unused)
+  auto out0_data = std::vector<float>(1 * 3 * 20 * 20);
+  auto out1_data = std::vector<float>(1 * 3 * 20 * 20);
+  out[0].data = out0_data.data();
+  out[1].data = out1_data.data();
+
+  Ax::MetaMap metadata;
+  xform->transform(inp, out, 0, 1, metadata);
+
+  // BUG EXPOSURE:
+  // If padding lookup uses `i` (ONNX input index 0) instead of `tensor_idx` (actual tensor 1),
+  // it will use paddings[0] (no padding) instead of paddings[1] (depad right),
+  // and the ONNX input will have wrong dimensions [1,3,20,21] instead of [1,3,20,20],
+  // causing ONNX to fail with dimension mismatch.
+
+  // Expected: tensor 1 depadded to 20x20, then 1.0 * (5 - 0) + 1 (ONNX) = 6.0
+  EXPECT_THAT(out0_data, testing::Each(testing::FloatEq(6.0f)));
+
+  // Expected: tensor 0 passthrough, 1.0 * (10 - 0) = 10.0
+  EXPECT_THAT(out1_data, testing::Each(testing::FloatEq(10.0f)));
+}
+
+TEST_F(TransformPostambleTest, non_sequential_selection_with_different_padding_multi_input)
+{
+  std::string onnx_path = get_multi_input_onnx_file();
+
+  // Test case: Use tensors 2 and 0 for ONNX (in that order), skip tensor 1
+  // Each tensor has DIFFERENT padding configuration
+  std::unordered_map<std::string, std::string> input = { { "onnx_path", onnx_path },
+    { "tensor_selection_plan", "2,0" }, // ONNX input 0 = tensor 2, ONNX input 1 = tensor 0
+    { "dequant_scale", "1.0,1.0,1.0" }, { "dequant_zeropoint", "0,0,0" },
+    // Tensor 0: remove 1 from right (21 -> 20)
+    // Tensor 1: remove 1 from bottom (21 -> 20)
+    // Tensor 2: remove 1 from left (21 -> 20)
+    { "padding", "0,0,0,0,0,0,0,-1|0,0,0,0,0,-1,0,0|0,0,0,0,0,0,-1,0" } };
+
+  auto xform = Ax::LoadTransform("postamble", input);
+
+  // All tensors padded differently
+  auto inp0_data = std::vector<int8_t>(1 * 3 * 20 * 21, 3); // Tensor 0: padded right
+  auto inp1_data = std::vector<int8_t>(1 * 3 * 21 * 20, 7); // Tensor 1: padded bottom (unused)
+  auto inp2_data = std::vector<int8_t>(1 * 3 * 20 * 21, 5); // Tensor 2: padded left
+
+  AxTensorsInterface inp{ { { 1, 3, 20, 21 }, 1, inp0_data.data() },
+    { { 1, 3, 21, 20 }, 1, inp1_data.data() },
+    { { 1, 3, 20, 21 }, 1, inp2_data.data() } };
+
+  auto out = std::get<AxTensorsInterface>(xform->set_output_interface(inp));
+  ASSERT_EQ(out.size(), 2); // 1 ONNX output + 1 unused input
+
+  auto out0_data = std::vector<float>(1 * 3 * 20 * 20);
+  auto out1_data = std::vector<float>(1 * 3 * 20 * 20);
+  out[0].data = out0_data.data();
+  out[1].data = out1_data.data();
+
+  Ax::MetaMap metadata;
+  xform->transform(inp, out, 0, 1, metadata);
+
+  // BUG EXPOSURE:
+  // If padding lookup for ONNX input 0 uses `i=0` instead of `tensor_idx=2`,
+  // it will use paddings[0] (remove right) instead of paddings[2] (remove left).
+  // If padding lookup for ONNX input 1 uses `i=1` instead of `tensor_idx=0`,
+  // it will use paddings[1] (remove bottom) instead of paddings[0] (remove right).
+  // This will cause wrong depadding and ONNX dimension mismatches.
+
+  // add_tensors.onnx adds two inputs: 5 + 3 = 8
+  EXPECT_THAT(out0_data, testing::Each(testing::FloatEq(8.0f)));
+
+  // Tensor 1 passthrough (with correct depadding): 1.0 * (7 - 0) = 7.0
+  EXPECT_THAT(out1_data, testing::Each(testing::FloatEq(7.0f)));
+}
+
+TEST_F(TransformPostambleTest, unused_tensors_with_padding_non_sequential)
+{
+  std::string onnx_path = get_onnx_file();
+
+  // Test case: Multiple unused tensors with different padding
+  // Only tensor 2 goes to ONNX, tensors 0 and 1 are unused but need depadding
+  std::unordered_map<std::string, std::string> input = { { "onnx_path", onnx_path },
+    { "tensor_selection_plan", "2" }, // Only use tensor 2 for ONNX
+    { "dequant_scale", "1.0,1.0,1.0" }, { "dequant_zeropoint", "0,0,0" },
+    // Tensor 0: remove 2 from right (10 -> 8)
+    // Tensor 1: remove 1 from bottom (9 -> 8)
+    // Tensor 2: no padding (already 20x20 for ONNX)
+    { "padding", "0,0,0,0,0,0,0,-2|0,0,0,0,0,-1,0,0|0,0,0,0,0,0,0,0" } };
+
+  auto xform = Ax::LoadTransform("postamble", input);
+
+  auto inp0_data = std::vector<int8_t>(1 * 2 * 8 * 10, 11); // Tensor 0: padded right by 2
+  auto inp1_data = std::vector<int8_t>(1 * 2 * 9 * 8, 13); // Tensor 1: padded bottom by 1
+  auto inp2_data = std::vector<int8_t>(1 * 3 * 20 * 20, 17); // Tensor 2: no padding
+
+  AxTensorsInterface inp{ { { 1, 2, 8, 10 }, 1, inp0_data.data() },
+    { { 1, 2, 9, 8 }, 1, inp1_data.data() }, { { 1, 3, 20, 20 }, 1, inp2_data.data() } };
+
+  auto out = std::get<AxTensorsInterface>(xform->set_output_interface(inp));
+  ASSERT_EQ(out.size(), 3); // 1 ONNX output + 2 unused inputs
+
+  auto out0_data = std::vector<float>(1 * 3 * 20 * 20); // ONNX output from tensor 2
+  auto out1_data = std::vector<float>(1 * 2 * 8 * 8); // Tensor 0 depadded
+  auto out2_data = std::vector<float>(1 * 2 * 8 * 8); // Tensor 1 depadded
+  out[0].data = out0_data.data();
+  out[1].data = out1_data.data();
+  out[2].data = out2_data.data();
+
+  Ax::MetaMap metadata;
+  xform->transform(inp, out, 0, 1, metadata);
+
+  // BUG EXPOSURE FOR UNUSED TENSORS:
+  // Unused tensors use index `i` to look up padding, which should be correct
+  // BUT if paddings array is sized only for ONNX inputs (size=1 in this case),
+  // then tensor 0 (i=0) gets paddings[0] and tensor 1 (i=1) would be out of
+  // bounds! This exposes whether paddings is per-tensor or per-ONNX-input.
+
+  // ONNX output from tensor 2: 1.0 * (17 - 0) + 1 = 18.0
+  EXPECT_THAT(out0_data, testing::Each(testing::FloatEq(18.0f)));
+
+  // Tensor 0 depadded and dequantized: 1.0 * (11 - 0) = 11.0
+  EXPECT_THAT(out1_data, testing::Each(testing::FloatEq(11.0f)));
+
+  // Tensor 1 depadded and dequantized: 1.0 * (13 - 0) = 13.0
+  EXPECT_THAT(out2_data, testing::Each(testing::FloatEq(13.0f)));
+}

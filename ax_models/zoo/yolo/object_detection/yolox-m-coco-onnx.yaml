@@ -10,20 +10,16 @@ pipeline:
       model_name: yolox-m-coco-onnx
       input:
         type: image
+        color_format: bgr
       preprocess:
         - letterbox:
             height: ${{input_height}}
             scaleup: true
             width: ${{input_width}}
         - torch-totensor:
-        - normalize:
-            mean: [0.485, 0.456, 0.406]
-            std: [0.229, 0.224, 0.225]
+            scale: false
       inference:
-        handle_preamble: true
-        handle_transpose: false
-        handle_dequantization_and_depadding: false
-        handle_postamble: false
+        handle_all: false
       postprocess:
         - decodeyolo:
             box_format: xywh
@@ -45,13 +41,13 @@ models:
   yolox-m-coco-onnx:
     class: AxONNXModel
     class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
-    weight_path: weights/yolox_m.onnx
-    weight_url: https://media.axelera.ai/artifacts/model_cards/weights/yolo/object_detection/yolox_m.onnx
-    weight_md5: b29b3fa6922e04f0a8d6fec40a8ee2d8
+    weight_path: weights/yolox_m_dynamic.onnx
+    weight_url: https://media.axelera.ai/artifacts/model_cards/weights/yolo/object_detection/yolox_m_dynamic-input.onnx
+    weight_md5: 242942edce2e7c89344404fee45a6a1e
     task_category: ObjectDetection
     input_tensor_layout: NCHW
     input_tensor_shape: [1, 3, 640, 640]
-    input_color_format: RGB
+    input_color_format: BGR
     num_classes: 80
     dataset: CocoDataset-COCO2017
 

@@ -15,7 +15,8 @@ class AxMetaClassification : public AxMetaBase
 
   AxMetaClassification(scores_vec scores, classes_vec classes,
       labels_vec labels, std::string box_meta = "")
-      : scores_(std::move(scores)), classes_(std::move(classes)),
+      : scores_(std::move(scores)),
+        classes_(std::move(classes)),
         labels_(std::move(labels))
   {
     if (scores_.size() != classes_.size()) {
@@ -90,7 +91,8 @@ class AxMetaEmbeddings : public AxMetaBase
   public:
   using embeddings_vec = std::vector<std::vector<float>>;
   AxMetaEmbeddings(embeddings_vec embeddings, std::string name = "embeddings")
-      : embeddings_(std::move(embeddings)), decoder_name(name)
+      : embeddings_(std::move(embeddings)),
+        decoder_name(name)
   {
   }
 

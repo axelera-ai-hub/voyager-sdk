@@ -48,8 +48,7 @@ models:
     num_classes: 80
     dataset: CocoDataset-COCO2017
     extra_kwargs:
-      compilation_config:
-        tiling_depth: 6
+      compiler_config_file: yolov7.toml
       YOLO:
         anchors_path: training_yamls/yolov7.yaml
         anchors_url: https://media.axelera.ai/artifacts/model_cards/artifacts/yolo/object_detection/cfgs/yolov7.yaml

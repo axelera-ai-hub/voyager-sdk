@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2023
 #include <unordered_map>
 #include <unordered_set>
 #include "AxDataInterface.h"
@@ -140,6 +140,10 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
   // Apply crop if present by creating a ROI
   cv::Rect crop_roi(input_buffer.crop_x, input_buffer.crop_y,
       input_video.info.width, input_video.info.height);
+
+  if (crop_roi.area() == 0) {
+    return;
+  }
   cv::Mat input_mat = full_input_mat(crop_roi);
 
   auto output_mat = get_output_mat(input, output, prop);
@@ -199,10 +203,11 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
   auto top_left = scale_to_height ? cv::Rect(0, 0, padding_left, prop->height) :
                                     cv::Rect(0, 0, prop->width, padding_top);
 
-  auto bottom_right = scale_to_height ? cv::Rect(padding_left + width, 0,
-                          prop->width - padding_left - width, prop->height) :
-                                        cv::Rect(0, padding_top + height, prop->width,
-                                            prop->height - padding_top - height);
+  auto bottom_right = scale_to_height ?
+                          cv::Rect(padding_left + width, 0,
+                              prop->width - padding_left - width, prop->height) :
+                          cv::Rect(0, padding_top + height, prop->width,
+                              prop->height - padding_top - height);
 
   cv::rectangle(output_mat, top_left, fill_color, cv::FILLED);
   cv::rectangle(output_mat, bottom_right, fill_color, cv::FILLED);

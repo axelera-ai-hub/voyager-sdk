@@ -1,19 +1,20 @@
-// Copyright Axelera AI, 2023
+// Copyright Axelera AI, 2024
 #include <AxOpUtils.hpp>
 #include <opencv2/core/ocl.hpp>
 #include <unordered_map>
 #include <unordered_set>
 #include "AxDataInterface.h"
+#include "AxFaceAlignCommon.h"
 #include "AxLog.hpp"
 #include "AxMeta.hpp"
 #include "AxMetaKptsDetection.hpp"
+#include "AxMetaMargin.hpp"
 #include "AxMetaTracker.hpp"
 #include "AxUtils.hpp"
 
 struct facealign_properties {
   std::string master_meta{};
   std::string association_meta{};
-  std::string keypoints_submeta_key{};
   int width = 0;
   int height = 0;
   float padding = 0.0;
@@ -21,130 +22,6 @@ struct facealign_properties {
   std::vector<float> YYn{};
   bool use_self_normalizing = false;
   bool save_aligned_images = false;
-
-  // fmt: off
-  constexpr static std::array<float, 5> XXn_5 = {
-    60.59f / 192, // Left eye
-    131.06f / 192, // Right eye
-    96.05f / 192, // Nose
-    67.10f / 192, // Left mouth
-    125.46f / 192 // Right mouth
-  };
-  constexpr static std::array<float, 5> YYn_5 = {
-    76.8f / 192, // Left eye (40% from top)
-    76.8f / 192, // Right eye
-    115.2f / 192, // Nose (60% from top)
-    153.6f / 192, // Left mouth (80% from top)
-    153.6f / 192 // Right mouth
-  };
-
-  constexpr static std::array<float, 51> XXn_51 = {
-    0.000213256,
-    0.0752622,
-    0.18113,
-    0.29077,
-    0.393397,
-    0.586856,
-    0.689483,
-    0.799124,
-    0.904991,
-    0.98004,
-    0.490127,
-    0.490127,
-    0.490127,
-    0.490127,
-    0.36688,
-    0.426036,
-    0.490127,
-    0.554217,
-    0.613373,
-    0.121737,
-    0.187122,
-    0.265825,
-    0.334606,
-    0.260918,
-    0.182743,
-    0.645647,
-    0.714428,
-    0.793132,
-    0.858516,
-    0.79751,
-    0.719335,
-    0.254149,
-    0.340985,
-    0.428858,
-    0.490127,
-    0.551395,
-    0.639268,
-    0.726104,
-    0.642159,
-    0.556721,
-    0.490127,
-    0.423532,
-    0.338094,
-    0.290379,
-    0.428096,
-    0.490127,
-    0.552157,
-    0.689874,
-    0.553364,
-    0.490127,
-    0.42689,
-  };
-  constexpr static std::array<float, 51> YYn_51 = {
-    0.106454,
-    0.038915,
-    0.0187482,
-    0.0344891,
-    0.0773906,
-    0.0773906,
-    0.0344891,
-    0.0187482,
-    0.038915,
-    0.106454,
-    0.203352,
-    0.307009,
-    0.409805,
-    0.515625,
-    0.587326,
-    0.609345,
-    0.628106,
-    0.609345,
-    0.587326,
-    0.216423,
-    0.178758,
-    0.179852,
-    0.231733,
-    0.245099,
-    0.244077,
-    0.231733,
-    0.179852,
-    0.178758,
-    0.216423,
-    0.244077,
-    0.245099,
-    0.780233,
-    0.745405,
-    0.727388,
-    0.742578,
-    0.727388,
-    0.745405,
-    0.780233,
-    0.864805,
-    0.902192,
-    0.909281,
-    0.902192,
-    0.864805,
-    0.784792,
-    0.778746,
-    0.785343,
-    0.778746,
-    0.784792,
-    0.824182,
-    0.831803,
-    0.824182,
-  };
-  // fmt: on
 };
 
 extern "C" const std::unordered_set<std::string> &
@@ -153,7 +30,6 @@ allowed_properties()
   static const std::unordered_set<std::string> allowed_properties{
     "master_meta",
     "association_meta",
-    "keypoints_submeta_key",
     "width",
     "height",
     "padding",
@@ -177,8 +53,6 @@ init_and_set_static_properties(
   }
   prop->association_meta = Ax::get_property(input, "association_meta",
       "facealign_static_properties", prop->association_meta);
-  prop->keypoints_submeta_key = Ax::get_property(input, "keypoints_submeta_key",
-      "facealign_static_properties", prop->keypoints_submeta_key);
   prop->width = Ax::get_property(input, "width", "facealign_static_properties", prop->width);
   prop->height
       = Ax::get_property(input, "height", "facealign_static_properties", prop->height);
@@ -253,15 +127,20 @@ extract_keypoints_from_meta(AxMetaBase *meta, int &kpts_per_box)
 }
 
 AxMetaKpts *
-extract_keypoints_from_tracker(
-    AxMetaTracker *tracker_meta, int &kpts_per_box, Ax::Logger &logger)
+extract_keypoints_from_tracker(AxMetaTracker *tracker_meta, int track_id,
+    int &kpts_per_box, Ax::Logger &logger)
 {
   if (tracker_meta->track_id_to_tracking_descriptor.empty()) {
     throw std::runtime_error("facealign: tracker meta has no tracking descriptors");
   }
 
-  int track_id = tracker_meta->track_id_to_tracking_descriptor.begin()->first;
-  auto &descriptor = tracker_meta->track_id_to_tracking_descriptor.at(track_id);
+  auto it = tracker_meta->track_id_to_tracking_descriptor.find(track_id);
+  if (it == tracker_meta->track_id_to_tracking_descriptor.end()) {
+    throw std::runtime_error("facealign: track_id " + std::to_string(track_id)
+                             + " not found in tracker meta");
+  }
+
+  auto &descriptor = it->second;
 
   const TrackingElement *element = descriptor.collection->get_frame(descriptor.frame_id);
   if (!element) {
@@ -277,136 +156,218 @@ extract_keypoints_from_tracker(
   throw std::runtime_error("facealign: could not find keypoints in tracker meta");
 }
 
+AxMetaKpts *
+extract_keypoints_from_submeta(
+    AxMetaBbox *bbox_meta, int box_id, int &kpts_per_box, Ax::Logger &logger)
+{
+  // Search through all submeta to find one that contains keypoints for this box_id
+  // Submeta are additional metadata attached to each box (like classifications, embeddings, keypoints)
+  // Each submeta has its own separate data per box
+
+  auto submeta_keys = bbox_meta->submeta_names();
+  for (const char *key : submeta_keys) {
+    try {
+      // Try to get submeta for this specific box_id
+      auto *submeta = bbox_meta->get_submeta<AxMetaBase>(
+          key, box_id, bbox_meta->get_number_of_subframes());
+      if (submeta) {
+        // Check if this submeta implements the keypoints interface
+        auto *kpts = extract_keypoints_from_meta(submeta, kpts_per_box);
+        if (kpts) {
+          return kpts; // Found keypoints in this submeta
+        }
+      }
+    } catch (const std::exception &) {
+      // This submeta key doesn't exist for this box_id or isn't the right type
+      // Continue searching other submeta keys
+      continue;
+    }
+  }
+
+  // No submeta with keypoints found
+  return nullptr;
+}
+
+float
+get_margin(std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> &meta_map)
+{
+  auto margin_meta = meta_map.find("axelera-margin");
+  if (margin_meta != meta_map.end()) {
+    if (auto *p = dynamic_cast<AxMetaMargin *>(margin_meta->second.get())) {
+      return p->margin;
+    }
+  }
+  return 0.0F;
+}
+
+box_xyxy
+add_margin(box_xyxy box, std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> &map)
+{
+  auto margin = get_margin(map);
+  auto [x1, y1, x2, y2] = box;
+  auto width = 1 + x2 - x1;
+  auto height = 1 + y2 - y1;
+  int x_margin = std::round(width * margin);
+  int y_margin = std::round(height * margin);
+  auto x_start = x1 - x_margin;
+  auto y_start = y1 - y_margin;
+  auto x_end = x2 + x_margin;
+  auto y_end = y2 + y_margin;
+  return { x_start, y_start, x_end, y_end };
+}
 
 extern "C" void
 transform(const AxDataInterface &input, const AxDataInterface &output,
     const facealign_properties *prop, unsigned int subframe_index, unsigned int number_of_subframes,
     std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> &map, Ax::Logger &logger)
 {
-  const std::string &master_meta_key
-      = !prop->association_meta.empty() ? prop->association_meta : prop->master_meta;
-  auto *master_meta_base = map.at(master_meta_key).get();
-  auto *master_meta = dynamic_cast<AxMetaBbox *>(master_meta_base);
+  // ============================================================================
+  // STEP 1: Get master_meta (source of keypoints - can be tracker or bbox)
+  // ============================================================================
+  AxMetaBase *master_meta = map.at(prop->master_meta).get();
 
-  if (!master_meta || master_meta->get_number_of_subframes() != number_of_subframes) {
-    throw std::runtime_error("facealign: invalid master meta");
+  // ============================================================================
+  // STEP 2: Determine which meta provides boxes and calculate box_id
+  // ============================================================================
+  // We need two things:
+  // 1. box_meta: Meta that provides the bounding box for this subframe
+  // 2. box_id: Index to use when looking up keypoints in master_meta
+  //
+  // Two scenarios:
+  // A) association_meta is set: Use it for boxes, map subframe_index -> box_id
+  // B) No association_meta: master_meta provides boxes, box_id = subframe_index
+
+  AxMetaBbox *box_meta = nullptr;
+  int box_id = subframe_index;
+
+  if (!prop->association_meta.empty()) {
+    // Scenario A: association_meta is a filtered/transformed view of master_meta
+    // Example: tracker outputs all tracks, association_meta filters to person class
+    auto *association_meta = map.at(prop->association_meta).get();
+    box_meta = dynamic_cast<AxMetaBbox *>(association_meta);
+    if (!box_meta) {
+      throw std::runtime_error("facealign: association_meta must be AxMetaBbox");
+    }
+
+    // Map from association_meta's subframe space to master_meta's box space
+    // Example: association_meta[0] might map to master_meta's box_id=5
+    box_id = box_meta->get_id(subframe_index);
+  } else {
+    // Scenario B: No association, master_meta provides boxes directly
+    box_meta = dynamic_cast<AxMetaBbox *>(master_meta);
+    if (!box_meta) {
+      throw std::runtime_error(
+          "facealign: master_meta must be AxMetaBbox when no association_meta");
+    }
+    // box_id already set to subframe_index above
   }
 
-  box_xyxy box = master_meta->get_box_xyxy(subframe_index);
+  // Validate number of subframes matches what we expect
+  if (box_meta->get_number_of_subframes() != number_of_subframes) {
+    throw std::runtime_error("facealign: invalid number of subframes");
+  }
+
+  // Get the bounding box for this subframe and check if it's valid
+  box_xyxy box = box_meta->get_box_xyxy(subframe_index);
+  box = add_margin(box, map);
   if (box.x2 <= box.x1 || box.y2 <= box.y1) {
     perform_fallback_alignment(input, output, logger);
     return;
   }
+
+  // ============================================================================
+  // STEP 3: Extract keypoints from master_meta
+  // ============================================================================
+  // Now we extract keypoints using box_id to index into master_meta.
+  // The extraction method depends on whether master_meta is a tracker or bbox.
+  //
+  // Key insight about kpts_start:
+  // - If keypoints come from tracker or submeta: Each box has its OWN keypoint set
+  //   → kpts_start = 0 (keypoints[0..N] belong to this box)
+  // - If keypoints come from bbox direct interface: All boxes share ONE keypoint array
+  //   → kpts_start = box_id (keypoints[box_id*N..(box_id+1)*N] belong to this box)
+
   AxMetaKpts *kpts_meta_base = nullptr;
   int kpts_start = 0;
   int kpts_per_box = 0;
 
-  auto *tracker_meta = dynamic_cast<AxMetaTracker *>(master_meta_base);
-  if (prop->keypoints_submeta_key.empty()) {
-    if (tracker_meta) {
-      kpts_meta_base = extract_keypoints_from_tracker(tracker_meta, kpts_per_box, logger);
-      kpts_start = 0;
-    } else {
-      kpts_meta_base = extract_keypoints_from_meta(master_meta, kpts_per_box);
-      if (!kpts_meta_base) {
-        throw std::runtime_error("facealign: no keypoint interface found");
-      }
-      kpts_start = subframe_index;
-    }
-  } else if (prop->keypoints_submeta_key == prop->master_meta) {
-    auto *orig_meta = map.at(prop->master_meta).get();
-    if (auto *tracker_direct = dynamic_cast<AxMetaTracker *>(orig_meta)) {
-      kpts_meta_base = extract_keypoints_from_tracker(tracker_direct, kpts_per_box, logger);
-      // Map subframe index if association_meta is used
-      if (!prop->association_meta.empty()) {
-        int master_subframe_index = master_meta->get_id(subframe_index);
-        if (master_subframe_index < 0
-            || master_subframe_index >= tracker_direct->get_number_of_subframes()) {
-          throw std::runtime_error("facealign: subframe index error (tracker mapping)");
-        }
-        kpts_start = master_subframe_index;
-      } else {
-        kpts_start = 0;
-      }
-    } else {
-      kpts_meta_base = extract_keypoints_from_meta(orig_meta, kpts_per_box);
-      if (!kpts_meta_base) {
-        throw std::runtime_error("facealign: master meta doesn't implement keypoint interface");
-      }
-      if (!prop->association_meta.empty()) {
-        int master_subframe_index = master_meta->get_id(subframe_index);
-        auto *container_meta = dynamic_cast<AxMetaBbox *>(orig_meta);
-        if (!container_meta) {
-          throw std::runtime_error("facealign: invalid container meta for keypoints");
-        }
-        if (master_subframe_index < 0
-            || master_subframe_index >= container_meta->get_number_of_subframes()) {
-          throw std::runtime_error("facealign: subframe index error (bbox mapping)");
-        }
-        kpts_start = master_subframe_index;
-      } else {
-        kpts_start = subframe_index;
+  if (auto *tracker = dynamic_cast<AxMetaTracker *>(master_meta)) {
+    // -------------------------------------------------------------------------
+    // TRACKER CASE: Keypoints stored per-track in tracker's frame_data_map
+    // -------------------------------------------------------------------------
+    // The tracker maintains a map: track_id -> TrackingDescriptor
+    // Each TrackingDescriptor has a frame_data_map containing metadata (including keypoints)
+    // We use box_id as the track_id to look up the correct track's data
+
+    kpts_meta_base = extract_keypoints_from_tracker(tracker, box_id, kpts_per_box, logger);
+    kpts_start = 0; // Tracker returns keypoints for ONE specific track
+
+  } else if (auto *bbox_master = dynamic_cast<AxMetaBbox *>(master_meta)) {
+    // -------------------------------------------------------------------------
+    // BBOX CASE: Keypoints either on bbox directly or in its submeta
+    // -------------------------------------------------------------------------
+
+    // Try 1: Check if bbox_master directly implements keypoints interface
+    // This means all keypoints for all boxes are in one flat array
+    kpts_meta_base = extract_keypoints_from_meta(bbox_master, kpts_per_box);
+    bool from_submeta = false;
+
+    if (!kpts_meta_base) {
+      // Try 2: Search through all submeta to find keypoints
+      // If keypoints are in submeta, each box has its own separate keypoint metadata
+      kpts_meta_base
+          = extract_keypoints_from_submeta(bbox_master, box_id, kpts_per_box, logger);
+      if (kpts_meta_base) {
+        from_submeta = true;
       }
     }
+
+    if (!kpts_meta_base) {
+      throw std::runtime_error("facealign: no keypoints found in bbox meta or its submeta");
+    }
+
+    // Set kpts_start based on keypoint storage layout:
+    // - from_submeta=true: Keypoints are per-box, so start at index 0
+    // - from_submeta=false: All keypoints in one array, so start at box_id * kpts_per_box
+    kpts_start = from_submeta ? 0 : box_id;
+
   } else {
-    auto *container_meta
-        = prop->association_meta.empty() ?
-              master_meta :
-              dynamic_cast<AxMetaBbox *>(map.at(prop->master_meta).get());
-    if (!container_meta) {
-      throw std::runtime_error("facealign: invalid container meta");
-    }
-
-    int master_subframe_index = prop->association_meta.empty() ?
-                                    subframe_index :
-                                    master_meta->get_id(subframe_index);
-    if (master_subframe_index < 0
-        || master_subframe_index >= container_meta->get_number_of_subframes()) {
-      throw std::runtime_error("facealign: subframe index error");
-    }
-
-    try {
-      auto *submeta = container_meta->get_submeta<AxMetaBase>(prop->keypoints_submeta_key,
-          master_subframe_index, container_meta->get_number_of_subframes());
-      if (submeta) {
-        kpts_meta_base = extract_keypoints_from_meta(submeta, kpts_per_box);
-      }
-    } catch (const std::exception &) {
-      throw std::runtime_error("facealign: keypoints submeta '" + prop->keypoints_submeta_key
-                               + "' not found in container meta");
-    }
-
-    if (!kpts_meta_base) {
-      auto *container_tracker = dynamic_cast<AxMetaTracker *>(container_meta);
-      if (container_tracker) {
-        kpts_meta_base
-            = extract_keypoints_from_tracker(container_tracker, kpts_per_box, logger);
-      } else {
-        kpts_meta_base = extract_keypoints_from_meta(container_meta, kpts_per_box);
-      }
-    }
-
-    if (!kpts_meta_base) {
-      throw std::runtime_error("facealign: could not find keypoints");
-    }
-    kpts_start = master_subframe_index;
+    throw std::runtime_error("facealign: master_meta must be AxMetaTracker or AxMetaBbox");
   }
+
+  // ============================================================================
+  // STEP 4: Extract individual keypoint coordinates for this box
+  // ============================================================================
+  // We now have:
+  // - kpts_meta_base: Pointer to keypoint metadata
+  // - kpts_start: Starting index for this box's keypoints
+  // - kpts_per_box: Number of keypoints per box
+  //
+  // Extract keypoints and convert to box-relative coordinates
 
   std::vector<float> X, Y;
   X.reserve(kpts_per_box);
   Y.reserve(kpts_per_box);
 
   for (int i = 0; i < kpts_per_box; ++i) {
+    // Calculate the absolute index in the keypoint array
+    // Example: If kpts_start=0 and i=2, we get keypoint[2] (per-box storage)
+    // Example: If kpts_start=5 and i=2, we get keypoint[5*N+2] (flat array storage)
     int kpt_index = kpts_start * kpts_per_box + i;
     if (kpt_index >= static_cast<int>(kpts_meta_base->num_elements())) {
       perform_fallback_alignment(input, output, logger);
       return;
     }
 
+    // Get keypoint in absolute image coordinates
     KptXyv kpt = kpts_meta_base->get_kpt_xy(kpt_index);
+
+    // Convert to box-relative coordinates (relative to box top-left corner)
+    // This is needed because face alignment works within the box coordinate system
     float rel_x = kpt.x - box.x1;
     float rel_y = kpt.y - box.y1;
 
+    // Validate keypoint coordinates are finite numbers
     if (!std::isfinite(rel_x) || !std::isfinite(rel_y)) {
       perform_fallback_alignment(input, output, logger);
       return;
@@ -425,169 +386,95 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
       Ax::opencv_type_u8(output_video.info.format), output_video.data,
       output_video.info.stride);
 
+  // Compute transformation matrix based on alignment mode
+  cv::Mat M_inv; // Inverse matrix (destination → source)
+
   if (prop->use_self_normalizing) {
-    // Self-normalizing alignment
+    // Self-normalizing alignment (eye-based for 5-point landmarks)
     if (kpts_per_box == 5) {
-      cv::Point2f left_eye(X[0], Y[0]);
-      cv::Point2f right_eye(X[1], Y[1]);
-
-      float eye_distance = cv::norm(right_eye - left_eye);
-      if (eye_distance < 10.0f) {
-        perform_fallback_alignment(input, output, logger);
-        return;
-      }
-
-      float desired_eye_y = output_mat.rows * 0.4f;
-      float desired_eye_center_x = output_mat.cols / 2.0f;
-      float desired_eye_distance = output_mat.cols * 0.35f;
-
-      cv::Point2f eye_center = (left_eye + right_eye) * 0.5f;
-      cv::Point2f eye_diff = right_eye - left_eye;
-      float angle = std::atan2(eye_diff.y, eye_diff.x) * 180.0f / CV_PI;
-      float scale = std::clamp(desired_eye_distance / eye_distance, 0.1f, 5.0f);
-
-      cv::Mat rotation_matrix = cv::getRotationMatrix2D(eye_center, angle, scale);
-      rotation_matrix.at<double>(0, 2) += desired_eye_center_x - eye_center.x;
-      rotation_matrix.at<double>(1, 2) += desired_eye_y - eye_center.y;
-
-      // Use (0,0,0,255) for border pixels
-      cv::warpAffine(input_mat, output_mat, rotation_matrix, output_mat.size(),
-          cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0, 255));
+      M_inv = face_align::compute_self_normalizing_matrix(
+          X, Y, box, output_video.info.width, output_video.info.height);
     } else {
-      perform_fallback_alignment(input, output, logger);
+      M_inv = face_align::compute_fallback_matrix(
+          box, output_video.info.width, output_video.info.height);
     }
   } else {
-    // Template-based alignment
+    // Template-based Procrustes alignment
     std::vector<float> XX = prop->XXn;
     std::vector<float> YY = prop->YYn;
     int kpts_offset = 0;
 
-    // Select template
+    // Select appropriate template based on number of keypoints
     if (XX.empty() || YY.empty()) {
       if (kpts_per_box >= 68) {
-        XX.assign(prop->XXn_51.begin(), prop->XXn_51.end());
-        YY.assign(prop->YYn_51.begin(), prop->YYn_51.end());
+        XX.assign(face_align::template_51pt_x.begin(),
+            face_align::template_51pt_x.end());
+        YY.assign(face_align::template_51pt_y.begin(),
+            face_align::template_51pt_y.end());
         kpts_offset = 17;
       } else if (kpts_per_box >= 51) {
-        XX.assign(prop->XXn_51.begin(), prop->XXn_51.end());
-        YY.assign(prop->YYn_51.begin(), prop->YYn_51.end());
+        XX.assign(face_align::template_51pt_x.begin(),
+            face_align::template_51pt_x.end());
+        YY.assign(face_align::template_51pt_y.begin(),
+            face_align::template_51pt_y.end());
         kpts_offset = 0;
       } else if (kpts_per_box >= 5) {
-        XX.assign(prop->XXn_5.begin(), prop->XXn_5.end());
-        YY.assign(prop->YYn_5.begin(), prop->YYn_5.end());
+        XX.assign(face_align::template_5pt_x.begin(), face_align::template_5pt_x.end());
+        YY.assign(face_align::template_5pt_y.begin(), face_align::template_5pt_y.end());
         kpts_offset = 0;
-      } else {
-        perform_fallback_alignment(input, output, logger);
-        return;
       }
     }
 
-    if (XX.size() != static_cast<size_t>(kpts_per_box - kpts_offset)) {
-      perform_fallback_alignment(input, output, logger);
-      return;
+    // Validate template size matches keypoint count and compute matrix
+    if (!XX.empty() && !YY.empty()
+        && XX.size() == static_cast<size_t>(kpts_per_box - kpts_offset)) {
+      std::vector<float> X_template(X.begin() + kpts_offset, X.end());
+      std::vector<float> Y_template(Y.begin() + kpts_offset, Y.end());
+
+      auto margin = get_margin(map);
+      M_inv = face_align::compute_template_based_matrix(X_template, Y_template,
+          XX, YY, box, margin, output_video.info.width, output_video.info.height);
+    } else {
+      M_inv = face_align::compute_fallback_matrix(
+          box, output_video.info.width, output_video.info.height);
     }
-
-    std::vector<float> X_template(X.begin() + kpts_offset, X.end());
-    std::vector<float> Y_template(Y.begin() + kpts_offset, Y.end());
-
-    float meanX = std::accumulate(X_template.begin(), X_template.end(), 0.0f)
-                  / X_template.size();
-    float meanY = std::accumulate(Y_template.begin(), Y_template.end(), 0.0f)
-                  / Y_template.size();
-
-    float varX = 0, varY = 0;
-    for (size_t i = 0; i < X_template.size(); ++i) {
-      varX += (X_template[i] - meanX) * (X_template[i] - meanX);
-      varY += (Y_template[i] - meanY) * (Y_template[i] - meanY);
-    }
-    float stdX = std::sqrt(varX / X_template.size());
-    float stdY = std::sqrt(varY / Y_template.size());
-
-    const float min_std = 1e-6f;
-    if (stdX < min_std || stdY < min_std) {
-      perform_fallback_alignment(input, output, logger);
-      return;
-    }
-
-    for (float &x : X_template)
-      x = (x - meanX) / stdX;
-    for (float &y : Y_template)
-      y = (y - meanY) / stdY;
-
-    float inv_padding_factor = 1.0f / (2 * prop->padding + 1);
-    for (float &x : XX)
-      x = (x + prop->padding) * inv_padding_factor * output_mat.cols;
-    for (float &y : YY)
-      y = (y + prop->padding) * inv_padding_factor * output_mat.rows;
-
-    float meanXX = std::accumulate(XX.begin(), XX.end(), 0.0f) / XX.size();
-    float meanYY = std::accumulate(YY.begin(), YY.end(), 0.0f) / YY.size();
-
-    float varXX = 0, varYY = 0;
-    for (size_t i = 0; i < XX.size(); ++i) {
-      varXX += (XX[i] - meanXX) * (XX[i] - meanXX);
-      varYY += (YY[i] - meanYY) * (YY[i] - meanYY);
-    }
-    float stdXX = std::sqrt(varXX / XX.size());
-    float stdYY = std::sqrt(varYY / YY.size());
-
-    if (stdXX < min_std || stdYY < min_std) {
-      perform_fallback_alignment(input, output, logger);
-      return;
-    }
-
-    for (float &x : XX)
-      x = (x - meanXX) / stdXX;
-    for (float &y : YY)
-      y = (y - meanYY) / stdYY;
-
-    cv::Mat_<float> A(2, 2);
-    A(0, 0) = std::inner_product(X_template.begin(), X_template.end(), XX.begin(), 0.0f);
-    A(0, 1) = std::inner_product(X_template.begin(), X_template.end(), YY.begin(), 0.0f);
-    A(1, 0) = std::inner_product(Y_template.begin(), Y_template.end(), XX.begin(), 0.0f);
-    A(1, 1) = std::inner_product(Y_template.begin(), Y_template.end(), YY.begin(), 0.0f);
-
-    cv::Mat_<float> W, U, Vt;
-    cv::SVD::compute(A, W, U, Vt);
-    cv::Mat_<float> R = (U * Vt).t();
-
-    cv::Mat_<float> M(2, 3);
-    float stdXX_over_stdX = stdXX / stdX;
-    float stdYY_over_stdY = stdYY / stdY;
-    M(0, 0) = R(0, 0) * stdXX_over_stdX;
-    M(1, 0) = R(1, 0) * stdYY_over_stdY;
-    M(0, 1) = R(0, 1) * stdXX_over_stdX;
-    M(1, 1) = R(1, 1) * stdYY_over_stdY;
-    M(0, 2) = meanXX - stdXX_over_stdX * (R(0, 0) * meanX + R(0, 1) * meanY);
-    M(1, 2) = meanYY - stdYY_over_stdY * (R(1, 0) * meanX + R(1, 1) * meanY);
-
-    bool valid_matrix = true;
-    for (int i = 0; i < 2 && valid_matrix; ++i) {
-      for (int j = 0; j < 3 && valid_matrix; ++j) {
-        if (!std::isfinite(M(i, j)))
-          valid_matrix = false;
-      }
-    }
-
-    if (!valid_matrix) {
-      perform_fallback_alignment(input, output, logger);
-      return;
-    }
-
-    // Use (0,0,0,255) for border pixels
-    cv::warpAffine(input_mat, output_mat, M, output_mat.size(),
-        cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0, 255));
   }
+
+  // cv::warpAffine expects forward matrix (source → destination)
+  // The utility functions return inverse matrix, so invert it back
+  cv::Mat M;
+  cv::invertAffineTransform(M_inv, M);
+
+  if (!face_align::is_valid_matrix(M)) {
+    perform_fallback_alignment(input, output, logger);
+    return;
+  }
+
+  // Use (0,0,0,255) for border pixels
+  cv::warpAffine(input_mat, output_mat, M, output_mat.size(), cv::INTER_LINEAR,
+      cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0, 255));
 
   if (prop->save_aligned_images) {
     static int frame_counter = 0;
     try {
       [[maybe_unused]] int ret = system("mkdir -p face_align_debug");
+
+      cv::Mat new_output_mat(cv::Size(output_video.info.width, output_video.info.height),
+          Ax::opencv_type_u8(output_video.info.format));
+
+      cv::cvtColor(output_mat, new_output_mat, cv::COLOR_BGRA2RGBA);
+
+      // Crop to central 80% (trim 10% from each side)
+      int crop_x = new_output_mat.cols / 10;
+      int crop_y = new_output_mat.rows / 10;
+      cv::Rect central_roi(crop_x, crop_y, new_output_mat.cols - 2 * crop_x,
+          new_output_mat.rows - 2 * crop_y);
       cv::imwrite("face_align_debug/aligned_" + std::to_string(frame_counter) + ".png",
-          output_mat);
+          new_output_mat(central_roi));
 
       // Create a copy for keypoint visualization (don't modify original input)
       cv::Mat debug_img = input_mat.clone();
+
       for (size_t i = 0; i < X.size(); ++i) {
         cv::Point2f pt(X[i], Y[i]);
         if (pt.x >= 0 && pt.x < debug_img.cols && pt.y >= 0 && pt.y < debug_img.rows) {

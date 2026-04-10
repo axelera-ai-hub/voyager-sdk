@@ -12,9 +12,8 @@ else
 endif
 
 BUILD_DIR := $(BUILD_TYPE)
-
 PREFIX_DIR := $(realpath $(dir $(abspath $(firstword $(MAKEFILE_LIST)))))
-PKG_CONFIG_PATH := $(AXELERA_RUNTIME_DIR)/lib/pkgconfig:$(AXELERA_FRAMEWORK)/operators/lib/pkgconfig:$(PKG_CONFIG_PATH)
+PKG_CONFIG_PATH := $(AXELERA_RUNTIME_DIR)/lib/pkgconfig:$(PREFIX_DIR)/../operators/lib/pkgconfig:$(PKG_CONFIG_PATH)
 
 
 gst_ops_install:  $(BUILD_DIR)
@@ -23,7 +22,7 @@ gst_ops_install:  $(BUILD_DIR)
 $(BUILD_DIR):
 	# mkdir -p $(BUILD_DIR)
 	PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) cmake -B$(BUILD_DIR) -GNinja . -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
-		-DCMAKE_INSTALL_PREFIX=$(PREFIX_DIR)  -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON || ($(call clobber-it) && exit 1)
+		-DCMAKE_INSTALL_PREFIX=$(PREFIX_DIR) || ($(call clobber-it) && exit 1)
 
 clean:
 	-ninja clean -C $(BUILD_DIR)

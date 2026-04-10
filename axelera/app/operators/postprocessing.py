@@ -552,7 +552,7 @@ class Recognition(AxOperator):
             f'{association_key}'
             f'{embeddings_file_option}'
             f'distance_threshold:{self.distance_threshold};'
-            f'metric_type:{int(self.distance_metric.value)};'
+            f'metric_type:{self.distance_metric.name};'
             f'pair_validation:{int(self._is_pair_validation)};'
             f'top_k:{self.k};'
             f'update_embeddings:{int(self.update_embeddings)};'

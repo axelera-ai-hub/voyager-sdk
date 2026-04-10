@@ -22,46 +22,12 @@ else
   $(error Unknown LOGLEVEL: $(LOGLEVEL) (must be trace, debug, info, warning, or error))
 endif
 
-ifdef NN
-# do var assignments for the specified network, if any
-$(foreach ASSIGN,$(shell python3 -c 'from axelera.app import yaml_parser; yaml_parser.gen_model_envs("$(NN)")'),$(eval $(subst _SP_, ,$(ASSIGN))))
-
-ifeq ($(NN_SET),0)
-$(error NN=$(NN) does not specify a valid model. Try 'make help' to print available models)
-endif
-else
-ifneq (,$(filter clean info,$(MAKECMDGOALS)))
-  $(error "'$(MAKECMDGOALS)' requires a network to be specified with NN=<network>")
-else
-ifneq (,$(MAKECMDGOALS))
-ifeq (,$(filter clear-cmake-cache operators-docker clobber-libs clean-libs gst-operators operators trackers examples help,$(MAKECMDGOALS)))
-  $(error Type '$(MAKE) help' to get help)
-endif
-endif
-endif
-endif
-
-# Compilers
-CXX   := gcc
-FLAGS := -Wall -Wextra -Wno-unused-variable -Wno-unused-parameter -Werror
-
 # Debug/release
 ifndef CFG
   CFG=release
 endif
 
-# Target
-HOST_ARCH := $(shell uname -m)
-
-# Build directories (NN_BUILD defined by ASSIGNs above)
-NN_BIN_DIR := $(NN_BUILD)/$(CFG)/bin/$(HOST_ARCH)
-NN_BIN_SRV := $(NN_BIN_DIR)/$(NN)
-
-PIPELINE   := $(NN_BUILD)/$(HOST_ARCH)/pipeline.h
-MODELS     := $(addprefix $(NN_BUILD)/$(HOST_ARCH)/,$(NN_MODELS))
-
-INCLUDE    := $(AXELERA_RUNTIME_DIR)/headers
-LIBS       := $(AXELERA_RUNTIME_DIR)/lib
+AXELERA_RUNTIME_DIR  != [ -n "$(AXELERA_RUNTIME_DIR)" ] && echo "$(AXELERA_RUNTIME_DIR)" || python -c "from axelera.runtime.configs import runtime_dir; print(runtime_dir)"
 
 .DEFAULT_GOAL := help
 
@@ -69,54 +35,29 @@ LIBS       := $(AXELERA_RUNTIME_DIR)/lib
 help:
 	@python3 -c 'from axelera.app import yaml_parser; yaml_parser.gen_model_help()'
 
-.PHONY: info
-info:  _check-activated-runtime
-	@fold "-w80" <<< "YAML input  : $(NN_FILE)"
-	@fold "-w80" <<< "Build dir   : $(NN_BUILD)"
-	@fold "-w80" <<< "Description : $(NN_DESC)"
-
-.PHONY: operators gst-operators
+.PHONY: operators
 operators: _check-activated-runtime
-	$(MAKE) -C operators
-gst-operators: operators
+	AXELERA_RUNTIME_DIR=$(AXELERA_RUNTIME_DIR) $(MAKE) -C operators
 
 .PHONY: trackers
 trackers: _check-activated-runtime
-	$(MAKE) -C trackers
+	AXELERA_RUNTIME_DIR=$(AXELERA_RUNTIME_DIR) $(MAKE) -C trackers
 
 .PHONY: examples
 examples: _check-activated-runtime operators
-	$(MAKE) -C examples
-
-$(NN_BIN_SRV): $(NN_BIN_DIR)/server.o $(MODELS)
-	@mkdir -p "$(@D)"
-	$(Q)$(CXX) -L$(LIBS) -Wl,-rpath=$(LIBS) $(FLAGS) -I$(INCLUDE) $< $(MODELS) -o $@ -laxelera-runtime
-
-$(NN_BIN_DIR)/server.o: $(NN_BUILD)/$(HOST_ARCH)/server.c $(PIPELINE)
-	$(Q)mkdir -p "$(@D)"
-	$(Q)cp server.c $(NN_BIN_DIR)
-	$(Q)$(CXX) $(FLAGS) -I$(INCLUDE) -c $< -o $@
-
-$(NN_BUILD)/$(HOST_ARCH)/server.c: server.c
-	$(Q)mkdir -p "$(@D)"
-	$(Q)cp $< $@
+	AXELERA_RUNTIME_DIR=$(AXELERA_RUNTIME_DIR) $(MAKE) -C examples
 
 .PHONY: _check-activated-runtime
 _check-activated-runtime:
 ifeq ($(AXELERA_RUNTIME_DIR),)
-	$(error Please set AXELERA_RUNTIME_DIR variable e.g 'source venv/bin/activate')
+	$(error AXELERA_RUNTIME_DIR was not found. Please activate the virtual environment e.g 'source venv/bin/activate' or '/opt/axelera/sdk/<version>/axelera-activate.sh')
 endif
-ifeq ($(AXELERA_FRAMEWORK),)
-	$(error Please set AXELERA_FRAMEWORK variable e.g 'source venv/bin/activate')
-endif
-
-.PHONY: clear-cmake-cache
-clear-cmake-cache:
-	$(Q)$(MAKE) -C operators clear-cmake-cache
 
 .PHONY: clean
-clean:
-	$(Q)$(RM) -r $(NN_BUILD)
+clean: clean-libs
+
+.PHONY: clobber
+clobber: clobber-libs
 
 .PHONY: clean-libs
 clean-libs:
@@ -134,5 +75,6 @@ clobber-libs:
 operators-docker:
 	$(Q)if ! $(MAKE) -sq operators; then \
 		echo building operators...; \
-		($(MAKE) clear-cmake-cache operators &> _operators.log) || echo "Failed to build operators, see _operators.log"; \
+		($(MAKE) -C operators clear-cmake-cache &> _operators.log && $(MAKE) operators &>> _operators.log) || \
+		echo "Failed to build operators, see _operators.log"; \
 	fi

@@ -49,9 +49,7 @@ models:
     dataset: CocoDataset-COCO2017
     extra_kwargs:
       max_compiler_cores: 4
-      compilation_config:
-        tiling_depth: 6
-        split_buffer_promotion: true
+      compiler_config_file: yolov8s.toml
 
 datasets:
   CocoDataset-COCO2017:

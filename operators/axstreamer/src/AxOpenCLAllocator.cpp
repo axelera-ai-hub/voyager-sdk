@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2026
+// Copyright Axelera AI, 2025
 #include "AxLog.hpp"
 #include "AxOpenCl.hpp"
 #include "AxStreamerUtils.hpp"
@@ -45,7 +45,8 @@ class OpenCLAllocator : public Ax::DataInterfaceAllocator
 {
   public:
   OpenCLAllocator(AxAllocationContext *context, Ax::Logger &logger)
-      : context_(ax_utils::copy_context_and_retain(context)), logger(logger)
+      : context_(ax_utils::copy_context_and_retain(context)),
+        logger(logger)
   {
   }
 
@@ -70,19 +71,22 @@ class OpenCLAllocator : public Ax::DataInterfaceAllocator
   void *map(opencl_buffer &ocl_buffer)
   {
     if (ocl_buffer.buffer) {
-      if (ocl_buffer.event) {
+      if (ocl_buffer.event && ocl_buffer.mapped) {
         clWaitForEvents(1, &*ocl_buffer.event);
-        ocl_buffer.event.reset();
       } else {
+        auto num_events = ocl_buffer.event ? 1 : 0;
+        cl_event *pevents = num_events ? &*ocl_buffer.event : nullptr;
         cl_int error = CL_SUCCESS;
-        auto *mapped = clEnqueueMapBuffer(context_.commands, ocl_buffer.buffer, CL_TRUE,
-            CL_MAP_READ, 0, ocl_buffer.data.size(), 0, nullptr, nullptr, &error);
+        auto *mapped = clEnqueueMapBuffer(context_.commands, ocl_buffer.buffer,
+            CL_TRUE, CL_MAP_READ, 0, ocl_buffer.data.size(), num_events,
+            pevents, nullptr, &error);
         if (!mapped) {
           logger(AX_ERROR) << "Failed to map OpenCL buffer, error = " << error << std::endl;
           return nullptr;
         }
         ocl_buffer.mapped = mapped;
       }
+      ocl_buffer.event.reset();
       return ocl_buffer.mapped;
     }
     return ocl_buffer.data.data();
@@ -90,29 +94,31 @@ class OpenCLAllocator : public Ax::DataInterfaceAllocator
 
   void unmap(opencl_buffer &ocl_buffer)
   {
-    cl_int error = clEnqueueUnmapMemObject(
-        context_.commands, ocl_buffer.buffer, ocl_buffer.mapped, 0, NULL, NULL);
-    ocl_buffer.mapped = nullptr;
+    if (ocl_buffer.buffer && ocl_buffer.mapped) {
+      cl_int error = clEnqueueUnmapMemObject(context_.commands,
+          ocl_buffer.buffer, ocl_buffer.mapped, 0, NULL, NULL);
+      ocl_buffer.mapped = nullptr;
+      if (error != CL_SUCCESS) {
+        logger(AX_ERROR) << "Failed to unmap OpenCL buffer, error = " << error << std::endl;
+      }
+    }
   }
 
   void map(Ax::ManagedDataInterface &buffer, Ax::MapType /*unused*/) override
   {
     if (!buffer.is_mapped()) {
       std::vector<std::shared_ptr<void>> buffers;
-      auto &fds = buffer.fds();
       auto &ocl_buffers = buffer.ocl_buffers();
       auto p = std::shared_ptr<void>{};
-      if (auto *video = std::get_if<AxVideoInterface>(&buffer.data())) {
+      if (std::holds_alternative<AxVideoInterface>(buffer.data())) {
         auto ocl = ocl_buffers[0];
         auto *p = map(*ocl);
         buffers.emplace_back(p, [](void *p) {});
       } else if (auto *tensors = std::get_if<AxTensorsInterface>(&buffer.data())) {
-        size_t n = 0;
-        for (auto &tensor : *tensors) {
+        for (size_t n = 0; n != tensors->size(); ++n) {
           auto ocl = ocl_buffers[n];
           auto *p = map(*ocl);
           buffers.emplace_back(p, [](void *p) {});
-          ++n;
         }
       }
       buffer.set_buffers(std::move(buffers));
@@ -127,7 +133,6 @@ class OpenCLAllocator : public Ax::DataInterfaceAllocator
         auto ocl = ocl_buffers[0];
         unmap(*ocl);
       } else if (auto *tensors = std::get_if<AxTensorsInterface>(&buffer.data())) {
-        size_t n = 0;
         for (size_t n = 0; n != tensors->size(); ++n) {
           auto ocl = ocl_buffers[n];
           unmap(*ocl);

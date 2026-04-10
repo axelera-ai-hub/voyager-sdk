@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Logging functions
 from __future__ import annotations
 
@@ -282,6 +282,7 @@ def _configure_compiler_level(compiler_level: int):
         axelera.compiler
         axelera.miraculix
         axelera.miraculix_plugins
+        axelera.model_optimizer
     '''.split()
     for m in compiler_modules:
         getLogger(m).setLevel(compiler_level)

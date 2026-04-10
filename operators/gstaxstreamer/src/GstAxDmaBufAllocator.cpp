@@ -95,11 +95,9 @@ struct dma_heap_allocation_data {
 static GstMemory *
 gst_tensor_dmabuf_alloc(GstAllocator *allocator, gsize size, GstAllocationParams *params)
 {
-  char name[16];
-  int memfd, ret, pages, dmabuffd;
+  int ret, pages, dmabuffd;
   GstMemory *mem;
   gsize totalsize;
-  struct udmabuf_create create;
   GstTensorDmaBufAllocator *self = GST_TENSOR_DMABUF_ALLOCATOR_CAST(allocator);
   GST_OBJECT_LOCK(self);
   if (self->uDmaBufDeviceFD <= 0) {

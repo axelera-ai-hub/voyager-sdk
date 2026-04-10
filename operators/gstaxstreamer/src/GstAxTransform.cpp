@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2026
+// Copyright Axelera AI, 2024
 #include "GstAxTransform.hpp"
 #include <cstring>
 #include <gmodule.h>
@@ -43,11 +43,9 @@ struct _GstAxtransformData {
   unsigned int current_batch = 0;
   std::vector<int> tensor_size{};
   GstBuffer *outbuf = nullptr;
-  Ax::GstHandle<GstAllocator> allocator{};
-  Ax::GstHandle<GstBufferPool> pool{};
   bool downstream_supports_crop = false;
+  unsigned int set_caps_retries = 32;
   std::queue<EventDetails> event_queue;
-  bool block_on_pool_empty = true;
 };
 
 G_DEFINE_TYPE_WITH_CODE(GstAxtransform, gst_axtransform, GST_TYPE_ELEMENT,
@@ -118,7 +116,6 @@ struct GstVaapiDisplayPrivate {
 
 struct GstVaapiDisplay {
   GstObject parent_instance;
-
   GstVaapiDisplayPrivate *priv;
 };
 
@@ -150,7 +147,6 @@ supports_opencl_buffers(GstAxtransform *self)
 {
   return self->data->plugin->query_supports(Ax::PluginFeature::opencl_buffers);
 }
-
 
 static void
 gst_axtransform_do_bufferpool(GstAxtransform *axtransform, GstCaps *caps)
@@ -351,6 +347,9 @@ initialise_options(GstAxtransform *axtransform)
     data.plugin = std::make_unique<Ax::LoadedTransform>(
         data.logger, std::move(*data.shared), data.options, context.get());
   }
+  auto [_, supports_opencl] = Ax::query_downstream_buffers(axtransform->srcpad);
+  data.plugin->set_dynamic_properties(
+      { { "downstream_supports_opencl", supports_opencl ? "1" : "0" } });
 }
 
 static gboolean
@@ -366,7 +365,26 @@ gst_axtransform_setcaps(GstAxtransform *axtransform, GstCaps *from_event, GstBuf
   //  Only set caps if they have changed
   if (!current_caps || !gst_caps_is_equal(to.get(), current_caps.get())) {
     ret = gst_pad_set_caps(axtransform->srcpad, to.get());
+    if (!ret) {
+      axtransform->data->set_caps_retries--;
+      gchar *from_caps_str = gst_caps_to_string(from_event);
+      gchar *to_caps_str = gst_caps_to_string(to.get());
+      if (axtransform->data->set_caps_retries == 0) {
+        GST_ELEMENT_ERROR(axtransform, STREAM, FORMAT, ("Failed to negotiate caps"),
+            ("Could not set output caps. Input caps: %s, Attempted output caps: %s",
+                from_caps_str, to_caps_str));
+        throw std::runtime_error(std::string("Could not set output caps. Input caps: ") + from_caps_str
+                                 + ", Attempted output caps: " + to_caps_str);
+      } else {
+        GST_WARNING_OBJECT(axtransform,
+            "Failed to set output Input caps %s, Attempted output caps: %s, %u retries left",
+            from_caps_str, to_caps_str, axtransform->data->set_caps_retries);
+      }
+      g_free(from_caps_str);
+      g_free(to_caps_str);
+    }
   }
+
   axtransform->data->output_template = interface_from_caps_and_meta(to.get(), nullptr);
   axtransform->outsize = size_from_interface(axtransform->data->output_template);
   if (axtransform->data->plugin->has_transform()) {
@@ -432,16 +450,8 @@ static GstBuffer *
 acquire_buffer(GstAxtransform *axtransform, GstBuffer *in_buffer)
 {
   if (axtransform->pool && gst_buffer_pool_is_active(axtransform->pool)) {
-    GstBuffer *outbuf;
-    GstBufferPoolAcquireParams params{
-      .format = GST_FORMAT_UNDEFINED,
-      .start = 0,
-      .stop = 0,
-      .flags = GST_BUFFER_POOL_ACQUIRE_FLAG_DONTWAIT,
-    };
-    GstBufferPoolAcquireParams *p
-        = axtransform->data->block_on_pool_empty ? nullptr : &params;
-    if (gst_buffer_pool_acquire_buffer(axtransform->pool, &outbuf, p) == GST_FLOW_OK) {
+    GstBuffer *outbuf = nullptr;
+    if (gst_buffer_pool_acquire_buffer(axtransform->pool, &outbuf, nullptr) == GST_FLOW_OK) {
       return outbuf;
     }
   }
@@ -688,15 +698,15 @@ add_allocation_proposal(GstAxtransform *sink, GstQuery *query)
   if (features && !gst_caps_features_contains(features, GST_CAPS_FEATURE_MEMORY_SYSTEM_MEMORY)) {
     return TRUE;
   }
-  //  Test caps only for system memory
-
+  //  Jetson prefers new buffers not reused
+  auto is_jetson = Ax::get_env("JETSON_MODEL", "") != "";
   auto subplugin_use_dmabuf = can_use_dmabuf(self);
-
-  self->data->allocator = Ax::as_handle(
-      subplugin_use_dmabuf ?
-          gst_tensor_dmabuf_allocator_get(dmabuf_device) :
-          gst_opencl_allocator_get(sink->data->which_cl.c_str(), &self->data->logger));
-  if (!self->data->allocator) {
+  auto allocator = Ax::as_handle(
+      subplugin_use_dmabuf ? gst_tensor_dmabuf_allocator_get(dmabuf_device) :
+      is_jetson            ? gst_aligned_allocator_get() :
+                             gst_opencl_allocator_get(
+                      sink->data->which_cl.c_str(), &self->data->logger));
+  if (!allocator) {
     GST_ERROR_OBJECT(self, "Unable to get aligned allocator");
     return TRUE;
   }
@@ -705,22 +715,21 @@ add_allocation_proposal(GstAxtransform *sink, GstQuery *query)
     const int min_buffers = 4;
     //  Now that inplace no longer provides a pool we need to provide sufficient
     const int max_buffers = 0;
-    self->data->pool = Ax::as_handle(gst_ax_buffer_pool_new());
-    GstStructure *config = gst_buffer_pool_get_config(self->data->pool.get());
+    auto pool = Ax::as_handle(gst_ax_buffer_pool_new());
+    GstStructure *config = gst_buffer_pool_get_config(pool.get());
     guint size = ax_size_from_caps(caps);
 
     gst_buffer_pool_config_set_params(config, caps, size, min_buffers, max_buffers);
-    gst_buffer_pool_config_set_allocator(config, self->data->allocator.get(), NULL);
-    if (!gst_buffer_pool_set_config(self->data->pool.get(), config)) {
-      self->data->allocator.reset();
-      self->data->pool.reset();
+    gst_buffer_pool_config_set_allocator(config, allocator.get(), NULL);
+    if (!gst_buffer_pool_set_config(pool.get(), config)) {
+      pool.reset();
       GST_ERROR_OBJECT(self, "Failed to set pool configuration");
       return TRUE;
     }
-    gst_query_add_allocation_pool(query, self->data->pool.get(), size, min_buffers, max_buffers);
+    gst_query_add_allocation_pool(query, pool.get(), size, min_buffers, max_buffers);
   }
 
-  gst_query_add_allocation_param(query, self->data->allocator.get(), NULL);
+  gst_query_add_allocation_param(query, allocator.get(), NULL);
 
   return TRUE;
 }
@@ -740,43 +749,48 @@ gst_axtransform_sink_query(GstPad *pad, GstObject *parent, GstQuery *query)
   auto *axtransform = GST_AXTRANSFORM(parent);
   GST_DEBUG_OBJECT(axtransform, "sink_query");
 
-  switch (GST_QUERY_TYPE(query)) {
-    case GST_QUERY_ALLOCATION:
-      return add_allocation_proposal(axtransform, query);
-
-    case GST_QUERY_CAPS:
-      {
-        initialise_options(axtransform);
-        GstCaps *filter = NULL;
-        gst_query_parse_caps(query, &filter);
-
-        GstCaps *tmp_caps = gst_caps_from_string(GST_TENSORS_CAP_DEFAULT);
-
-        /* System memory variant */
-        const auto uses_dmabuf = can_use_dmabuf(axtransform);
-        for (auto format : supported_video_formats) {
-          GstStructure *s = gst_structure_new(
-              "video/x-raw", "format", G_TYPE_STRING, format.data(), NULL);
-          gst_caps_append_structure_full(tmp_caps, s,
-              gst_caps_features_new(GST_CAPS_FEATURE_MEMORY_SYSTEM_MEMORY, NULL));
-          if (uses_dmabuf) {
-            GstStructure *s2 = gst_structure_new(
-                "video/x-raw", "format", G_TYPE_STRING, format.data(), NULL);
-            gst_caps_append_structure_full(tmp_caps, s2,
-                gst_caps_features_new(GST_CAPS_FEATURE_MEMORY_DMABUF, NULL));
-          }
-        }
-
-        auto *caps = filter ? gst_caps_intersect_full(tmp_caps, filter, GST_CAPS_INTERSECT_FIRST) :
-                              gst_caps_ref(tmp_caps);
-        gst_caps_unref(tmp_caps);
-        gst_query_set_caps_result(query, caps);
-        gst_caps_unref(caps);
-        return TRUE;
-      }
-    default:
-      return gst_pad_query_default(pad, parent, query);
+  if (GST_QUERY_TYPE(query) == GST_QUERY_ALLOCATION) {
+    return add_allocation_proposal(axtransform, query);
   }
+  if (GST_QUERY_TYPE(query) == GST_QUERY_AX_BUFFER_REQUIREMENTS) {
+    auto supports_opencl = supports_opencl_buffers(axtransform);
+    auto *srcpad = axtransform->srcpad;
+    auto [downstream_buffers, _] = srcpad ? Ax::query_downstream_buffers(srcpad) :
+                                            Ax::BufferRequirements{};
+    Ax::gst_query_set_ax_buffer_requirements(query, downstream_buffers, supports_opencl);
+    return TRUE;
+  }
+
+  if (GST_QUERY_TYPE(query) == GST_QUERY_CAPS) {
+    initialise_options(axtransform);
+    GstCaps *filter = NULL;
+    gst_query_parse_caps(query, &filter);
+
+    GstCaps *tmp_caps = gst_caps_from_string(GST_TENSORS_CAP_DEFAULT);
+
+    /* System memory variant */
+    const auto uses_dmabuf = can_use_dmabuf(axtransform);
+    for (auto format : supported_video_formats) {
+      GstStructure *s = gst_structure_new(
+          "video/x-raw", "format", G_TYPE_STRING, format.data(), NULL);
+      gst_caps_append_structure_full(tmp_caps, s,
+          gst_caps_features_new(GST_CAPS_FEATURE_MEMORY_SYSTEM_MEMORY, NULL));
+      if (uses_dmabuf) {
+        GstStructure *s2 = gst_structure_new(
+            "video/x-raw", "format", G_TYPE_STRING, format.data(), NULL);
+        gst_caps_append_structure_full(tmp_caps, s2,
+            gst_caps_features_new(GST_CAPS_FEATURE_MEMORY_DMABUF, NULL));
+      }
+    }
+
+    auto *caps = filter ? gst_caps_intersect_full(tmp_caps, filter, GST_CAPS_INTERSECT_FIRST) :
+                          gst_caps_ref(tmp_caps);
+    gst_caps_unref(tmp_caps);
+    gst_query_set_caps_result(query, caps);
+    gst_caps_unref(caps);
+    return TRUE;
+  }
+  return gst_pad_query_default(pad, parent, query);
 }
 
 static void
@@ -789,8 +803,6 @@ gst_axtransform_init(GstAxtransform *axtransform)
           axtransform, gst_axtransform_debug_category);
   Ax::init_logger(axtransform->data->logger);
 
-  axtransform->data->allocator = nullptr;
-  axtransform->data->pool = nullptr;
   axtransform->outsize = 0;
 
   axtransform->sinkpad = gst_pad_new_from_static_template(&sink_template, "sink");

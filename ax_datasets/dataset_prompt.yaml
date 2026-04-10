@@ -21,6 +21,28 @@ DanceTrack:
     - drop_dirs: 0
       file: dancetrack.zip
       name: val
+DanceTrack_ReId:
+  description: DanceTrack ReID dataset generated from the DanceTrack Multiple Object
+    Tracking dataset.
+  download_hint: "Step 1: Download the DanceTrack dataset.\n\nGit LFS:\n  git clone\
+    \ https://huggingface.co/datasets/noahcao/dancetrack /tmp/dancetrack\n\nThen extract\
+    \ val part for reid models validation:\n  unzip -q /tmp/dancetrack/val.zip -d\
+    \ /tmp/dancetrack/\n\nThen extract train part for reid models calibration:\n \
+    \ unzip -q /tmp/dancetrack/train1.zip -d /tmp/dancetrack/\n\nStep 2: Generate\
+    \ the ReID dataset:\n  python ax_datasets/generate_dancetrack_reid.py \\\n   \
+    \ --data_path /tmp/ \\\n    --save_path data/reid \\\n    --train_samples 1000\n\
+    \n  The script builds a ReID dataset from DanceTrack. It crops person boxes from\n\
+    \  the val sequences, scores each crop using visibility, aspect ratio, blur, and\n\
+    \  overlap penalties, then keeps the best-scoring query image per identity. The\n\
+    \  remaining crops are routed to the gallery split, with optional downsampling\n\
+    \  via the gallery stride. It also samples a fixed number of random train crops\n\
+    \  from the DanceTrack train split and saves them to bounding_box_train for\n\
+    \  calibration.\n"
+  splits:
+    val:
+    - drop_dirs: 0
+      file: dancetrack-reid.zip
+      name: val
 ImageNet:
   description: ImageNet is a large-scale image dataset for image recognition.
   download_hint: "To download the dataset, it is necessary to register at https://image-net.org/download-images.\n\

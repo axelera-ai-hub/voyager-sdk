@@ -1,7 +1,7 @@
 ---
 AccessModifierOffset: 0
 AlignAfterOpenBracket: DontAlign
-AlignEscapedNewlinesLeft: true
+AlignEscapedNewlines: Left
 AlignTrailingComments: false
 AllowAllParametersOfDeclarationOnNextLine: false
 AllowShortFunctionsOnASingleLine: false
@@ -15,25 +15,24 @@ BinPackParameters: true
 BreakBeforeBinaryOperators: true
 BreakBeforeBraces: Linux
 BreakBeforeTernaryOperators: false
-BreakConstructorInitializersBeforeComma: false
+BreakConstructorInitializers: BeforeColon
 BreakStringLiterals: false
 ColumnLimit: 80
 CommentPragmas: '\* @'
-ConstructorInitializerAllOnOneLineOrOnePerLine: false
+PackConstructorInitializers: Never
 ConstructorInitializerIndentWidth: 4
 ContinuationIndentWidth: 4
 Cpp11BracedListStyle: false
-DerivePointerBinding: false
+DerivePointerAlignment: false
 IncludeCategories:
-  - Regex:	'.*gtest.*'
-    Priority:	-10
-  - Regex:	'".*"'
-    Priority:	10
-  - Regex:	'<.*>'
-    Priority:	0
+  - Regex: '.*gtest.*'
+    Priority: -10
+  - Regex: '".*"'
+    Priority: 10
+  - Regex: '<.*>'
+    Priority: 0
 IndentCaseLabels: true
 IndentCaseBlocks: true
-IndentFunctionDeclarationAfterType: true
 IndentWidth: 2
 IndentWrappedFunctionNames: false
 Language: Cpp
@@ -47,7 +46,7 @@ PenaltyBreakFirstLessLess: 0
 PenaltyBreakString: 100
 PenaltyExcessCharacter: 1
 PenaltyReturnTypeOnItsOwnLine: 20
-PointerBindsToType: false
+PointerAlignment: Right
 SpaceAfterCStyleCast: true
 SpaceBeforeAssignmentOperators: true
 SpaceBeforeParens: ControlStatements
@@ -63,4 +62,8 @@ UseTab: Never
 ---
 Language: Proto
 # Don't format .proto files.
+DisableFormat: true
+---
+Language: Json
+# Don't format .json files.
 DisableFormat: true

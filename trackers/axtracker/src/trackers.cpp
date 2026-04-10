@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2023
+// Copyright Axelera AI, 2024
 #include "trackers.hpp"
 
 #include <algorithm>
@@ -10,7 +10,8 @@ namespace axtracker
 {
 
 KalmanBoxTracker::KalmanBoxTracker(BboxXyxyRelative bbox, int max_history)
-    : max_history_size(max_history), track_id(KalmanBoxTracker::count++)
+    : max_history_size(max_history),
+      track_id(KalmanBoxTracker::count++)
 {
   int stateSize = 7;
   int measSize = 4;
@@ -83,6 +84,10 @@ KalmanBoxTracker::update(BboxXyxyRelative bbox)
   hits++;
   hit_streak++;
   kf.correct(convert_bbox_to_z(bbox));
+  history.push_back(bbox);
+  if (history.size() > max_history_size) {
+    history.erase(history.begin());
+  }
 }
 
 BboxXyxyRelative
@@ -235,11 +240,13 @@ SORT::update(const std::vector<BboxXyxyRelative> &dets)
     // std::cout << "fill trackers " << m.second << " with detection "
     //           << dets[m.first] << std::endl;
     trackers[m.second].update(dets[m.first]);
+    trackers[m.second].setLatestDetectionId(m.first);
   }
 
   // Create new trackers for unmatched detections
   for (auto &u_det : unmatched_dets) {
     KalmanBoxTracker tracker(dets[u_det]);
+    tracker.setLatestDetectionId(u_det);
     trackers.push_back(tracker);
   }
 

@@ -282,7 +282,7 @@ def _segments2boxes(segments):
     for s in segments:
         x, y = s.T  # segment xy
         boxes.append([x.min(), y.min(), x.max(), y.max()])  # cls, xyxy
-    return np.array(boxes)  # cls, xywh
+    return xyxy2xywh(np.array(boxes))
 
 
 def _create_image_list_file(input_path, subdir=None):
@@ -437,7 +437,7 @@ class UnifiedDataset(torch_data.Dataset):
     """Unified dataset class for object detection, segmentation, and keypoint detection."""
 
     # labels caching version; bump up when changing labeling or caching method
-    cache_version = 0.4
+    cache_version = 0.5
 
     def __init__(
         self,
@@ -1607,7 +1607,7 @@ class SegDataAdapter(ObjDataAdapter):
         if mask_size and not (isinstance(mask_size, (tuple, list)) and len(mask_size) == 2):
             raise ValueError("mask_size must be a tuple or list of two integers")
 
-        self.mask_size = tuple(mask_size)
+        self.mask_size = tuple(int(x) for x in mask_size)
 
     def _check_supported_label_type(self, dataset_config):
         """Check if the label type is supported for segmentation."""

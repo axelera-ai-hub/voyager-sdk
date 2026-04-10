@@ -1,9 +1,11 @@
-// Copyright Axelera AI, 2026
+// Copyright Axelera AI, 2024
 #include "AxInferenceNet.hpp"
 #include "AxDataInterface.h"
 #include "AxInference.hpp"
 #include "AxLog.hpp"
 #include "AxMeta.hpp"
+#include "AxMetaMargin.hpp"
+#include "AxMetaObjectDetection.hpp"
 #include "AxMetaStreamId.hpp"
 #include "AxOpenCl.hpp"
 #include "AxStreamerUtils.hpp"
@@ -45,14 +47,23 @@ using Buffers = std::list<ManagedDataInterface>;
 class Operator
 {
   public:
+  Operator(Ax::Logger &logger, std::unique_ptr<Ax::Plugin> &&pplugin)
+      : logger(logger),
+        pplugin(std::move(pplugin))
+  {
+  }
+
+  std::string name() const
+  {
+    return pplugin->name();
+  }
+
   //  Note: input will be consumed by the operator
   //  It might be returned in the output if the operator is in-place
   virtual SharedBatchBufferView execute(const AxVideoInterface &video,
       SharedBatchBufferView input, unsigned int subframe_index,
       unsigned int number_of_subframes, MetaMap &meta_map)
       = 0;
-
-  virtual std::string name() const = 0;
 
   virtual AxDataInterface allocate_output(const AxDataInterface &input) = 0;
 
@@ -71,22 +82,21 @@ class Operator
   virtual bool supports_dmabuf() const = 0;
 
   virtual ~Operator() = default;
+
+  Ax::Logger &logger;
+
+  protected:
+  std::unique_ptr<Ax::Plugin> pplugin;
 };
 
 class OperatorList
 {
   public:
   explicit OperatorList(Logger &logger, LatencyCallback log_latency,
-      Ax::DataInterfaceAllocator &default_alloc, Ax::DataInterfaceAllocator &null_alloc)
-      : logger(logger), log_latency(log_latency), default_alloc(default_alloc),
-        null_alloc(null_alloc)
-  {
-  }
+      Ax::DataInterfaceAllocator &default_alloc, Ax::DataInterfaceAllocator &null_alloc,
+      std::vector<std::unique_ptr<Ax::Plugin>> &&plugins);
 
-  void add_operator(std::string libname, std::string options, AxAllocationContext *context,
-      std::string mode = "none", std::string batch_size = "1");
-
-  AxDataInterface compile(const AxDataInterface &input,
+  AxDataInterface compile(const AxDataInterface &input, int batch_size,
       std::function<void(std::unique_ptr<Ax::Frame>)> release_frame);
 
   void set_last_allocator(int batch_size, DataInterfaceAllocator &allocator)
@@ -111,26 +121,14 @@ class OperatorList
     }
   }
 
-  void initialise()
-  {
-    auto first = operators.rbegin();
-    auto last = operators.rend();
-    if (first == last)
-      return;
-
-    bool supports_crop = false;
-    bool supports_opencl = false;
-    for (; first != last; ++first) {
-      (*first)->downstream_supports_crop(supports_crop);
-      (*first)->downstream_supports_opencl(supports_opencl);
-      supports_crop = (*first)->supports_crop();
-      supports_opencl = (*first)->supports_opencl();
-    }
-  }
-
   bool supports_opencl_buffers()
   {
     return !operators.empty() && operators.front()->supports_opencl();
+  }
+
+  bool supports_dmabuf()
+  {
+    return !operators.empty() && operators.front()->supports_dmabuf();
   }
 
   private:
@@ -143,7 +141,7 @@ class OperatorList
   LatencyCallback log_latency;
   Ax::DataInterfaceAllocator &default_alloc;
   Ax::DataInterfaceAllocator &null_alloc;
-  std::vector<BlockingQueue<std::unique_ptr<Ax::Frame>>> links;
+  std::deque<BlockingQueue<std::unique_ptr<Ax::Frame>>> links;
   std::vector<std::unique_ptr<Operator>> operators;
   struct OpCallParams {
     Operator *op;
@@ -216,7 +214,7 @@ unmap(std::shared_ptr<Ax::BatchedBuffer> &input, supported_features supports)
 class AxInferenceNet : public InferenceNet
 {
   public:
-  AxInferenceNet(const InferenceNetProperties &properties,
+  AxInferenceNet(Ax::LoadedInferenceNetProperties &&properties,
       AxAllocationContext *context, Ax::Logger &logger,
       InferenceDoneCallback done_callback, LatencyCallback latency_callback);
 
@@ -226,6 +224,7 @@ class AxInferenceNet : public InferenceNet
   void end_of_input() override;
   void cascade_frame(CompletedFrame &frame) override;
   bool supports_opencl_buffers(const AxVideoInterface &video) override;
+  bool supports_dmabuf() override;
   int frames_required_for_inference() const override;
 
   private:
@@ -253,7 +252,7 @@ class AxInferenceNet : public InferenceNet
   void log_latency(const std::string &op, std::chrono::high_resolution_clock::time_point start);
   void finalize_thread();
 
-  const InferenceNetProperties properties;
+  const InferenceProperties properties;
   AxAllocationContextHandle context_;
   Logger &logger;
   std::vector<std::unique_ptr<Frame>> frame_pool;
@@ -289,27 +288,14 @@ class AxInferenceNet : public InferenceNet
 class TransformOp : public Ax::Operator
 {
   public:
-  TransformOp(Ax::Logger &logger, Ax::SharedLib &&shared_, std::string libname,
-      std::string options, AxAllocationContext *context, std::string mode,
-      int batch_size, Ax::DataInterfaceAllocator &alloc)
-      : plugin(logger, std::move(shared_), options, context, mode), logger(logger),
-        allocator(&alloc), pool{ std::make_unique<Ax::BatchedBufferPool>(
-                               batch_size, AxDataInterface{}, *allocator) },
-        batch{ batch_size }
+  TransformOp(Ax::Logger &logger, std::unique_ptr<Ax::Plugin> pplugin_,
+      Ax::DataInterfaceAllocator &alloc)
+      : Operator(logger, std::move(pplugin_)),
+        plugin(static_cast<Ax::Transform &>(*pplugin)),
+        allocator(&alloc),
+        pool{ std::make_unique<Ax::BatchedBufferPool>(1, AxDataInterface{}, *allocator) },
+        batch{ 1 }
   {
-  }
-
-  void remove_cropinfo(AxDataInterface &out)
-  {
-    if (auto *video = std::get_if<AxVideoInterface>(&out)) {
-      video->info.stride
-          = video->info.width * AxVideoFormatNumChannels(video->info.format);
-      video->strides = { size_t(video->info.stride) };
-      video->info.cropped = false;
-      video->info.x_offset = 0;
-      video->info.y_offset = 0;
-      video->info.actual_height = video->info.height;
-    }
   }
 
   Ax::SharedBatchBufferView batch_output(std::shared_ptr<Ax::BatchedBuffer> output_buffer)
@@ -368,7 +354,7 @@ class TransformOp : public Ax::Operator
       p->strides = { size_t(p->info.stride) };
     }
     auto buffer = pool->new_batched_buffer(input);
-    auto mapped = map(buffer,
+    map(buffer,
         supported_features{
             .opencl_buffers = supports_opencl(),
             .dmabuffers = supports_dmabuf(),
@@ -400,7 +386,7 @@ class TransformOp : public Ax::Operator
         out = plugin.set_output_interface_from_meta(
             *input, subframe_index, number_of_subframes, meta_map);
       }
-      remove_cropinfo(out);
+      ax_utils::remove_cropinfo(out);
       auto output_buffer = out_buf ? out_buf : allocate_batched_buffer(out);
       auto output = get_shared_view_of_batch_buffer(output_buffer, current_batch);
       return batch_output(output.underlying());
@@ -418,7 +404,7 @@ class TransformOp : public Ax::Operator
           return input;
         }
       }
-      remove_cropinfo(out);
+      ax_utils::remove_cropinfo(out);
     }
 
     if (batch == 1 && plugin.can_passthrough(*input, out)) {
@@ -442,7 +428,7 @@ class TransformOp : public Ax::Operator
         return input;
       }
       //  Remove cropping metadata if we need to physically crop here.
-      remove_cropinfo(out);
+      ax_utils::remove_cropinfo(out);
     }
     //  Here we might need to create a new output buffer, if so we either need
     //  to create one from the pool or an OpenCL buffer if the plugin supports OpenCL
@@ -470,12 +456,8 @@ class TransformOp : public Ax::Operator
   void set_allocator(int batch_size, Ax::DataInterfaceAllocator &alloc) override
   {
     allocator = &alloc;
+    batch = batch_size;
     pool = std::make_unique<Ax::BatchedBufferPool>(batch_size, AxDataInterface{}, *allocator);
-  }
-
-  std::string name() const override
-  {
-    return plugin.name();
   }
 
   bool supports_opencl() const
@@ -510,8 +492,7 @@ class TransformOp : public Ax::Operator
   }
 
   private:
-  LoadedTransform plugin;
-  Ax::Logger &logger;
+  Ax::Transform &plugin;
   Ax::DataInterfaceAllocator *allocator;
   std::unique_ptr<Ax::BatchedBufferPool> pool;
   bool downstream_supports_cropmeta = false;
@@ -522,12 +503,12 @@ class TransformOp : public Ax::Operator
 };
 
 
-class InplaceOp : public Ax::Operator
+class InPlaceOp : public Ax::Operator
 {
   public:
-  InplaceOp(Ax::Logger &logger, Ax::SharedLib &&shared, std::string libname,
-      std::string options, AxAllocationContext *context, std::string mode)
-      : plugin(logger, std::move(shared), options, context, mode), logger(logger)
+  InPlaceOp(Ax::Logger &logger, std::unique_ptr<Ax::Plugin> pplugin_)
+      : Operator(logger, std::move(pplugin_)),
+        plugin(static_cast<Ax::InPlace &>(*pplugin))
   {
   }
 
@@ -555,11 +536,6 @@ class InplaceOp : public Ax::Operator
   AxDataInterface allocate_output(const AxDataInterface &input) override
   {
     return input;
-  }
-
-  std::string name() const override
-  {
-    return plugin.name();
   }
 
   void set_allocator(int /*batch_size*/, Ax::DataInterfaceAllocator &) override
@@ -593,21 +569,18 @@ class InplaceOp : public Ax::Operator
   {
     return false;
   }
-
-  private:
-  LoadedInPlace plugin;
-  Ax::Logger &logger;
+  Ax::InPlace &plugin;
 };
 
 class DecodeOp : public Ax::Operator
 {
   public:
-  DecodeOp(Ax::Logger &logger, Ax::SharedLib &&shared, std::string libname,
-      std::string options, AxAllocationContext *context, std::string mode,
+  DecodeOp(Ax::Logger &logger, std::unique_ptr<Ax::Plugin> &&pplugin_,
       Ax::DataInterfaceAllocator &alloc)
-      : plugin(logger, std::move(shared), options, context, mode), logger(logger),
-        allocator(alloc), pool{ std::make_unique<Ax::BatchedBufferPool>(
-                              1, AxDataInterface{}, allocator) }
+      : Operator(logger, std::move(pplugin_)),
+        plugin(static_cast<Ax::Decode &>(*pplugin)),
+        allocator(alloc),
+        pool{ std::make_unique<Ax::BatchedBufferPool>(1, AxDataInterface{}, allocator) }
   {
   }
 
@@ -633,10 +606,6 @@ class DecodeOp : public Ax::Operator
   AxDataInterface allocate_output(const AxDataInterface &input) override
   {
     return {};
-  }
-  std::string name() const override
-  {
-    return plugin.name();
   }
 
   void set_allocator(int /*batch_size*/, Ax::DataInterfaceAllocator &) override
@@ -672,8 +641,7 @@ class DecodeOp : public Ax::Operator
   }
 
   private:
-  LoadedDecode plugin;
-  Ax::Logger &logger;
+  Ax::Decode &plugin;
   Ax::DataInterfaceAllocator &allocator;
   std::unique_ptr<Ax::BatchedBufferPool> pool;
 };
@@ -775,33 +743,51 @@ Ax::OperatorList::operator_thread(
   }
 }
 
-void
-OperatorList::add_operator(std::string libname, std::string options,
-    AxAllocationContext *context, std::string mode /*= "none"*/, std::string batch_size)
+OperatorList::OperatorList(Logger &logger, LatencyCallback log_latency,
+    Ax::DataInterfaceAllocator &default_alloc, Ax::DataInterfaceAllocator &null_alloc,
+    std::vector<std::unique_ptr<Ax::Plugin>> &&plugins)
+    : logger(logger),
+      log_latency(log_latency),
+      default_alloc(default_alloc),
+      null_alloc(null_alloc)
 {
-  auto batch_size_int = batch_size.empty() ? 1 : std::stoi(batch_size);
-  Ax::SharedLib shared(logger, libname);
-  if (shared.has_symbol("transform")) {
-    operators.push_back(std::make_unique<TransformOp>(logger, std::move(shared),
-        libname, options, context, mode, batch_size_int, default_alloc));
-  } else if (shared.has_symbol("inplace")) {
-    operators.push_back(std::make_unique<InplaceOp>(
-        logger, std::move(shared), libname, options, context, mode));
-  } else if (shared.has_symbol("decode_to_meta")) {
-    operators.push_back(std::make_unique<DecodeOp>(
-        logger, std::move(shared), libname, options, context, mode, null_alloc));
-  } else {
-    throw std::runtime_error("Unknown module " + libname);
+  for (auto &plugin : plugins) {
+    if (dynamic_cast<Ax::Transform *>(plugin.get())) {
+      operators.push_back(
+          std::make_unique<TransformOp>(logger, std::move(plugin), default_alloc));
+    } else if (dynamic_cast<Ax::InPlace *>(plugin.get())) {
+      operators.push_back(std::make_unique<InPlaceOp>(logger, std::move(plugin)));
+    } else if (dynamic_cast<Ax::Decode *>(plugin.get())) {
+      operators.push_back(std::make_unique<DecodeOp>(logger, std::move(plugin), null_alloc));
+    } else {
+      throw std::runtime_error("Unknown plugin type - must be Transform, InPlace, or Decode");
+    }
+  }
+
+  auto first = operators.rbegin();
+  auto last = operators.rend();
+  if (first != last) {
+    bool supports_crop = false;
+    bool supports_opencl = false;
+    for (; first != last; ++first) {
+      (*first)->downstream_supports_crop(supports_crop);
+      (*first)->downstream_supports_opencl(supports_opencl);
+      supports_crop = (*first)->supports_crop();
+      supports_opencl = (*first)->supports_opencl();
+    }
   }
 }
 
-
 AxDataInterface
-Ax::OperatorList::compile(const AxDataInterface &input,
+Ax::OperatorList::compile(const AxDataInterface &input, int batch_size,
     std::function<void(std::unique_ptr<Ax::Frame>)> release_frame)
 {
   auto size = operators.size();
-  std::vector<BlockingQueue<std::unique_ptr<Ax::Frame>>> queues(size + 1);
+  std::deque<BlockingQueue<std::unique_ptr<Ax::Frame>>> queues;
+  queues.emplace_back(batch_size);
+  for (int i = 0; i != size; ++i) {
+    queues.emplace_back(1);
+  }
   links = std::move(queues);
   AxDataInterface in = input;
   for (int i = 0; i != operators.size(); ++i) {
@@ -820,7 +806,7 @@ Ax::OperatorList::log_throughput(
       duration_since_ns(latency_start).count());
 }
 
-AxInferenceNet::AxInferenceNet(const Ax::InferenceNetProperties &properties,
+AxInferenceNet::AxInferenceNet(Ax::LoadedInferenceNetProperties &&properties,
     AxAllocationContext *context, Ax::Logger &logger,
     InferenceDoneCallback done_callback, LatencyCallback latency_callback)
     : properties(properties),
@@ -829,11 +815,14 @@ AxInferenceNet::AxInferenceNet(const Ax::InferenceNetProperties &properties,
       allocator(context_ ? create_opencl_allocator(context_.get(), logger) :
                            create_heap_allocator()),
       null_allocator(std::make_unique<NullDataInterfaceAllocator>()),
-      done_callback(done_callback), latency_callback(latency_callback),
-      pre_ops(logger, latency_callback, *allocator, *null_allocator),
+      done_callback(done_callback),
+      latency_callback(latency_callback),
+      pre_ops(logger, latency_callback, *allocator, *null_allocator,
+          std::move(properties.preproc)),
       inference(create_inference(logger, properties,
           [this](uint64_t idx) { inference_low_latency_ready(idx); })),
-      post_ops(logger, latency_callback, *allocator, *null_allocator)
+      post_ops(logger, latency_callback, *allocator, *null_allocator,
+          std::move(properties.postproc))
 {
   logger(AX_INFO) << "InferenceNet created, low_latency=" << inference->is_low_latency()
                   << std::endl;
@@ -1138,7 +1127,9 @@ AxInferenceNet::stop()
   pre_ops.stop();
   post_ops.stop();
   threads.clear();
-  push_thread.join();
+  if (push_thread.joinable()) {
+    push_thread.join();
+  }
   inference.reset();
   // all threads are joined now, so no need to lock reorder queue or frame pool
   // but it is important to ensure they are empty before destruction
@@ -1149,13 +1140,15 @@ AxInferenceNet::stop()
 std::unique_ptr<Ax::Frame>
 AxInferenceNet::new_frame()
 {
-  std::unique_lock<std::mutex> lock(frame_pool_mutex);
-  if (frame_pool.empty()) {
-    return std::make_unique<Frame>();
+  {
+    std::unique_lock<std::mutex> lock(frame_pool_mutex);
+    if (!frame_pool.empty()) {
+      auto frame = std::move(frame_pool.back());
+      frame_pool.pop_back();
+      return frame;
+    }
   }
-  auto frame = std::move(frame_pool.back());
-  frame_pool.pop_back();
-  return frame;
+  return std::make_unique<Ax::Frame>();
 }
 
 void
@@ -1180,34 +1173,51 @@ AxInferenceNet::init_frame(Ax::Frame &frame)
   frame.op_input = get_shared_view_of_batch_buffer(input, 0);
 }
 
-static AxMetaBase &
-get_meta(const MetaMap &meta_map, const std::string &key,
-    const std::string &source, const std::string &extra_err = {})
+static size_t
+insert_single_tile_meta(MetaMap &axmetamap,
+    const std::string &meta_to_distribute, const AxVideoInterface &video)
 {
-  auto meta_itr = meta_map.find(key);
-  if (meta_itr == meta_map.end()) {
-    std::string valid_keys;
-    for (const auto &pair : meta_map) {
-      if (!valid_keys.empty()) {
-        valid_keys += ",";
-      }
-      valid_keys += pair.first;
-    }
-    throw std::runtime_error(
-        source + ": " + key + " not found in meta map " + valid_keys + extra_err);
-  }
-  return *meta_itr->second;
+
+  auto box
+      = box_xyxy{ .x1 = 0, .y1 = 0, .x2 = video.info.width - 1, .y2 = video.info.height - 1 };
+  auto boxes = std::vector<box_xyxy>{ box };
+  auto scores = std::vector<float>{ 1.0 };
+  auto class_ids = std::vector<int>{ -1 };
+  ax_utils::insert_meta<AxMetaObjDetectionTiles>(axmetamap, meta_to_distribute,
+      "", 0, 1, std::move(boxes), std::move(scores), std::move(class_ids));
+  return 1;
 }
 
+static AxMetaBase *
+get_meta(const MetaMap &meta_map, const std::string &key)
+{
+  auto meta_itr = meta_map.find(key);
+  return meta_itr == meta_map.end() ? nullptr : meta_itr->second.get();
+}
 
 static size_t
-get_number_of_subframes(const MetaMap &axmetamap, const std::string &meta_to_distribute)
+get_number_of_subframes(MetaMap &axmetamap,
+    const std::string &meta_to_distribute, const AxVideoInterface &video)
 {
-  if (!meta_to_distribute.empty()) {
-    auto &meta = get_meta(axmetamap, meta_to_distribute, "filter", ", cannot distribute");
-    return meta.get_number_of_subframes();
+  if (meta_to_distribute.empty()) {
+    return 1;
   }
-  return 1;
+  if (auto *meta = get_meta(axmetamap, meta_to_distribute)) {
+    return meta->get_number_of_subframes();
+  }
+  if (meta_to_distribute == "axelera-tiles-internal") {
+    return insert_single_tile_meta(axmetamap, meta_to_distribute, video);
+  }
+  std::string valid_keys;
+  for (const auto &pair : axmetamap) {
+    if (!valid_keys.empty()) {
+      valid_keys += ",";
+    }
+    valid_keys += pair.first;
+  }
+  throw std::runtime_error(std::string{ "axinferencenet" } + ": " + meta_to_distribute
+                           + " not found in meta map. Valid keys = ["
+                           + valid_keys + "], cannot distribute");
 }
 
 void
@@ -1218,6 +1228,9 @@ AxInferenceNet::push_new_frame(std::shared_ptr<void> &&buffer_handle,
   {
     std::unique_lock<std::mutex> lock(streams_mutex);
     counter = &streams[stream_id].frame_id;
+  }
+  if (properties.margin) {
+    axmetamap["axelera-margin"] = std::make_unique<AxMetaMargin>(properties.margin);
   }
   auto frame_id = counter->fetch_add(1, std::memory_order_relaxed);
 
@@ -1238,7 +1251,7 @@ AxInferenceNet::push_new_frame(std::shared_ptr<void> &&buffer_handle,
   frame->latency_start = frame->timestamp;
   frame->inference_start = frame->timestamp;
   auto &preq = pre_ops.input_queue();
-  const auto num = get_number_of_subframes(axmetamap, properties.meta);
+  const auto num = get_number_of_subframes(axmetamap, properties.meta, video);
   //  It is one or more subframes
   frame->subframe_index = 0;
   frame->number_of_subframes = num;
@@ -1277,40 +1290,28 @@ AxInferenceNet::cascade_frame(CompletedFrame &frame)
 void
 AxInferenceNet::initialise_pipeline(const AxVideoInterface &video)
 {
-  auto compile_list
-      = [this](const decltype(properties.preproc) &props, OperatorList &list) {
-          for (int n = 0; n != MAX_OPERATORS && !props[n].lib.empty(); ++n) {
-            logger(AX_INFO) << "Adding operator: " << props[n].lib << "("
-                            << props[n].options << ", " << props[n].mode << ", "
-                            << props[n].batch << ")" << std::endl;
-            list.add_operator(props[n].lib, props[n].options, context_.get(),
-                props[n].mode, props[n].batch);
-          }
-          list.initialise();
-        };
-
-  compile_list(properties.preproc, pre_ops);
-  compile_list(properties.postproc, post_ops);
   ManagedDataInterfaces buffers;
   auto releaser = std::function<void(std::unique_ptr<Ax::Frame>)>(
       [this](std::unique_ptr<Ax::Frame> frame) {
         return release_frame(std::move(frame));
       });
-  auto inf_input_template = pre_ops.compile(video, releaser);
-  const auto exp_model_input
-      = Ax::to_string(AxDataInterface(inference->input_shapes()));
-  const auto got_model_input = Ax::to_string(inf_input_template);
-  const auto batch_size = inference->batch_size();
-  if (exp_model_input != got_model_input) {
-    throw std::runtime_error("Expected model input=" + exp_model_input
-                             + " but got input=" + got_model_input);
-  }
-  auto inf_output_template = inference->output_shapes();
-  post_ops.compile(Ax::batch_view(inf_output_template, 0), releaser);
-
   inf_input_allocator = properties.dmabuf_inputs ?
                             create_dma_buf_allocator() :
                             create_opencl_allocator(context_.get(), logger);
+  const auto batch_size = inference->batch_size();
+  pre_ops.set_last_allocator(batch_size, *inf_input_allocator);
+  auto inf_input_template = pre_ops.compile(video, 1, releaser);
+  const auto exp_model_input
+      = Ax::to_string(AxDataInterface(inference->input_shapes()));
+  const auto got_model_input = Ax::to_string(inf_input_template);
+  if (exp_model_input != got_model_input) {
+    logger.throw_error(
+        "AxInferenceNet: Model (" + properties.model + ") expects inputs=" + exp_model_input
+        + " but got inputs=" + got_model_input + " from preprocessing ops");
+  }
+  auto inf_output_template = inference->output_shapes();
+  post_ops.compile(Ax::batch_view(inf_output_template, 0), batch_size, releaser);
+
   inf_output_allocator = properties.dmabuf_outputs ?
                              create_dma_buf_allocator() :
                              create_opencl_allocator(context_.get(), logger);
@@ -1326,7 +1327,6 @@ AxInferenceNet::initialise_pipeline(const AxVideoInterface &video)
     threads.emplace_back(&AxInferenceNet::inference_thread, this, batch_size);
   }
   push_thread = std::jthread(&AxInferenceNet::finalize_thread, this);
-  pre_ops.set_last_allocator(batch_size, *inf_input_allocator);
 }
 
 void
@@ -1348,8 +1348,13 @@ AxInferenceNet::end_of_input()
 bool
 AxInferenceNet::supports_opencl_buffers(const AxVideoInterface &video)
 {
-  std::call_once(compile_once_flag, [this, video] { initialise_pipeline(video); });
   return pre_ops.supports_opencl_buffers();
+}
+
+bool
+AxInferenceNet::supports_dmabuf()
+{
+  return pre_ops.supports_dmabuf();
 }
 
 int
@@ -1382,11 +1387,20 @@ Ax::create_inference_net(const InferenceNetProperties &properties, Ax::Logger &l
 std::unique_ptr<Ax::InferenceNet>
 Ax::create_inference_net(const InferenceNetProperties &properties,
     Ax::Logger &logger, InferenceDoneCallback done_callback,
-    LatencyCallback latency_callback, AxAllocationContext *allocation_context)
+    LatencyCallback latency_callback, AxAllocationContext *context)
+{
+  auto loaded = load_inferencenet_plugins(properties, logger, context);
+  return create_inference_net(
+      std::move(loaded), logger, done_callback, latency_callback, context);
+}
+std::unique_ptr<Ax::InferenceNet>
+Ax::create_inference_net(LoadedInferenceNetProperties &&properties,
+    Ax::Logger &logger, InferenceDoneCallback done_callback,
+    LatencyCallback latency_callback, AxAllocationContext *context)
 {
   auto lcb = latency_callback ? latency_callback : default_latency_callback;
   return std::make_unique<AxInferenceNet>(
-      properties, allocation_context, logger, done_callback, lcb);
+      std::move(properties), context, logger, done_callback, lcb);
 }
 
 static bool
@@ -1477,4 +1491,29 @@ Ax::read_inferencenet_properties(const std::string &path, Ax::Logger &logger)
     throw std::runtime_error("Failed to open file: " + path);
   }
   return read_inferencenet_properties(f, logger);
+}
+
+Ax::LoadedInferenceNetProperties
+Ax::load_inferencenet_plugins(const InferenceNetProperties &properties,
+    Ax::Logger &logger, AxAllocationContext *allocation_context)
+{
+  LoadedInferenceNetProperties loaded(properties);
+  auto load = [&logger, allocation_context](const auto &in, auto &out) {
+    for (const auto &op : in) {
+      if (op.lib.empty()) {
+        break;
+      }
+      try {
+        out.push_back(
+            Ax::load_plugin(logger, op.lib, op.options, allocation_context, op.mode));
+        logger(AX_INFO) << "Loaded " << op.lib;
+      } catch (const std::exception &e) {
+        logger(AX_ERROR) << "Failed to load " << op.lib << ": " << e.what() << std::endl;
+        throw;
+      }
+    }
+  };
+  load(properties.preproc, loaded.preproc);
+  load(properties.postproc, loaded.postproc);
+  return loaded;
 }

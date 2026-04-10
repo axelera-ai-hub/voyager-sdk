@@ -8,39 +8,56 @@
 #include "AxMetaBBox.hpp"
 #include "AxMetaSegments.hpp"
 #include "AxUtils.hpp"
-/*
-struct SegmentShape {
-  size_t width;
-  size_t height;
-};*/
 
 class AxMetaSegmentsDetection : public AxMetaBbox, public AxMetaSegments
 {
   public:
-  AxMetaSegmentsDetection(std::vector<box_xyxy> boxes,
-      std::vector<ax_utils::segment> segments, std::vector<float> scores,
-      std::vector<int> classes, std::vector<int> ids, const SegmentShape &segment_shape,
-      box_xyxy mbox, const std::string &decoder_name_ = "")
-      : AxMetaBbox(std::move(boxes), std::move(scores), std::move(classes), std::move(ids)),
-        AxMetaSegments(segment_shape.width, segment_shape.height, std::move(segments)),
-        base_box(std::move(mbox)), decoder_name(decoder_name_)
+  AxMetaSegmentsDetection()
+      : AxMetaBbox(),
+        AxMetaSegments(0, 0, SegmentList{})
   {
   }
 
-  AxMetaSegmentsDetection(std::vector<box_xyxy> boxes, std::vector<segment_func> segments_funcs,
+  AxMetaSegmentsDetection(std::vector<box_xyxy> boxes, std::vector<ax_utils::segment> segments,
       std::vector<float> scores, std::vector<int> classes, std::vector<int> ids,
-      const SegmentShape &segment_shape, std::vector<float> prototype_tensor,
+      const SegmentShape &segment_shape, const std::string &decoder_name_ = "")
+      : AxMetaBbox(std::move(boxes), std::move(scores), std::move(classes), std::move(ids)),
+        AxMetaSegments(segment_shape.width, segment_shape.height, std::move(segments)),
+        decoder_name(decoder_name_)
+  {
+  }
+
+  AxMetaSegmentsDetection(std::vector<box_xyxy> boxes, std::vector<segment_details> segments_info,
+      std::vector<float> scores, std::vector<int> classes, std::vector<int> ids,
+      const SegmentShape &segment_shape, ax_utils::prototype_details prototype_tensor,
       box_xyxy mbox, const std::string &decoder_name_ = "")
       : AxMetaBbox(std::move(boxes), std::move(scores), std::move(classes), std::move(ids)),
-        AxMetaSegments(segment_shape.width, segment_shape.height, std::move(segments_funcs)),
-        base_box(std::move(mbox)), decoder_name(decoder_name_)
+        AxMetaSegments(segment_shape.width, segment_shape.height, mbox,
+            std::move(segments_info)),
+        decoder_name(decoder_name_)
   {
-    set_prototype_tensor(std::move(prototype_tensor));
+    set_prototype(std::move(prototype_tensor));
   }
 
   void draw(const AxVideoInterface &video,
       const std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> &meta_map) override
   {
+  }
+
+  void extend(AxMetaSegmentsDetection &&other)
+  {
+    AxMetaBbox::extend(std::move(other));
+    AxMetaSegments::extend(std::move(other));
+    base_box = other.base_box;
+    decoder_name = std::move(other.decoder_name);
+  }
+
+  void extend(const AxMetaSegmentsDetection &other)
+  {
+    AxMetaBbox::extend(other);
+    AxMetaSegments::extend(other);
+    base_box = other.base_box;
+    decoder_name = other.decoder_name;
   }
 
   using AxMetaBbox::num_elements;
@@ -65,13 +82,11 @@ class AxMetaSegmentsDetection : public AxMetaBbox, public AxMetaSegments
     meta.push_back(meta3);
     meta.push_back(meta4);
 
-    auto meta5 = extern_meta{ segment_meta, "base_box", int(sizeof(box_xyxy)),
-      reinterpret_cast<const char *>(&base_box) };
-    meta.push_back(meta5);
-
-    if (meta1.size() == 2) {
+    if (meta1.size() == 3) {
       meta1[1].type = segment_meta;
+      meta1[2].type = segment_meta;
       meta.push_back(meta1[1]);
+      meta.push_back(meta1[2]);
     }
     return meta;
   }

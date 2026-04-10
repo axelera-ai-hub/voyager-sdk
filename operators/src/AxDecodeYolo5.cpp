@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2024
+// Copyright Axelera AI, 2025
 // Highly optimized anchor-based YOLO decoder
 
 #include "AxDataInterface.h"
@@ -27,12 +27,11 @@ struct properties {
   std::vector<lookups> sigmoid_tables{};
   std::vector<float> anchors{};
   std::vector<std::string> class_labels{};
-  std::vector<int> filter{};
+  std::vector<uint8_t> filter{};
   float confidence{ 0.25F };
   int num_classes{ 0 };
   int topk{ 3 * 21 * 20 * 20 }; // Maximum number of boxes for 640*640 yolo
   bool multiclass{ false };
-  bool transpose{};
   bool sigmoid_in_postprocess{ true };
   int model_width{};
   int model_height{};
@@ -93,7 +92,6 @@ build_feature_map_levels(const AxTensorsInterface &tensors)
 /// @param data - pointer to the raw tensor data
 /// @param sigmoids - lookup table dequantizing values and applying ax_utils::sigmoid
 /// @param confidence - minimum confidence score to keep a box
-/// @param z_stride - working along z axis, stride to next element
 /// @param props - properties of the model
 /// @param outputs - output inferences
 /// @return number of boxes added to outputs
@@ -101,10 +99,10 @@ build_feature_map_levels(const AxTensorsInterface &tensors)
 template <bool multiclass, typename input_type>
 int
 decode_scores(const input_type *data, const float *sigmoids, float confidence,
-    int z_stride, const properties &props, inferences &outputs)
+    const properties &props, inferences &outputs)
 {
-  const auto objectness = 4 * z_stride;
-  const auto first_class = 5 * z_stride;
+  const auto objectness = 4;
+  const auto first_class = 5;
 
   // Get out if the objectness is too low, we don't care about this element
   auto object_score = ax_utils::sigmoid(data[objectness], sigmoids);
@@ -113,17 +111,17 @@ decode_scores(const input_type *data, const float *sigmoids, float confidence,
   }
 
   return ax_utils::decode_scores<multiclass>(data + first_class, sigmoids,
-      z_stride, props.filter, props.confidence, object_score, outputs);
+      props.filter, props.confidence, object_score, outputs);
 }
 
 template <typename input_type>
 int
 decode_scores(const input_type *data, const float *sigmoids, float confidence,
-    int z_stride, const properties &props, inferences &outputs)
+    const properties &props, inferences &outputs)
 {
   return props.multiclass ?
-             decode_scores<true>(data, sigmoids, confidence, z_stride, props, outputs) :
-             decode_scores<false>(data, sigmoids, confidence, z_stride, props, outputs);
+             decode_scores<true>(data, sigmoids, confidence, props, outputs) :
+             decode_scores<false>(data, sigmoids, confidence, props, outputs);
 }
 
 /// @brief Decode a single cell of the tensor
@@ -134,7 +132,6 @@ decode_scores(const input_type *data, const float *sigmoids, float confidence,
 /// @param num_anchors - number of anchors for this level
 /// @param which_anchor - which anchor we are decoding
 /// @param recip_width - 1 / width of the feature map (for normalising coords)
-/// @param z_stride - working along z axis, stride to next element
 /// @param xpos - x position of the cell
 /// @param ypos - y position of the cell
 /// @param outputs - output inferences
@@ -143,25 +140,21 @@ template <typename input_type>
 int
 decode_cell(const input_type *data, const properties &props, int level,
     int anchor_level, int num_anchors, int which_anchor, float recip_width,
-    int z_stride, int xpos, int ypos, inferences &outputs)
+    int xpos, int ypos, inferences &outputs)
 {
   float dummy{};
   const auto &sigmoids
       = props.sigmoid_tables.empty() ? &dummy : props.sigmoid_tables[level].data();
-  auto num_classes = props.num_classes;
   auto confidence = props.confidence;
-  auto num_predictions
-      = decode_scores(data, sigmoids, confidence, z_stride, props, outputs);
+  auto num_predictions = decode_scores(data, sigmoids, confidence, props, outputs);
   if (num_predictions != 0) {
     // Create the bounding box
     auto *anchor = std::next(
         props.anchors.data(), 2 * (anchor_level * num_anchors + which_anchor));
     float x = (ax_utils::sigmoid(data[0], sigmoids) * 2.0F - 0.5F + xpos) * recip_width;
-    float y = (ax_utils::sigmoid(data[z_stride], sigmoids) * 2.0F - 0.5F + ypos) * recip_width;
-    float w = std::pow(ax_utils::sigmoid(data[2 * z_stride], sigmoids) * 2.0F, 2)
-              * anchor[0] * recip_width;
-    float h = std::pow(ax_utils::sigmoid(data[3 * z_stride], sigmoids) * 2.0F, 2)
-              * anchor[1] * recip_width;
+    float y = (ax_utils::sigmoid(data[1], sigmoids) * 2.0F - 0.5F + ypos) * recip_width;
+    float w = std::pow(ax_utils::sigmoid(data[2], sigmoids) * 2.0F, 2) * anchor[0] * recip_width;
+    float h = std::pow(ax_utils::sigmoid(data[3], sigmoids) * 2.0F, 2) * anchor[1] * recip_width;
 
     for (int i = 0; i != num_predictions; ++i) {
       outputs.boxes.push_back({
@@ -192,9 +185,8 @@ int
 decode_tensor(const input_type *tensor, const properties &props, int width, int height,
     int depth, int level, int anchor_level, int num_anchors, inferences &outputs)
 {
-  auto x_stride = props.transpose ? depth : 1;
+  auto x_stride = depth;
   auto y_stride = x_stride * width;
-  auto z_stride = props.transpose ? 1 : height * y_stride;
   const auto tensor_size = props.num_classes + 5;
   auto total = 0;
   auto recip_width = 1.0F / std::max(width, height);
@@ -202,9 +194,9 @@ decode_tensor(const input_type *tensor, const properties &props, int width, int 
     auto *ptr = std::next(tensor, y_stride * y);
     for (auto x = 0; x != width; ++x) {
       for (auto which = size_t{}; which != num_anchors; ++which) {
-        auto *p = std::next(ptr, tensor_size * z_stride * which);
+        auto *p = std::next(ptr, tensor_size * which);
         total += decode_cell(p, props, level, anchor_level, num_anchors, which,
-            recip_width, z_stride, x, y, outputs);
+            recip_width, x, y, outputs);
       }
       ptr = std::next(ptr, x_stride);
     }
@@ -235,7 +227,7 @@ decode_tensors(const AxTensorsInterface &tensors, const properties &props)
     //  Assumes NHWC format
     //  Extract the correct tensor for this level
     auto level = mpa_levels[lev];
-    auto [width, height, depth] = ax_utils::get_dims(tensors, level, props.transpose);
+    auto [width, height, depth] = ax_utils::get_dims(tensors, level, 1);
     if (num_anchors * (props.num_classes + 5) > depth) {
       throw std::runtime_error("decode_tensors : too many anchors for the depth of the tensor");
     }
@@ -299,9 +291,6 @@ init_and_set_static_properties(
   props->multiclass = Ax::get_property(
       input, "multiclass", "yolo_decode_static_properties", props->multiclass);
 
-  props->transpose = Ax::get_property(
-      input, "transpose", "yolo_decode_static_properties", props->transpose);
-
   //  Build the lookup tables
   if (zero_points.size() != scales.size()) {
     logger(AX_ERROR) << "yolo_decode_static_properties : zero_points and scales must be the same "
@@ -326,16 +315,10 @@ init_and_set_static_properties(
       "yolo_decode_static_properties", props->model_height);
   ax_utils::validate_classes(props->class_labels, props->num_classes,
       "yolo_decode_static_properties", logger);
-  props->filter = Ax::get_property(
-      input, "label_filter", "detection_static_properties", props->filter);
-  if (props->filter.empty()) {
-    auto size = props->num_classes;
-    props->filter.resize(size);
-    std::iota(props->filter.begin(), props->filter.end(), 0);
-  }
-  std::sort(props->filter.begin(), props->filter.end());
-  props->filter.erase(std::unique(props->filter.begin(), props->filter.end()),
-      props->filter.end());
+  auto filter = Ax::get_property(
+      input, "label_filter", "detection_static_properties", std::vector<int>{});
+  props->filter = ax_utils::build_filter(filter, props->num_classes);
+
 
   if (props->model_height == 0 || props->model_width == 0) {
     logger(AX_ERROR) << "yolo_decode_static_properties : model_width and model_height must be "
@@ -412,30 +395,20 @@ decode_to_meta(const AxTensorsInterface &in_tensors, const yolov5::properties *p
   }
 
   auto predictions = yolov5::decode_tensors(tensors, *prop);
-  predictions = ax_utils::topk(predictions, prop->topk);
+  predictions = ax_utils::topk(std::move(predictions), prop->topk);
 
   // The boxes are currently normalized i.e. scaled to [0, 1.0)
   // We need to scale them to the original image size
   //  Determine which edge we originally scaled to
   //  Scale the other edge to match the aspect ratio of the output
   //  and then calculate the offsets of the letterboxed image
-  std::vector<BboxXyxy> pixel_boxes;
-  if (prop->master_meta.empty()) {
-    pixel_boxes = ax_utils::scale_boxes(predictions.boxes,
-        std::get<AxVideoInterface>(video_interface), prop->model_width,
-        prop->model_height, prop->scale_up, prop->letterbox);
-  } else {
-    const auto &box_key = prop->association_meta.empty() ? prop->master_meta :
-                                                           prop->association_meta;
-    auto master_meta = ax_utils::get_meta<AxMetaBbox>(box_key, map, "yolov5_decode");
-    auto master_box = master_meta->get_box_xyxy(subframe_index);
-    pixel_boxes = ax_utils::scale_shift_boxes(predictions.boxes, master_box,
-        prop->model_width, prop->model_height, prop->scale_up, prop->letterbox);
-  }
-  auto [boxes, scores, class_ids] = ax_utils::remove_empty_boxes(
-      pixel_boxes, predictions.scores, predictions.class_ids);
+  auto base_box = ax_utils::get_master_box(prop->master_meta, prop->association_meta,
+      video_interface, subframe_index, map, "yolov5_decode");
+  auto pixel_boxes = ax_utils::scale_shift_boxes(predictions.boxes, base_box,
+      prop->model_width, prop->model_height, true, prop->letterbox);
 
   ax_utils::insert_and_associate_meta<AxMetaObjDetection>(map, prop->meta_name,
-      prop->master_meta, subframe_index, number_of_subframes, prop->association_meta,
-      std::move(boxes), std::move(scores), std::move(class_ids));
+      prop->master_meta, subframe_index, number_of_subframes,
+      prop->association_meta, std::move(pixel_boxes),
+      std::move(predictions.scores), std::move(predictions.class_ids));
 }

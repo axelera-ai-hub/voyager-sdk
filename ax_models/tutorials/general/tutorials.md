@@ -2258,12 +2258,12 @@ pipeline:
           top_k: 1
           min_width: 80
           min_height: 80
-          # image_processing_on_roi:
-          # - facealign:
-          #     keypoints_submeta_key: detections
-          #     width: 192
-          #     height: 192
-          #     # save_aligned_images: True # for debugging
+          image_processing_on_roi:
+          - facealign:
+              keypoints_submeta_key: detections
+              width: 192
+              height: 192
+              save_aligned_images: False # for debugging
       postprocess:
         - recognition:
 ```
@@ -2280,14 +2280,11 @@ Key configuration parameters include:
 5. The `width` and `height` parameters are set to 192 pixels, transforming detected faces to 192×192 resolution. This optimization enhances performance since the FaceNet model requires 192×192 input images.
 6. The `min_width` and `min_height` parameters filter out ROIs smaller than 80×80 pixels.
 
-> [!NOTE]
-> The `image_processing_on_roi` section (face alignment) is commented out due to a known race condition in the current facealign plugin, which can cause instability in the pipeline. This will be addressed in the following up release. By using `image_processing_on_roi`, users can add custom image preprocessing before a model when needed, enabling more flexible and sophisticated pipeline configurations.
-
 
 Execute the pipeline with the test video using:
 
 ```bash
-./inference.py face-recognition famous_people.mp4
+./inference.py face-recognition media/famous_people.mp4
 ```
 
 The results should be displayed on your screen.
@@ -2300,7 +2297,7 @@ To register yourself in the embeddings database, enable `update_embeddings` in `
 ./inference.py face-recognition famous_faces
 ```
 
-Subsequently, test the pipeline with your USB camera to verify personal recognition:
+Subsequently, disable `update_embeddings` and test the pipeline with your USB camera to verify personal recognition:
 
 ```bash
 ./inference.py face-recognition usb:0

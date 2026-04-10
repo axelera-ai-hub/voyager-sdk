@@ -14,13 +14,16 @@ class AxMetaSemanticSegmentation : public AxMetaBase
   public:
   AxMetaSemanticSegmentation(std::vector<int> _class_map,
       std::vector<int> data_shape, const std::string &decoder)
-      : class_map(std::move(_class_map)), shape(data_shape), decoder_name(decoder)
+      : class_map(std::move(_class_map)),
+        shape(data_shape),
+        decoder_name(decoder)
   {
   }
 
   AxMetaSemanticSegmentation(std::vector<float> _probabilities,
       std::vector<int> data_shape, const std::string &decoder)
-      : probabilities(std::move(_probabilities)), shape(data_shape),
+      : probabilities(std::move(_probabilities)),
+        shape(data_shape),
         decoder_name(decoder)
   {
   }

@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2026
+// Copyright Axelera AI, 2025
 /**
  * Custom UDMABUF Allocator
  */
@@ -61,10 +61,6 @@ typedef struct {
 
 #define GST_OPENCL_MEMORY_NAME "GstOpenCLMemory"
 #define GST_OPENCL_MEMORY_CAST(mem) ((GstOpenCLMemory *) (mem))
-enum { PROP_0, PROP_DEVICE, N_PROPERTIES };
-static GParamSpec *obj_properties[N_PROPERTIES] = {
-  NULL,
-};
 
 /*
  * @brief struct for type GstTensorOpenCLAllocator
@@ -89,7 +85,6 @@ G_DEFINE_TYPE(GstOpenCLAllocator, gst_opencl_allocator, GST_TYPE_ALLOCATOR);
 static GstMemory *
 gst_opencl_alloc(GstAllocator *allocator, gsize size, GstAllocationParams *params)
 {
-  auto *self = GST_OPENCL_ALLOCATOR_CAST(allocator);
   auto *mem = new GstOpenCLMemory{};
   auto page_size = 4096;
   auto adjusted_size = (size + page_size - 1) & ~(page_size - 1);
@@ -114,13 +109,11 @@ release_buffer_dependencies(GstOpenCLMemory *ocl_mem)
 }
 
 static cl_command_queue
-get_command_queue()
+get_command_queue(GstMemory *mem)
 {
-  GstOpenCLAllocator *opencl_allocator = GST_OPENCL_ALLOCATOR_CAST(
-      gst_opencl_allocator_get("auto", nullptr)); // Get the OpenCL allocator
+  GstOpenCLAllocator *opencl_allocator = GST_OPENCL_ALLOCATOR_CAST(mem->allocator);
   if (opencl_allocator) {
     auto commands = opencl_allocator->cl_details.commands; // Get the command queue
-    gst_object_unref(opencl_allocator); // Don't forget to unref when done
     return commands;
   }
   return nullptr;
@@ -137,20 +130,22 @@ gst_opencl_map(GstMemory *mem, gsize maxsize, GstMapFlags flags)
   //  If we have a buffer, then we need to map it into CPU space
   //  Once we have done that we can release the buffer and any dependencies
   if (ocl_mem->buffer.buffer) {
-    cl_command_queue commands = get_command_queue();
+    cl_command_queue commands = get_command_queue(mem);
     if (!commands) {
       GST_ERROR_OBJECT(ocl_mem, "No OpenCL command queue available for mapping");
       return nullptr;
     }
     int error = CL_SUCCESS;
-    if (ocl_mem->buffer.event) {
+    if (ocl_mem->buffer.event && ocl_mem->buffer.mapped) {
       clWaitForEvents(1, &*ocl_mem->buffer.event);
-      ocl_mem->buffer.event.reset();
     } else {
+      auto num_events = ocl_mem->buffer.event ? 1 : 0;
+      cl_event *pevents = num_events ? &*ocl_mem->buffer.event : nullptr;
       auto cl_flags = (flags & GST_MAP_WRITE) != 0 ? CL_MAP_WRITE_INVALIDATE_REGION : CL_MAP_READ;
       ocl_mem->buffer.mapped = clEnqueueMapBuffer(commands, ocl_mem->buffer.buffer,
-          CL_TRUE, cl_flags, 0, maxsize, 0, nullptr, nullptr, &error);
+          CL_TRUE, cl_flags, 0, maxsize, num_events, pevents, nullptr, &error);
     }
+    ocl_mem->buffer.event.reset();
     release_buffer_dependencies(ocl_mem);
     if (error != CL_SUCCESS) {
       GST_ERROR_OBJECT(ocl_mem, "Failed to map the buffer to CPU space: %d", error);
@@ -169,13 +164,14 @@ gst_opencl_unmap(GstMemory *mem)
     GST_ERROR_OBJECT(ocl_mem, "Unable to map non OpenCL memory");
   }
   if (ocl_mem->buffer.buffer) {
-    cl_command_queue commands = get_command_queue();
+    cl_command_queue commands = get_command_queue(mem);
     if (!commands) {
       GST_ERROR_OBJECT(ocl_mem, "No OpenCL command queue available for mapping");
       return;
     }
     clEnqueueUnmapMemObject(
         commands, ocl_mem->buffer.buffer, ocl_mem->buffer.mapped, 0, NULL, NULL);
+    ocl_mem->buffer.mapped = nullptr;
   }
 }
 
@@ -213,6 +209,10 @@ gst_opencl_allocator_finalize(GObject *obj)
     clReleaseCommandQueue(self->cl_details.commands);
     self->cl_details.commands = nullptr;
   }
+  if (self->cl_details.map_commands) {
+    clReleaseCommandQueue(self->cl_details.map_commands);
+    self->cl_details.map_commands = nullptr;
+  }
 
   G_OBJECT_CLASS(parent_class)->finalize(obj);
   GST_LOG_OBJECT(self, "OpenCL Allocator finalize");
@@ -225,7 +225,6 @@ static void
 gst_opencl_allocator_class_init(GstOpenCLAllocatorClass *klass)
 {
   GstAllocatorClass *alloc = (GstAllocatorClass *) klass;
-  GObjectClass *gobject_class = G_OBJECT_CLASS(klass);
 
   alloc->alloc = GST_DEBUG_FUNCPTR(gst_opencl_alloc);
   alloc->free = GST_DEBUG_FUNCPTR(gst_opencl_free);

@@ -21,6 +21,7 @@ pipeline:
         - decodeyolo10:
             box_format: xyxy
             conf_threshold: 0.4
+            dfl_size: 1
             label_filter: ${{label_filter}}
             normalized_coord: false
             top_k: 300
@@ -43,9 +44,7 @@ models:
     num_classes: 80
     dataset: CocoDataset-COCO2017
     extra_kwargs:
-      compilation_config:
-        quantization_scheme: per_tensor_min_max
-        ignore_weight_buffers: false
+      compiler_config_file: yolo26.toml
 
 datasets:
   CocoDataset-COCO2017:

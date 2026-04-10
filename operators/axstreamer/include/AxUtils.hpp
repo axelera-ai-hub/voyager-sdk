@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2023
 #pragma once
 
 #include <opencv2/opencv.hpp>
@@ -220,12 +220,45 @@ inline AxVideoInterface
 video_from_cvmat(const cv::Mat &mat, AxVideoFormat format)
 {
   AxVideoInterface video;
-  video.info.width = mat.cols;
-  video.info.height = mat.rows;
   video.info.format = format;
-  const auto pixel_width = AxVideoFormatNumChannels(video.info.format);
-  video.info.stride = mat.cols * pixel_width;
   video.data = mat.data;
+
+  // For planar YUV formats (NV12, I420), the cv::Mat is stored as a single-channel
+  // image with height * 1.5, where width is the actual frame width
+  if (format == AxVideoFormat::NV12 || format == AxVideoFormat::I420) {
+    video.info.width = mat.cols;
+    video.info.height = mat.rows * 2 / 3; // Actual frame height
+    video.info.actual_height = video.info.height;
+
+    size_t y_stride = mat.step;
+    video.info.stride = y_stride;
+    if (format == AxVideoFormat::NV12) {
+      size_t uv_stride = y_stride;
+      video.strides = { y_stride, uv_stride };
+
+      size_t y_size = y_stride * video.info.height;
+      video.offsets = { 0, y_size };
+    } else {
+      size_t u_stride = y_stride / 2;
+      size_t v_stride = y_stride / 2;
+      video.strides = { y_stride, u_stride, v_stride };
+
+      size_t y_size = y_stride * video.info.height;
+      size_t u_size = (u_stride / 2) * (video.info.height / 2);
+      video.offsets = { 0, y_size, y_size + u_size };
+    }
+  } else {
+    // Packed formats (RGB, BGR, RGBA, BGRA, GRAY8, etc.)
+    video.info.width = mat.cols;
+    video.info.height = mat.rows;
+    const auto pixel_width = AxVideoFormatNumChannels(video.info.format);
+    video.info.stride = mat.cols * pixel_width;
+
+    // Packed formats have single plane
+    video.strides = { static_cast<size_t>(video.info.stride) };
+    video.offsets = { 0 };
+  }
+
   return video;
 }
 

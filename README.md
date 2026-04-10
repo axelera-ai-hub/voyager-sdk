@@ -1,28 +1,36 @@
 ![image](/docs/images/Ax_Voyager_SDK_Repo_Banner_1600x457_01.png)
 
 # Voyager SDK repository
-v1.5 : [Release notes](/RELEASE_NOTES.md)
+v1.6: [Release notes](/RELEASE_NOTES.md)
 
 - [Voyager SDK repository](#voyager-sdk-repository)
+  - [Release Qualification](#release-qualification)
   - [Install SDK and get started](#install-sdk-and-get-started)
   - [Deploy models on Metis devices](#deploy-models-on-metis-devices)
   - [Run models on Metis devices](#run-models-on-metis-devices)
   - [Application integration APIs](#application-integration-apis)
   - [Reference pipelines](#reference-pipelines)
+  - [\[Alpha\] Pipeline Builder API](#alpha-pipeline-builder-api)
   - [Additional documentation](#additional-documentation)
   - [Further support](#further-support)
 
 The Voyager SDK makes it easy to build high-performance inferencing applications with Axelera AI Metis devices. The sections below provide links to code examples, tutorials and reference documentation.
 
-> [!IMPORTANT]
-> This is a production-ready release of Voyager SDK. Software components and features that are in development are marked "[Beta]"
-> indicating tested functionality that will continue to grow in future releases or "[Experimental]" indicating early-stage feature with limited testing.
+## Release Qualification
+
+This is a production-ready release of Voyager SDK. Software components and features that are in development are marked with one of the following maturity labels:
+
+- **Experimental:** May change or be removed without notice; no support guarantees.
+- **Alpha:** Usable but incomplete; breaking changes possible.
+- **Beta:** Feature-complete but not fully stable; committed to developing this further in future releases.
+
 
 ## Install SDK and get started
 
 | Document | Description |
 | :--------------------- | :---------- |
-| [Installation guide](/docs/tutorials/install.md) | Explains how to setup the Voyager SDK repository and toolchain on your development system |
+| [Installation guide - original `install.sh`](/docs/tutorials/install.md) | Explains how to set up the Voyager SDK repository and toolchain on your development system using `install.sh` |
+| [Installation guide - new standalone Python wheels](/docs/tutorials/install_new.md) | Explains how to set up the Voyager SDK repository and toolchain on your development system using new standalone Python wheels |
 | [Quick start guide](/docs/tutorials/quick_start_guide.md) | Explains how to deploy and run your first model |
 | [Windows getting started guide](/docs/tutorials/windows/windows_getting_started.md) | Explains how to install Voyager SDK and run a model in Windows 11|
 | [AxDevice manual](/docs/reference/axdevice.md) | AxDevice is a tool that lists all Metis boards connected to your system and can configure their settings |
@@ -34,6 +42,7 @@ The Voyager SDK makes it easy to build high-performance inferencing applications
 | :--------------------- | :---------- |
 | [Model zoo](/docs/reference/model_zoo.md) | Lists all models supported by this release of the Voyager SDK |
 | [Deployment manual (`deploy.py`)](/docs/reference/deploy.md) | Explains all options provided by the command-line deployment tool |
+| [AxMO deployment example (`deploy_huggingface_classifier.py`)](/docs/tutorials/deploy_with_axmo.md) | Deploy HuggingFace classifiers using AxMO quantization [experimental] |
 | [Custom weights tutorial](/docs/tutorials/custom_weights.md) | Explains how to deploy a model using your own weights |
 | [Custom model tutorial](/docs/tutorials/custom_model.md) | Explains how to deploy a custom model |
 
@@ -73,6 +82,21 @@ end-to-end reference pipelines are provided, which you can use as templates for 
 | [`/ax_models/reference/cascade/with_tracker`](/ax_models/reference/cascade) | Cascaded pipelines in which the output of the first model is tracked prior to being input to a secondary model |
 | [`/ax_models/reference/image_preprocess`](/ax_models/reference/image_preprocess) | Pipelines in which the camera input is first preprocessed prior to being used for inferencing |
 
+## \[Alpha\] Pipeline Builder API
+
+A new Python-native API for building, running, and packaging ML inference pipelines. The entire pipeline, from model loading through post-processing and tracking, can be expressed as a composable Python expression.
+
+- **Composable operators**: `op.seq()` for sequential, `op.par()` for parallel, `op.foreach()` for cascade (per-object) processing.
+- **Data routing**: `op.select(i)` to extract from tuples, `op.pack()` / `op.unpack()` for explicit tuple conversion.
+- **30+ operators** across preprocessing, inference, postprocessing, filtering, tracking, and result types.
+- **Model loading**:
+    - `op.load('model.axm')` - hardware inference on AIPU.
+    - `op.onnx_model('model.onnx')` - CPU inference, no AIPU required.
+    - `op.load('pipeline.axe')` - portable pipeline package (new .axe format).
+- **Tracker integration**: `op.tracker(algo='bytetrack')` - supports ByteTrack, OC-SORT, SORT, TrackTrack. Full lifecycle states via `return_all_states=True` (new, tracked, lost, removed).
+- **Pipeline optimizer**: Automatic SIMD-accelerated fusion of operator chains (e.g., NchwToNhwc + Quant + Pad into single QuantizeTransposePad).
+- **Typed result objects**: `DetectedObject`, `PoseObject`, `SegmentedObject`, `TrackedObject`, `Classification` with protocol-based interfaces and `.draw()` visualization.
+
 ## Additional documentation
 
 This section provides links to additional documentation available in the Voyager SDK repository.
@@ -84,9 +108,11 @@ This section provides links to additional documentation available in the Voyager
 | [Compiler CLI](/docs/reference/compiler_cli.md)                            | Compiler Command Line Interface [beta]                                                                                                                                                 |
 | [Compiler API](/docs/reference/compiler_api.md)                            | Python Compiler API [experimental]                                                                                                                                                     |
 | [ONNX operator support](/docs/reference/onnx-opset17-support.md)           | List of ONNX operators supported by the Axelera AI compiler                                                                                                                            |
-| [Thermal Guide](/docs/reference/thermal_guide.md)                          | Document detailing the thermal behavior for Metis and instructions to make changes                                                                                                     |
+| [Thermal and Power Guide](/docs/reference/thermal_and_power_guide.md)      | Document detailing the thermal behavior and power management for Metis and instructions to make changes                                                                                |
 | [SLM/LLM inference tutorial](/docs/tutorials/llm.md)                       | Explains how to run Language Models on Metis devices [experimental]                                                                                                                    |
 
 ## Further support
-- For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
-- For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).
+
+For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
+
+For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).

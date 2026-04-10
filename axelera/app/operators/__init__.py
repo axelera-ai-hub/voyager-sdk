@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Pipeline operators
 
 from . import classical_cv, custom_preprocessing, inference, mega, postprocessing, preprocessing
@@ -13,7 +13,7 @@ from .base import (
 )
 from .context import PipelineContext
 from .inference import AxeleraDequantize, Inference, InferenceOpConfig
-from .input import Input, InputFromROI, InputWithImageProcessing, get_input_operator
+from .input import Input, InputNoTiles, InputFromROI, InputWithImageProcessing, get_input_operator
 from .preprocessing import InterpolationMode
 
 for _op in builtins.values():
@@ -38,6 +38,7 @@ __all__ = (
         "Inference",
         "InferenceOpConfig",
         "Input",
+        "InputNoTiles",
         "InputFromROI",
         "InputWithImageProcessing",
         "InterpolationMode",

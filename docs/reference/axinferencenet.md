@@ -155,6 +155,7 @@ struct Ax::InferenceNetProperties {
   int skip_stride{ 1 };
   int skip_count{ 0 };
   int num_children{ 0 };
+  float margin{0};
   std::string options;
   std::string meta;
   std::string devices;

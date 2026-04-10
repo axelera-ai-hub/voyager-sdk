@@ -158,7 +158,6 @@ set_output_interface(const AxDataInterface &interface,
   auto crop_y = (input_video.info.height - cropped_height) / 2;
 
   AxDataInterface output_data = input_video;
-  AxVideoInterface &output_video = std::get<AxVideoInterface>(output_data);
   return Ax::create_roi(input_video, crop_x, crop_y, cropped_width, cropped_height);
 }
 

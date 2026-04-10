@@ -1,0 +1,39 @@
+axelera-model-format: 1.0.0
+
+name: sbs-s50-market1501-onnx
+
+description: SBS-S50 person re-identification model trained on the Market1501 dataset.
+  Weight from https://github.com/JDAI-CV/fast-reid/blob/master/MODEL_ZOO.md
+
+pipeline:
+  - reid:
+      model_name: sbs-s50-market1501-onnx
+      input:
+        type: image
+      preprocess:
+        - resize:
+            height: 384
+            width: 128
+        - torch-totensor:
+            scale: false
+      postprocess:
+        - decodeembeddings:
+
+models:
+  sbs-s50-market1501-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/market_sbs_S50.onnx
+    weight_url: https://media.axelera.ai/artifacts/model_cards/weights/others/re-id/market_sbs_S50.onnx
+    weight_md5: a20d546572a4a82d5da712c76684663d
+    task_category: ReIdentification
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 384, 128]
+    input_color_format: RGB
+    dataset: Market1501ReIdDataset
+
+datasets:
+  Market1501ReIdDataset:
+    class: Market1501DataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/reid.py
+    data_dir_name: reid

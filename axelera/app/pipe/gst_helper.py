@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # helper functions for building gst pipelines
 from __future__ import annotations
 
@@ -407,15 +407,41 @@ def _axinplace_source_id(element: Gst.Element) -> int:
     return -1
 
 
+def src_info(src: Gst.Element) -> str:
+    """Get a string with the element name and any identifying properties (like source_id) for logging purposes."""
+    info = src.get_name()
+    for prop in ['location', 'uri', 'device']:
+        try:
+            value = src.get_property(prop)
+            if value:
+                info += f" ({prop}:{value})"
+                break
+        except TypeError:
+            continue
+    return info
+
+
+def _iter_updownstream(
+    elem: Gst.Element, list_pads: Callable[[Gst.Element], list[Gst.Pad]]
+) -> Iterable[Gst.Element]:
+    while elem:
+        if not (pads := list_pads(elem)) or len(pads) < 1:
+            break
+        if not (peer := pads[0].get_peer()) or not (parent := peer.get_parent_element()):
+            break
+        yield parent
+        elem = parent
+
+
 def _iter_upstream(elem: Gst.Element) -> Iterable[Gst.Element]:
     """Iterate upstream, one parent at a time, supports only elements with a single sink."""
-    while elem := list_sink_pads(elem)[0].get_peer().get_parent_element():
+    for elem in _iter_updownstream(elem, list_sink_pads):
         yield elem
 
 
 def _iter_downstream(elem: Gst.Element) -> Iterable[Gst.Element]:
     """Iterate downstream, one child at a time, supports only elements with a single src."""
-    while elem := list_src_pads(elem)[0].get_peer().get_parent_element():
+    for elem in _iter_updownstream(elem, list_src_pads):
         yield elem
 
 

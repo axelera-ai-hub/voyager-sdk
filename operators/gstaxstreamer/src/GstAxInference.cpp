@@ -60,7 +60,8 @@ namespace
 {
 struct GstDmaBufHandle : public Ax::DmaBufHandle {
   explicit GstDmaBufHandle(GstMemory *mem)
-      : Ax::DmaBufHandle(gst_fd_memory_get_fd(mem), 0), mem(gst_memory_ref(mem))
+      : Ax::DmaBufHandle(gst_fd_memory_get_fd(mem), 0),
+        mem(gst_memory_ref(mem))
   {
   }
   ~GstDmaBufHandle()
@@ -575,7 +576,6 @@ gst_flush_eos_buffers(GstBaseTransform *trans)
   GstFlowReturn result = GST_FLOW_OK;
   GstBuffer *inbuf, *outbuf;
   GstMemory *inmemory[max_tensor_count] = {};
-  GstMemory *outmemory[max_tensor_count] = {};
 
   if (self->impl->pool && gst_buffer_pool_is_active(self->impl->pool.get())) {
     GST_DEBUG_OBJECT(self, "pool active");

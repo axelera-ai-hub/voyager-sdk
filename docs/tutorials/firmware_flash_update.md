@@ -30,7 +30,6 @@
   - [Further support](#further-support)
 
 ## Prerequisites (Listed Below)
-- Board must be enabled for updates (see Enable Updates guide)
 - Voyager SDK installed and virtual environment activated
 - Linux system (Windows users must use Linux temporarily)
 - Administrative privileges
@@ -44,13 +43,7 @@
 
 
 > [!TIP]
-> **Shorter Guide if you've already flashed your current board before**: If you've previously enabled firmware updates on this board and just need to update to a newer version, see the [Quick Firmware Update Guide](/docs/tutorials/quick_firmware_update.md) for simplified instructions.
-
-> [!WARNING]
-> **Before attempting any firmware updates, you must be sure that your board is enabled for updates.**
-> Updating firmware without first enabling updates can permanently brick your board. Enable updates once per board before flashing firmware. If you are unsure whether this has been done, repeat the enablement procedure to ensure your board is safe to update.
-> 
-> If you wish to enable firmware updates on your board, please carefully follow the steps in the [Enable Card Firmware Update Guide](/docs/tutorials/enable_updates.md) **before proceeding with any update attempts.**
+> **Shorter Guide for routine single-device updates**: See the [Quick Firmware Update Guide](/docs/tutorials/quick_firmware_update.md) for simplified instructions.
 
 > [!NOTE]
 > The firmware update procedure is currently only supported on Linux systems. If you are using Windows, you will need to temporarily connect your board to a Linux host to perform the firmware update. After the update is complete, you can reconnect your board to your Windows system. This limitation will be addressed in a future release of the Voyager SDK.
@@ -86,10 +79,10 @@ For systems with a single Metis device connected, follow these steps:
 > [!WARNING]
 > **Do Not Modify the Flash Update Script**
 >
-> **Never make local changes** to the `$AXELERA_DEVICE_DIR/firmware/interactive_flash_update.sh` script. Changing the flashing procedure without consulting Axelera can cause system malfunction and may render your board unresponsive. This script contains essential safety checks and proper sequencing that must not be altered under any circumstances.
+> **Never make local changes** to the `interactive_flash_update` script. Changing the flashing procedure without consulting Axelera can cause system malfunction and may render your board unresponsive. This script contains essential safety checks and proper sequencing that must not be altered under any circumstances.
 
 ```bash
-$AXELERA_DEVICE_DIR/firmware/interactive_flash_update.sh
+axdevice interactive_flash_update
 ```
 
 The script may request a second power-off and rerun of this script depending on your setup. Please follow the console messages carefully.
@@ -116,7 +109,7 @@ For systems with multiple Metis cards or Axelera® AI's PCIe card with 4 Metis®
 Run the script without specifying a device to automatically detect and update all connected cards:
 
 ```bash
-$AXELERA_DEVICE_DIR/firmware/interactive_flash_update.sh
+axdevice interactive_flash_update
 ```
 
 The script will:
@@ -153,23 +146,23 @@ Device 3: metis-0:6f:0 board_type=pcie fwver='1.3.2' clock=800MHz(0-3:800MHz) mv
 Update the firmware for each device ID individually using the `--device` option:
 
 ```bash
-$AXELERA_DEVICE_DIR/firmware/interactive_flash_update.sh --device <device-id>
+axdevice interactive_flash_update --device <device-id>
 ```
 
 For example, using the device IDs from step 1:
 
 ```bash
-$AXELERA_DEVICE_DIR/firmware/interactive_flash_update.sh --device metis-0:6c:0
+axdevice interactive_flash_update --device metis-0:6c:0
 ```
 Go through all rounds. Then continue with each one by one:
 ```bash
-$AXELERA_DEVICE_DIR/firmware/interactive_flash_update.sh --device metis-0:6d:0
+axdevice interactive_flash_update --device metis-0:6d:0
 ```
 ```bash
-$AXELERA_DEVICE_DIR/firmware/interactive_flash_update.sh --device metis-0:6e:0
+axdevice interactive_flash_update --device metis-0:6e:0
 ```
 ```bash
-$AXELERA_DEVICE_DIR/firmware/interactive_flash_update.sh --device metis-0:6f:0
+axdevice interactive_flash_update --device metis-0:6f:0
 ```
 
 > [!IMPORTANT]
@@ -230,7 +223,6 @@ If you encounter issues during the firmware update process:
 ## Related Documentation
 **Firmware Guides:**
 - **[Firmware Update Decision Tree](firmware_update_decision_tree.md)** - START HERE to choose the right guide
-- [Enable Updates](enable_updates.md) - REQUIRED FIRST for new boards
 - [Quick Firmware Update](quick_firmware_update.md) - Simpler alternative for single-device routine updates
 
 **Tutorials:**

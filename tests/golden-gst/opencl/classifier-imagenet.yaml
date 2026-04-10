@@ -13,9 +13,6 @@
     name: decodebin-link0
     mode: meta
     options: stream_id:0
-  - instance: axtransform
-    lib: libtransform_colorconvert_cl.so
-    options: format:rgb
   - instance: queue
     connections:
       src: inference-task0.sink_%u
@@ -33,10 +30,9 @@
     preprocess0_lib: libtransform_centrecropextra.so
     preprocess0_options: scalesize:256;crop_width:224;crop_height:224
     preprocess1_lib: libtransform_resize_cl.so
-    preprocess1_options: width:224;height:224;to_tensor:1;mean:0.485,0.456,0.406;std:0.229,0.224,0.225;quant_scale:0.01863;quant_zeropoint:-14.0
+    preprocess1_options: width:224;height:224;to_tensor:1;mean:0.485,0.456,0.406;std:0.229,0.224,0.225;quant_scale:0.01863;quant_zeropoint:-14.0;format:rgba
     preprocess2_lib: libtransform_padding.so
     preprocess2_options: padding:0,0,1,3,2,4,0,0;fill:-14
-    preprocess2_batch: 1
     postprocess0_lib: libtransform_dequantize.so
     postprocess0_options: dequant_scale:{{dequant_scale}};dequant_zeropoint:{{dequant_zeropoint}};transpose:0;dequant_lut:1
     postprocess1_lib: libdecode_classification.so

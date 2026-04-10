@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 
 import contextlib
 import itertools
@@ -380,6 +380,75 @@ def test_input_gst_bad_usb():
         ('rtsp://user:pass@somehost/', 'rtsp://somehost/', 'user', 'pass', 'all', None),
         ('rtsp://user:pass@somehost/', 'rtsp://somehost/', 'user', 'pass', 'all', None),
         ('rtsp://user:pass@somehost/', 'rtsp://somehost/', 'user', 'pass', 'all', None),
+        (
+            'rtsp://admin:P@ssw0rd123@172.20.80.248/',
+            'rtsp://172.20.80.248/',
+            'admin',
+            'P@ssw0rd123',
+            'all',
+            None,
+        ),
+        (
+            'rtsp://admin:P%40ssw0rd123@172.20.80.248/',
+            'rtsp://172.20.80.248/',
+            'admin',
+            'P@ssw0rd123',
+            'all',
+            None,
+        ),
+        (
+            'rtsp://admin:Passw0rd123@@172.20.80.248/',
+            'rtsp://172.20.80.248/',
+            'admin',
+            'Passw0rd123@',
+            'all',
+            None,
+        ),
+        (
+            'rtsp://admin:Passw0rd123%40@172.20.80.248/',
+            'rtsp://172.20.80.248/',
+            'admin',
+            'Passw0rd123@',
+            'all',
+            None,
+        ),
+        ('rtsp://user:Pass:word@somehost/', 'rtsp://somehost/', 'user', 'Pass:word', '', None),
+        ('rtsp://user:Pass%3Aword@somehost/', 'rtsp://somehost/', 'user', 'Pass:word', '', None),
+        ('rtsp://user:Pass%2Fword@somehost/', 'rtsp://somehost/', 'user', 'Pass/word', '', None),
+        ('rtsp://user:Pass%3Fword@somehost/', 'rtsp://somehost/', 'user', 'Pass?word', '', None),
+        ('rtsp://user:Pass%26word@somehost/', 'rtsp://somehost/', 'user', 'Pass&word', '', None),
+        ('rtsp://user:Pass%3Dword@somehost/', 'rtsp://somehost/', 'user', 'Pass=word', '', None),
+        ('rtsp://user:Pass%23word@somehost/', 'rtsp://somehost/', 'user', 'Pass#word', '', None),
+        ('rtsp://user:Pass%25word@somehost/', 'rtsp://somehost/', 'user', 'Pass%word', '', None),
+        ('rtsp://user:Pass%20word@somehost/', 'rtsp://somehost/', 'user', 'Pass word', '', None),
+        ('rtsp://user:Pass%2Bword@somehost/', 'rtsp://somehost/', 'user', 'Pass+word', '', None),
+        ('rtsp://user:Pass%21word@somehost/', 'rtsp://somehost/', 'user', 'Pass!word', '', None),
+        ('rtsp://user:Pass%24word@somehost/', 'rtsp://somehost/', 'user', 'Pass$word', '', None),
+        ('rtsp://user:Pass%2Aword@somehost/', 'rtsp://somehost/', 'user', 'Pass*word', '', None),
+        (
+            'rtsp://user:Pass%28word%29@somehost/',
+            'rtsp://somehost/',
+            'user',
+            'Pass(word)',
+            '',
+            None,
+        ),
+        (
+            'rtsp://admin:P%40ss%23w0rd%21%26%24@192.168.1.1/',
+            'rtsp://192.168.1.1/',
+            'admin',
+            'P@ss#w0rd!&$',
+            'tcp',
+            4,
+        ),
+        (
+            'rtsp://root:Abc%21%40%23%24%25%5E%26%2A%28%29123@10.0.0.1/stream',
+            'rtsp://10.0.0.1/stream',
+            'root',
+            'Abc!@#$%^&*()123',
+            'udp',
+            1,
+        ),
     ],
 )
 def test_input_gst_rtsp(source, location, username, password, protocol, exp_protocol):

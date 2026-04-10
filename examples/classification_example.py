@@ -3,6 +3,13 @@
 # Example application showing how to access classification meta data using application pipeline
 # This example also shows how to use a generator to pass images to the pipeline
 import cv2
+import os
+import sys
+
+if __name__ == '__main__':
+    # Application Framework is not a package, so add it to the path to import it
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
 
 from axelera.app import config
 from axelera.app.stream import create_inference_stream

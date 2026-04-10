@@ -214,13 +214,15 @@ FaceDetection:
 """
     model_infos = make_model_infos(FACE_DETECTION_MODEL_INFO)
     in_dict = yaml.safe_load(in_yaml)
-    with patch.object(utils, 'load_yaml_by_reference') as mock_template:
-        with patch.object(schema, 'load_task') as mock_schema:
-            mock_schema.return_value = None
-            mock_template.return_value = dict(
-                input=dict(type='image'), preprocess=[dict(resize=dict(width=1024, height=768))]
-            )
-            mp = pipeline.parse_task(in_dict, {}, model_infos)
+    with patch.object(pathlib.Path, 'is_file', return_value=True):
+        with patch.object(utils, 'load_yaml_by_reference') as mock_template:
+            with patch.object(schema, 'load_task') as mock_schema:
+                mock_schema.return_value = None
+                mock_template.return_value = dict(
+                    input=dict(type='image'),
+                    preprocess=[dict(resize=dict(width=1024, height=768))],
+                )
+                mp = pipeline.parse_task(in_dict, {}, model_infos)
     assert mp.name == 'FaceDetection'
     assert mp.input == operators.Input()
     assert mp.preprocess == [
@@ -239,13 +241,15 @@ FaceDetection:
 """
     model_infos = make_model_infos(FACE_DETECTION_MODEL_INFO)
     in_dict = yaml.safe_load(in_yaml)
-    with patch.object(utils, 'load_yaml_by_reference') as mock_template:
-        with patch.object(schema, 'load_task') as mock_schema:
-            mock_schema.return_value = None
-            mock_template.return_value = dict(
-                input=dict(type='image'), preprocess=[dict(resize=dict(width=1024, height=768))]
-            )
-            mp = pipeline.parse_task(in_dict, {}, model_infos)
+    with patch.object(pathlib.Path, 'is_file', return_value=True):
+        with patch.object(utils, 'load_yaml_by_reference') as mock_template:
+            with patch.object(schema, 'load_task') as mock_schema:
+                mock_schema.return_value = None
+                mock_template.return_value = dict(
+                    input=dict(type='image'),
+                    preprocess=[dict(resize=dict(width=1024, height=768))],
+                )
+                mp = pipeline.parse_task(in_dict, {}, model_infos)
     assert mp.name == 'FaceDetection'
     assert mp.input == operators.Input()
     assert mp.preprocess == [
@@ -265,14 +269,16 @@ FaceDetection:
 """
     model_infos = make_model_infos(FACE_DETECTION_MODEL_INFO)
     in_dict = yaml.safe_load(in_yaml)
-    with patch.object(utils, 'load_yaml_by_reference') as mock_template:
-        with patch.object(schema, 'load_task') as mock_schema:
-            mock_schema.return_value = None
-            mock_template.return_value = dict(
-                input=dict(type='image'), preprocess=[dict(resize=dict(width=1024, height=768))]
-            )
-            with pytest.raises(AssertionError):
-                pipeline.parse_task(in_dict, {}, model_infos)
+    with patch.object(pathlib.Path, 'is_file', return_value=True):
+        with patch.object(utils, 'load_yaml_by_reference') as mock_template:
+            with patch.object(schema, 'load_task') as mock_schema:
+                mock_schema.return_value = None
+                mock_template.return_value = dict(
+                    input=dict(type='image'),
+                    preprocess=[dict(resize=dict(width=1024, height=768))],
+                )
+                with pytest.raises(AssertionError):
+                    pipeline.parse_task(in_dict, {}, model_infos)
 
 
 def test_parse_task_with_template_postprocess_with_extra_operator_before_template_operators_in_yaml():
@@ -286,14 +292,15 @@ FaceDetection:
 """
     model_infos = make_model_infos(FACE_DETECTION_MODEL_INFO)
     in_dict = yaml.safe_load(in_yaml)
-    with patch.object(utils, 'load_yaml_by_reference') as mock_template:
-        with patch.object(schema, 'load_task') as mock_schema:
-            mock_schema.return_value = None
-            mock_template.return_value = dict(
-                input=dict(type='image'), postprocess=[dict(topk=dict())]
-            )
-            with pytest.raises(AssertionError):
-                pipeline.parse_task(in_dict, {}, model_infos)
+    with patch.object(pathlib.Path, 'is_file', return_value=True):
+        with patch.object(utils, 'load_yaml_by_reference') as mock_template:
+            with patch.object(schema, 'load_task') as mock_schema:
+                mock_schema.return_value = None
+                mock_template.return_value = dict(
+                    input=dict(type='image'), postprocess=[dict(topk=dict())]
+                )
+                with pytest.raises(AssertionError):
+                    pipeline.parse_task(in_dict, {}, model_infos)
 
 
 def test_parse_task_with_template_postprocess_with_extra_operator_after_template_operators_in_yaml():
@@ -307,13 +314,14 @@ FaceDetection:
 """
     model_infos = make_model_infos(FACE_DETECTION_MODEL_INFO)
     in_dict = yaml.safe_load(in_yaml)
-    with patch.object(utils, 'load_yaml_by_reference') as mock_template:
-        with patch.object(schema, 'load_task') as mock_schema:
-            mock_schema.return_value = None
-            mock_template.return_value = dict(
-                input=dict(type='image'), postprocess=[dict(topk=dict())]
-            )
-            mp = pipeline.parse_task(in_dict, {}, model_infos)
+    with patch.object(pathlib.Path, 'is_file', return_value=True):
+        with patch.object(utils, 'load_yaml_by_reference') as mock_template:
+            with patch.object(schema, 'load_task') as mock_schema:
+                mock_schema.return_value = None
+                mock_template.return_value = dict(
+                    input=dict(type='image'), postprocess=[dict(topk=dict())]
+                )
+                mp = pipeline.parse_task(in_dict, {}, model_infos)
     assert mp.name == 'FaceDetection'
     assert mp.input == operators.Input()
     assert mp.preprocess == []
@@ -333,13 +341,14 @@ FaceDetection:
 """
     model_infos = make_model_infos(FACE_DETECTION_MODEL_INFO)
     in_dict = yaml.safe_load(in_yaml)
-    with patch.object(utils, 'load_yaml_by_reference') as mock_template:
-        with patch.object(schema, 'load_task') as mock_schema:
-            mock_schema.return_value = None
-            mock_template.return_value = dict(
-                input=dict(type='image'), postprocess=[dict(topk=dict())]
-            )
-            mp = pipeline.parse_task(in_dict, {}, model_infos)
+    with patch.object(pathlib.Path, 'is_file', return_value=True):
+        with patch.object(utils, 'load_yaml_by_reference') as mock_template:
+            with patch.object(schema, 'load_task') as mock_schema:
+                mock_schema.return_value = None
+                mock_template.return_value = dict(
+                    input=dict(type='image'), postprocess=[dict(topk=dict())]
+                )
+                mp = pipeline.parse_task(in_dict, {}, model_infos)
     assert mp.name == 'FaceDetection'
     assert mp.input == operators.Input()
     assert mp.preprocess == []
@@ -351,10 +360,11 @@ FaceDetection:
 
 @pytest.fixture
 def mock_template():
-    with patch.object(utils, 'load_yaml_by_reference') as mock_template:
-        with patch.object(schema, 'load_task') as mock_schema:
-            mock_schema.return_value = None
-            yield mock_template
+    with patch.object(pathlib.Path, 'is_file', return_value=True):
+        with patch.object(utils, 'load_yaml_by_reference') as mock_template:
+            with patch.object(schema, 'load_task') as mock_schema:
+                mock_schema.return_value = None
+                yield mock_template
 
 
 @pytest.mark.parametrize(
@@ -846,13 +856,15 @@ FaceDetection:
 """
     model_infos = make_model_infos(FACE_DETECTION_MODEL_INFO)
     in_dict = yaml.safe_load(in_yaml)
-    with patch.object(utils, 'load_yaml_by_reference') as mock_template:
-        with patch.object(schema, 'load_task') as mock_schema:
-            mock_schema.return_value = None
-            mock_template.return_value = dict(
-                input=dict(type='image'), preprocess=[dict(resize=dict(width=1024, height=768))]
-            )
-            mp = pipeline.parse_task(in_dict, {}, model_infos)
+    with patch.object(pathlib.Path, 'is_file', return_value=True):
+        with patch.object(utils, 'load_yaml_by_reference') as mock_template:
+            with patch.object(schema, 'load_task') as mock_schema:
+                mock_schema.return_value = None
+                mock_template.return_value = dict(
+                    input=dict(type='image'),
+                    preprocess=[dict(resize=dict(width=1024, height=768))],
+                )
+                mp = pipeline.parse_task(in_dict, {}, model_infos)
     assert mp.name == 'FaceDetection'
     assert mp.task_render_config.show_annotations is True
     assert mp.task_render_config.show_labels is False

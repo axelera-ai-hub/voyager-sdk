@@ -50,9 +50,7 @@ models:
     extra_kwargs:
       cal_seed: 129
       num_cal_images: 100
-      compilation_config:
-        quantization_scheme: per_tensor_min_max
-        ignore_weight_buffers: false
+      compiler_config_file: yolo11n.toml
 
 datasets:
   CocoDataset-COCO2017:

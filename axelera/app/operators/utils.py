@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Utils for operators
 
 import difflib
@@ -46,32 +46,35 @@ def build_class_sieve(label_filter, labels):
     raise ValueError("Type of label filter not supported, must be all int or all str")
 
 
-def insert_color_convert(gst, format, vaapi=False, opencl=False, opencv=True):
+def add_alpha_channel(format: str) -> str:
     if not isinstance(format, str):
         format = format.name
     if format.lower() in ['rgb', 'bgr']:
-        color_format = f'{format.upper()}A'
-    else:
-        color_format = f'{format.upper()}8'
+        return f'{format.lower()}a'
+    elif format.lower() == 'gray':
+        return 'gray8'
+    return f'{format.lower()}'
+
+
+def insert_color_convert(gst, format, vaapi=False, opencl=False, opencv=True):
+    color_format = add_alpha_channel(format)
     if bool(opencl) is True:
-        gst.axtransform(lib="libtransform_colorconvert_cl.so", options=f'format:{format.lower()}')
+        gst.axtransform(lib="libtransform_colorconvert_cl.so", options=f'format:{color_format}')
     elif bool(vaapi) is True:
         # For grayscale, use videoconvert instead of vaapipostproc
-        if format.lower() == 'gray':
+        if color_format.lower() == 'gray8':
             gst.videoconvert()
             gst.capsfilter(caps=f'video/x-raw,format={color_format}')
             gst.axinplace()
         else:
-            gst.vaapipostproc(format=f'{color_format.lower()}')
+            gst.vaapipostproc(format=f'{color_format}')
             gst.videoconvert()
             gst.axinplace()
     elif bool(opencv) is True:
-        gst.axtransform(
-            lib="libtransform_colorconvert.so", options=f'format:{color_format.lower()}'
-        )
+        gst.axtransform(lib="libtransform_colorconvert.so", options=f'format:{color_format}')
     else:
         gst.videoconvert()
-        gst.capsfilter(caps=f'video/x-raw,format={color_format}')
+        gst.capsfilter(caps=f'video/x-raw,format={color_format.upper()}')
 
 
 def inspect_resize_status(context: PipelineContext):

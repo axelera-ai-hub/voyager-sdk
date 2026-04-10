@@ -595,10 +595,11 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
       }
 
       auto in_shape = to_4d_shape(tensor.sizes);
+      // FIXED VERSION - uses correct tensor index (not ONNX input index)
       auto padding = prop->paddings.empty() ?
                          std::vector<int>(in_shape.size() * 2, 0) :
-                         (i < prop->paddings.size() ?
-                                 prop->paddings[i] :
+                         (static_cast<size_t>(tensor_idx) < prop->paddings.size() ?
+                                 prop->paddings[tensor_idx] :
                                  std::vector<int>(in_shape.size() * 2, 0));
 
       // Validate that padding dimensions match in_shape dimensions

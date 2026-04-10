@@ -91,34 +91,31 @@ StringMapAsOptions(const StringMap &m)
   return Ax::Internal::join(pairs, ";");
 }
 
-template <typename Loaded, typename Plugin>
+template <typename Plugin>
 std::unique_ptr<Plugin>
 LoadPlugin(std::string name, const StringMap &input)
 {
   static Ax::Logger logger{ Ax::Severity::error, nullptr, nullptr };
-  name = Ax::libname("lib" + name + ".so"); // replace .so with .so/.dll/.dylib etc
-  const auto plugin_path = Ax::get_env("AX_SUBPLUGIN_PATH", "");
-  name = plugin_path.empty() ? std::string{ fs::path(plugin_path) / name } : name;
-  Ax::SharedLib shared(logger, name);
   auto opts = StringMapAsOptions(input);
-  return std::make_unique<Loaded>(logger, std::move(shared), std::move(opts), nullptr);
+  auto plugin = Ax::load_plugin(logger, name, opts);
+  return std::unique_ptr<Plugin>(static_cast<Plugin *>(plugin.release()));
 }
 
 inline auto
 LoadInPlace(const std::string &name, const StringMap &input)
 {
-  return LoadPlugin<Ax::LoadedInPlace, Ax::InPlace>("inplace_" + name, input);
+  return LoadPlugin<Ax::InPlace>("inplace_" + name, input);
 }
 
 inline auto
 LoadTransform(const std::string &name, const StringMap &input)
 {
-  return LoadPlugin<Ax::LoadedTransform, Ax::Transform>("transform_" + name, input);
+  return LoadPlugin<Ax::Transform>("transform_" + name, input);
 }
 
 inline auto
 LoadDecode(const std::string &name, const StringMap &input)
 {
-  return LoadPlugin<Ax::LoadedDecode, Ax::Decode>("decode_" + name, input);
+  return LoadPlugin<Ax::Decode>("decode_" + name, input);
 }
 } // namespace Ax

@@ -384,7 +384,7 @@ def test_coco_keypoint_detection_meta_draw(coco_body_keypoints_meta):
                 coco_body_keypoints_meta.keypoints[0][i][:2],
                 draw.keypoint.call_args_list[j][0][0],
             )
-            assert draw.keypoint.call_args_list[j][0][1:] == ((255, 0, 0, 255), 6)
+            assert draw.keypoint.call_args_list[j][0][1:] == ((255, 255, 255, 255),)
             j += 1
 
 

@@ -4,6 +4,7 @@
 #include "AxLog.hpp"
 #include "AxMeta.hpp"
 
+#include <memory>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -146,8 +147,8 @@ class Transform : public Plugin
       std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> &meta_map)
       = 0;
 
-  virtual bool can_passthrough(
-      const AxDataInterface &input, const AxDataInterface &output) const = 0;
+  virtual bool can_passthrough(const AxDataInterface &input, const AxDataInterface &output) const
+      = 0;
 
   virtual bool query_supports(PluginFeature feature) const = 0;
 };
@@ -160,5 +161,19 @@ class Decode : public Plugin
       = 0;
 };
 
+
+/// @brief  Load a plugin from a shared library name
+/// @returns Returns a Plugin pointer (InPlace, Transform, or Decode)
+/// @throws std::runtime_error if the library cannot be loaded
+/// @param logger Logger to use for logging
+/// @param name Name of the plugin to load.
+/// This can be a full path, a library name, or just the plugin name. For example
+/// "/path/to/libdecode_yolo.so", "libdecode_yolo.so", or "decode_yolo" are all valid.
+/// @param options Options string to pass to the plugin
+/// @param context Allocation context to use for the plugin
+/// @param mode Mode string to pass to the plugin, this is only relevant to InPlace plugins.
+std::unique_ptr<Plugin> load_plugin(Logger &logger, const std::string &name,
+    const std::string &options = "", AxAllocationContext *context = nullptr,
+    const std::string &mode = "none");
 
 } // namespace Ax

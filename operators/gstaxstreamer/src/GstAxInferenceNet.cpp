@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2026
+// Copyright Axelera AI, 2024
 #include <cstdlib>
 #include <cstring>
 #include <gst/gst.h>
@@ -21,6 +21,7 @@
 
 #include <atomic>
 #include <cinttypes>
+#include <gst/allocators/gstdmabuf.h>
 #include <mutex>
 #include <queue>
 
@@ -32,13 +33,13 @@ GST_DEBUG_CATEGORY_STATIC(gst_axinferencenet_debug);
 GST_ELEMENT_REGISTER_DEFINE(
     axinferencenet, "axinferencenet", GST_RANK_NONE, GST_TYPE_AXINFERENCENET);
 
-static GstStaticPadTemplate sink_template
-    = GST_STATIC_PAD_TEMPLATE("sink_%u", GST_PAD_SINK, GST_PAD_REQUEST,
-        GST_STATIC_CAPS("video/x-raw,format={RGBA,BGRA,RGB,BGR,GRAY8}"));
+static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE("sink_%u",
+    GST_PAD_SINK, GST_PAD_REQUEST,
+    GST_STATIC_CAPS("video/x-raw,format={RGBA,BGRA,RGB,BGR,GRAY8,I420,YUY2,NV12,NV16}"));
 
-static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE("src", GST_PAD_SRC,
-    GST_PAD_ALWAYS, GST_STATIC_CAPS("video/x-raw,format={RGBA,BGRA,RGB,BGR,GRAY8}"));
-
+static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE("src",
+    GST_PAD_SRC, GST_PAD_ALWAYS,
+    GST_STATIC_CAPS("video/x-raw,format={RGBA,BGRA,RGB,BGR,GRAY8,I420,YUY2,NV12,NV16}"));
 
 G_DEFINE_TYPE_WITH_CODE(GstAxInferenceNet, gst_axinferencenet, GST_TYPE_ELEMENT,
     GST_DEBUG_CATEGORY_INIT(gst_axinferencenet_debug, "axinferencenet", 0,
@@ -48,44 +49,52 @@ G_DEFINE_TYPE_WITH_CODE(GstAxInferenceNet, gst_axinferencenet, GST_TYPE_ELEMENT,
 GstQuery *
 gst_query_new_ax_buffer_requirements(void)
 {
-  GstStructure *structure = gst_structure_new(
-      "GstQueryAxBufferRequirements", "num_buffers", G_TYPE_UINT, 0, NULL);
+  GstStructure *structure = gst_structure_new("GstQueryAxBufferRequirements",
+      "num_buffers", G_TYPE_UINT, 0, "supports_opencl", G_TYPE_BOOLEAN, FALSE, NULL);
   return gst_query_new_custom(GST_QUERY_AX_BUFFER_REQUIREMENTS, structure);
 }
 
 void
-gst_query_set_ax_buffer_requirements(GstQuery *query, guint num_buffers)
+Ax::gst_query_set_ax_buffer_requirements(GstQuery *query, guint num_buffers, gboolean supports_opencl)
 {
   g_return_if_fail(GST_QUERY_TYPE(query) == GST_QUERY_AX_BUFFER_REQUIREMENTS);
 
   if (GstStructure *structure = gst_query_writable_structure(query)) {
     gst_structure_set(structure, "num_buffers", G_TYPE_UINT, num_buffers, NULL);
+    gst_structure_set(structure, "supports_opencl", G_TYPE_BOOLEAN, supports_opencl, NULL);
   }
 }
 
-guint
+Ax::BufferRequirements
 gst_query_parse_ax_buffer_requirements(GstQuery *query)
 {
   if (GST_QUERY_TYPE(query) != GST_QUERY_AX_BUFFER_REQUIREMENTS) {
-    return 0;
+    return { 0, false };
   }
   guint num_buffers = 0;
   const GstStructure *structure = gst_query_get_structure(query);
-  return structure && gst_structure_get_uint(structure, "num_buffers", &num_buffers) ?
-             num_buffers :
-             0;
+  auto buffers_required
+      = structure && gst_structure_get_uint(structure, "num_buffers", &num_buffers) ?
+            num_buffers :
+            0;
+  gboolean supports_opencl = FALSE;
+  auto opencl_supported
+      = structure && gst_structure_get_boolean(structure, "supports_opencl", &supports_opencl)
+        && supports_opencl;
+  return { buffers_required, opencl_supported };
 }
 
-guint
-query_downstream_buffers(GstPad *pad)
+Ax::BufferRequirements
+Ax::query_downstream_buffers(GstPad *pad)
 {
   auto *query = gst_query_new_ax_buffer_requirements();
-  auto required_buffers = gst_pad_peer_query(pad, query) ?
-                              gst_query_parse_ax_buffer_requirements(query) :
-                              0;
+  auto requirements = gst_pad_peer_query(pad, query) ?
+                          gst_query_parse_ax_buffer_requirements(query) :
+                          Ax::BufferRequirements{ 0, false };
   gst_query_unref(query);
-  return required_buffers;
+  return requirements;
 }
+
 
 enum {
   PROP_PREPROC0_SHARED_LIB_PATH = Ax::AXINFERENCE_PROP_NEXT_AVAILABLE,
@@ -101,6 +110,7 @@ enum {
   PROP_STREAM_SELECT,
   PROP_MAX_POOL_BUFFERS,
   PROP_LOOP,
+  PROP_MARGIN,
 };
 
 class GstAxStreamSelect
@@ -233,6 +243,10 @@ gst_axinferencenet_set_property(
     inf->loop = g_value_get_boolean(value);
     return;
   }
+  if (property_id == PROP_MARGIN) {
+    inf->properties->margin = g_value_get_float(value);
+    return;
+  }
 
   G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
 }
@@ -268,11 +282,15 @@ gst_axinferencenet_get_property(
     return;
   }
 
+  if (property_id == PROP_MARGIN) {
+    g_value_set_float(value, inf->properties->margin);
+  }
   G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
 }
 
 struct GstBufferHandle {
-  explicit GstBufferHandle(GstBuffer *buffer) : buffer(buffer)
+  explicit GstBufferHandle(GstBuffer *buffer)
+      : buffer(buffer)
   {
     map_info.memory = nullptr;
   }
@@ -363,14 +381,18 @@ gst_axinferencenet_sink_chain(GstPad *sinkpad, GstObject *parent, GstBuffer *buf
 
     auto &infnet = net(inf);
     //  If the first element supports opencl buffers, we just use the buffer as is
-    if (infnet.supports_opencl_buffers(video)
-        && gst_is_opencl_memory(gst_buffer_peek_memory(buf, 0))) {
+    if (infnet.supports_dmabuf() && gst_is_dmabuf_memory(gst_buffer_peek_memory(buf, 0))) {
+      video.ocl_buffer = nullptr;
+      video.data = nullptr;
+      video.vaapi = nullptr;
+      video.fd = gst_fd_memory_get_fd(gst_buffer_peek_memory(buf, 0));
+    } else if (infnet.supports_opencl_buffers(video)
+               && gst_is_opencl_memory(gst_buffer_peek_memory(buf, 0))) {
       video.ocl_buffer
           = gst_opencl_mem_get_opencl_buffer(gst_buffer_peek_memory(buf, 0));
       video.data = nullptr;
       video.vaapi = nullptr;
       video.fd = -1;
-      //  Here we assign
     } else {
       if (FALSE == gst_buffer_map(buf, &handle->map_info, GST_MAP_READ)) {
         throw std::runtime_error("Unable to map GstBuffer");
@@ -392,13 +414,26 @@ process_sink_event(GstPad *pad, GstAxInferenceNet *parent, GstEvent *event)
   return gst_pad_event_default(pad, GST_OBJECT(parent), event);
 }
 
+auto
+get_queued_events(GstAxInferenceNet *inf)
+{
+  auto queue = std::queue<delayed_event>{};
+  //  Do not remove
+  //  This is here simply to allocate a buffer for the queue outside the lock
+  queue.push(delayed_event{});
+  queue.pop();
+  //  Do not remove
+  std::lock_guard<std::mutex> lock(inf->event_queue->mutex);
+  return std::exchange(inf->event_queue->queue, std::move(queue));
+}
+
 void
 process_queued_events(GstAxInferenceNet *inf)
 {
-  std::lock_guard<std::mutex> lock(inf->event_queue->mutex);
-  while (!inf->event_queue->queue.empty()) {
-    auto [pad, event] = std::move(inf->event_queue->queue.front());
-    inf->event_queue->queue.pop();
+  auto queue = get_queued_events(inf);
+  while (!queue.empty()) {
+    auto [pad, event] = std::move(queue.front());
+    queue.pop();
     if (!pad) {
       break;
     }
@@ -576,7 +611,7 @@ determine_max_pool_buffers(GstAxInferenceNet *sink)
   //  Query downstream axinferencenets for their requirements
   //  Get reuqired buffers from downstream
   auto *srcpad = GST_PAD_CAST(sink->parent.srcpads->data);
-  auto downstream_buffers = query_downstream_buffers(srcpad);
+  auto [downstream_buffers, _] = Ax::query_downstream_buffers(srcpad);
   auto num_sinks = count_sink_pads(GST_ELEMENT(sink));
   auto other_buffers = 8 + 50 / (num_sinks > 0 ? num_sinks : 1);
   return max_buffers + other_buffers + downstream_buffers;
@@ -598,9 +633,15 @@ add_allocation_proposal(GstAxInferenceNet *sink, GstQuery *query)
     GST_ERROR_OBJECT(self, "Allocation query without caps");
     return TRUE;
   }
-  self->allocator = Ax::as_handle(gst_opencl_allocator_get(
-      sink->properties->which_cl.c_str(), self->logger.get()));
-  if (!self->allocator) {
+  //  Jetson works better if buffers are always created rather than resused
+  auto is_jetson = Ax::get_env("JETSON_MODEL", "") != "";
+  auto &infnet = net(sink);
+  auto allocator = Ax::as_handle(
+      !is_jetson && infnet.supports_opencl_buffers(AxVideoInterface{}) ?
+          gst_opencl_allocator_get(
+              sink->properties->which_cl.c_str(), sink->logger.get()) :
+          gst_aligned_allocator_get());
+  if (!allocator) {
     GST_ERROR_OBJECT(self, "Unable to get aligned allocator");
     return TRUE;
   }
@@ -608,22 +649,20 @@ add_allocation_proposal(GstAxInferenceNet *sink, GstQuery *query)
   if (need_pool) {
     const auto min_buffers = 4;
     const auto max_buffers = determine_max_pool_buffers(self);
-    self->pool = Ax::as_handle(gst_ax_buffer_pool_new());
-    GstStructure *config = gst_buffer_pool_get_config(self->pool.get());
+    auto pool = Ax::as_handle(gst_ax_buffer_pool_new());
+    GstStructure *config = gst_buffer_pool_get_config(pool.get());
     guint size = size_from_interface(interface_from_caps_and_meta(caps, nullptr));
 
     gst_buffer_pool_config_set_params(config, caps, size, min_buffers, max_buffers);
-    gst_buffer_pool_config_set_allocator(config, self->allocator.get(), NULL);
-    if (!gst_buffer_pool_set_config(self->pool.get(), config)) {
-      self->allocator.reset();
-      self->pool.reset();
+    gst_buffer_pool_config_set_allocator(config, allocator.get(), NULL);
+    if (!gst_buffer_pool_set_config(pool.get(), config)) {
       GST_ERROR_OBJECT(self, "Failed to set pool configuration");
       return TRUE;
     }
-    gst_query_add_allocation_pool(query, self->pool.get(), size, min_buffers, max_buffers);
+    gst_query_add_allocation_pool(query, pool.get(), size, min_buffers, max_buffers);
   }
 
-  gst_query_add_allocation_param(query, self->allocator.get(), NULL);
+  gst_query_add_allocation_param(query, allocator.get(), NULL);
 
   return TRUE;
 }
@@ -636,13 +675,15 @@ gst_axinferencenet_sink_query(GstPad *pad, GstObject *parent, GstQuery *query)
 
   if (GST_QUERY_TYPE(query) == GST_QUERY_AX_BUFFER_REQUIREMENTS) {
     guint required_buffers = determine_required_buffers(inf);
+    auto &infnet = net(inf);
+    auto supports_opencl = infnet.supports_opencl_buffers(AxVideoInterface{});
     auto *srcpad = GST_PAD_CAST(inf->parent.srcpads->data);
     if (srcpad) {
-      guint downstream_buffers = query_downstream_buffers(srcpad);
+      auto [downstream_buffers, _] = Ax::query_downstream_buffers(srcpad);
       required_buffers += downstream_buffers;
       GST_DEBUG_OBJECT(inf, "Downstream requires %u buffers", downstream_buffers);
     }
-    gst_query_set_ax_buffer_requirements(query, required_buffers);
+    Ax::gst_query_set_ax_buffer_requirements(query, required_buffers, supports_opencl);
     return TRUE;
   }
 
@@ -845,8 +886,6 @@ gst_axinferencenet_finalize(GObject *object)
   inf->stream_select.reset();
   inf->flushing_pads.reset();
   inf->flushing_mutex.reset();
-  inf->pool.reset();
-  inf->allocator.reset();
   inf->event_queue.reset();
   inf->properties.reset();
   inf->net.reset();
@@ -879,17 +918,17 @@ gst_axinferencenet_class_init(GstAxInferenceNetClass *klass)
     Ax::add_string_property(object_klass, PROP_PREPROC0_OPTIONS + off,
         "preprocess" + N + "_options", "Subplugin dependent options");
     Ax::add_string_property(object_klass, PROP_PREPROC0_MODE + off, "preprocess" + N + "_mode",
-        "Set to 'read' to specify the buffer is read only, if omitteed the buffer is read/write");
+        "Set to 'read' to specify the buffer is read only, if omitted the buffer is read/write");
     Ax::add_string_property(object_klass, PROP_PREPROC0_BATCH + off,
         "preprocess" + N + "_batch",
-        "Set the batch size this element outpputs, defaults to 1");
+        "This option is ignored, and remains for backwards compatibility");
     Ax::add_string_property(object_klass, PROP_POSTPROC0_SHARED_LIB_PATH + off,
         "postprocess" + N + "_lib", "String containing lib path");
     Ax::add_string_property(object_klass, PROP_POSTPROC0_OPTIONS + off,
         "postprocess" + N + "_options", "Subplugin dependent options");
     Ax::add_string_property(object_klass, PROP_POSTPROC0_MODE + off,
         "postprocess" + N + "_mode",
-        "Set to 'read' to specify the buffer is read only, if omitteed the buffer is read/write");
+        "Set to 'read' to specify the buffer is read only, if omitted the buffer is read/write");
   }
   Ax::add_string_property(object_klass, Ax::AXINFERENCE_PROP_META_STRING,
       "meta", "String with key to metadata");
@@ -906,4 +945,6 @@ gst_axinferencenet_class_init(GstAxInferenceNetClass *klass)
       0, 1024, 0);
   Ax::add_boolean_property(object_klass, PROP_LOOP, "loop",
       "Whether to loop video input when EOS is received");
+  Ax::add_float_property(
+      object_klass, PROP_MARGIN, "margin", "How much to expand ROI by", 0, 1, 0);
 }

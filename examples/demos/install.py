@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# Copyright Axelera AI, 2025
 # Installs a demo by creating a desktop file and a runfile.
 
 import argparse
@@ -37,17 +38,46 @@ if not os.path.exists(home):
     print("Cannot find home folder. Please check your environment.")
     exit(1)
 
+
+def find_camera(max_index=25):
+    import cv2
+
+    # os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
+    cv2.setLogLevel(0)  # 0 = silent
+
+    available = []
+    for i in range(max_index):
+        cap = cv2.VideoCapture(i)
+        if cap.isOpened():
+            available.append(i)
+            cap.release()
+
+    if len(available) == 0:
+        print("Error: No cameras found")
+        exit(0)
+    elif len(available) > 1:
+        print(f"Warning: more than 1 cameras found, using camera {available[0]}")
+
+    return available[0]
+
+
 # Define demo name and file names
 demo_name = args.demo
 desktop_file = f"{demo_name}.desktop"
 runfile = f"run_{demo_name}.sh"
 
 # Create runfile
+extra = ""
+if demo_name == "fruit":
+    cam = find_camera()
+    extra = f"usb:{cam} "
+    print(extra)
+
 with open(os.path.join(home, runfile), 'w') as f:
     f.write("#!/bin/bash\n")
     f.write(f"cd {config.env.framework}\n")
     f.write("source venv/bin/activate\n")
-    f.write(f"./examples/demos/{demo_name}_demo.py --window-size=fullscreen\n")
+    f.write(f"./examples/demos/{demo_name}_demo.py {extra}--window-size=fullscreen\n")
 
 # Make runfile executable
 os.chmod(os.path.join(home, runfile), 0o777)
@@ -59,20 +89,21 @@ with open(os.path.join(home, 'Desktop', desktop_file), 'w') as f:
     f.write(f"Name={str(demo_name).title()} demo\n")
     f.write(f"Exec={os.path.join(home, runfile)}\n")
     f.write(
-        f"Icon={os.path.join(config.env.framework, 'axelera/app/axelera-ai-logo.png')}\n"
+        f"Icon={os.path.join(config.env.framework, 'axelera/app/render_assets/axelera-ai-logo.png')}\n"
     )  # Placeholder icon
     f.write("Terminal=true\n")
     f.write("Categories=AxeleraAI;Demo;\n")
 
 # Allow the desktop file to launch
 subprocess.run(
-    ['gio', 'set', os.path.join(home, desktop_file), 'metadata::trusted', 'true'], check=True
+    ['gio', 'set', os.path.join(home, 'Desktop', desktop_file), 'metadata::trusted', 'true'],
+    check=True,
 )
 
 # Make desktop file executable
-os.chmod(os.path.join(home, desktop_file), 0o777)
+os.chmod(os.path.join(home, 'Desktop', desktop_file), 0o777)
 
 # Print success message
 print(
-    f"Demo '{demo_name}' installed successfully! Some demos may require a source to be specified in the runscript. Please check the runscript {runfile} in your home directory."
+    f"Demo '{demo_name}' installed successfully! Some demos may require a source to be specified in the runscript. This script has attempted to find the right one. Please check the runscript {runfile} in your home directory."
 )

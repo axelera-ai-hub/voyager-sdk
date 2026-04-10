@@ -173,6 +173,10 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
   if (in_video.info.cropped) {
     throw std::runtime_error("OpenCV color conversion does not support cropped input");
   }
+  if (in_video.info.format == AxVideoFormat::NV16) {
+    throw std::runtime_error(
+        "OpenCV color conversion does not support NV16 input format. Use colorconvert_cl (OpenCL) operator instead.");
+  }
   if (in_video.info.format == AxVideoFormat::NV12) {
     if (in_video.offsets.size() != 2 || in_video.strides.size() != 2) {
       throw std::runtime_error("NV12 input has unrecognised number of offsets or strides (not 2)");

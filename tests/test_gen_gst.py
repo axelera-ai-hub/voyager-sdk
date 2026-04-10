@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 import contextlib
 import dataclasses
 import io
@@ -122,6 +122,12 @@ YOLOV5S_V7_MANIFEST = types.Manifest(
 
 YOLOV5S_V7_IN_YAML = 'ax_models/model_cards/yolo/object_detection/yolov5m-v7-coco-onnx.yaml'
 YOLO_TRACKER_RN_IN_YAML = 'ax_models/reference/cascade/with_tracker/yolov5m-tracker-resnet50.yaml'
+
+RETINAFACE_IN_YAML = 'ax_models/model_cards/torch/retinaface-resnet50-widerface-onnx.yaml'
+FACENET_IN_YAML = 'ax_models/model_cards/torch/facenet-lfw.yaml'
+RETINAFACE_TRACKER_FACENET_IN_YAML = (
+    'ax_models/reference/cascade/with_tracker/face-recognition-with-vote.yaml'
+)
 YOLOV5M_V7_MANIFEST = types.Manifest(
     'yolo',
     input_shapes=[(1, 644, 656, 4)],
@@ -144,6 +150,62 @@ YOLOV5M_V7_MANIFEST = types.Manifest(
     postprocess_graph='',
 )
 
+RETINAFCE_MANIFEST = types.Manifest(
+    'rf',
+    input_shapes=[(1, 846, 848, 4)],
+    input_dtypes=['uint8'],
+    output_shapes=[
+        [1, 105, 105, 64],
+        [1, 53, 53, 64],
+        [1, 27, 27, 64],
+        [1, 105, 105, 64],
+        [1, 53, 53, 64],
+        [1, 27, 27, 64],
+        [1, 105, 105, 64],
+        [1, 53, 53, 64],
+        [1, 27, 27, 64],
+    ],
+    output_dtypes=["int8", "int8", "int8", "int8", "int8", "int8", "int8", "int8", "int8"],
+    quantize_params=((0.01863, -14),),
+    dequantize_params=(
+        (0.9, 0),
+        (0.9, 0),
+        (0.9, 0),
+        (0.9, 0),
+        (0.9, 0),
+        (0.9, 0),
+        (0.9, 0),
+        (0.9, 0),
+    ),
+    n_padded_ch_inputs=[[0, 0, 3, 3, 3, 5, 0, 1]],
+    n_padded_ch_outputs=[
+        [0, 0, 0, 0, 0, 0, 0, 56],
+        [0, 0, 0, 0, 0, 0, 0, 56],
+        [0, 0, 0, 0, 0, 0, 0, 56],
+        [0, 0, 0, 0, 0, 0, 0, 60],
+        [0, 0, 0, 0, 0, 0, 0, 60],
+        [0, 0, 0, 0, 0, 0, 0, 60],
+        [0, 0, 0, 0, 0, 0, 0, 44],
+        [0, 0, 0, 0, 0, 0, 0, 44],
+        [0, 0, 0, 0, 0, 0, 0, 44],
+    ],
+    model_lib_file='lib_export/lib.so',
+    postprocess_graph='',
+)
+
+FACENET_MANIFEST = types.Manifest(
+    'facenet',
+    input_shapes=[[1, 160, 160, 4]],
+    input_dtypes=["int8"],
+    output_shapes=[[1, 1, 1, 512]],
+    output_dtypes=["int8"],
+    quantize_params=[[0.00787353515625, -1]],
+    dequantize_params=[[0.01970456913113594, 3]],
+    n_padded_ch_inputs=[[0, 0, 0, 0, 0, 0, 0, 1]],
+    n_padded_ch_outputs=[[0, 0, 0, 0, 0, 0, 0, 0]],
+    model_lib_file='lib_export/lib.so',
+    postprocess_graph='',
+)
 
 YOLOV8POSE_YOLOV8N_IN_YAML = 'ax_models/reference/cascade/yolov8spose-yolov8n.yaml'
 YOLOV8POSE_MANIFEST = types.Manifest(
@@ -233,10 +295,10 @@ def mock_temp(*args, **kwargs):
     return c
 
 
-def _generate_pipeline(nn, input, hardware_caps, tiling=None, low_latency=False, jetson=False):
+def _generate_pipeline(nn, input, hardware_caps, low_latency=False, jetson=False):
     '''Construct gst E2E pipeline'''
 
-    manager.compile_pipelines(nn, input.sources, hardware_caps, tiling=tiling)
+    manager.compile_pipelines(nn, input.sources, hardware_caps)
 
     nn.model_infos = network.ModelInfos()
     for task in nn.tasks:
@@ -254,7 +316,6 @@ def _generate_pipeline(nn, input, hardware_caps, tiling=None, low_latency=False,
         stack.enter_context(patch.object(Path, 'exists', return_value=True))
         env = {'JETSON_MODEL': 'nanoultraplusplus'} if jetson else {}
         stack.enter_context(patch.dict(os.environ, env, clear=True))
-
         manager._propagate_model_and_context_info(nn, task_graph)
         p = pipe.create_pipe(
             dm,
@@ -290,15 +351,21 @@ class MockCapture:
         pass
 
 
-def _create_pipein(srcs, system_config, pipeline_config):
+def _create_pipein(srcs, system_config, pipeline_config, tiling: bool = False):
     paths = [f'/path/to/src{i}.mp4' for i in range(srcs)] if isinstance(srcs, int) else srcs
+    cfgs = [config.TilingConfig(640 * (n + 1)) if tiling else None for n in range(len(paths))]
+    kwargss = [
+        {'preprocessing': [config.ImagePreproc.from_tile_config(t)]} if t else {} for t in cfgs
+    ]
     assert len(paths) >= 1
     alloc = pipe.SourceIdAllocator()
     with patch.object(Path, 'exists', return_value=True):
         with patch.object(Path, 'is_file', return_value=True):
             with patch.object(os, 'access', return_value=True):
                 with patch.object(cv2, 'VideoCapture', new=MockCapture):
-                    srcs = [config.Source(p) for p in paths]
+                    srcs = [
+                        config.Source(p, **kw) for p, kw in itertools.zip_longest(paths, kwargss)
+                    ]
                     return pipe.io.MultiplexPipeInput(srcs, system_config, pipeline_config, alloc)
 
 
@@ -490,6 +557,7 @@ def _expansion_params(manifests, tasks, hardware_caps):
     )
     add('input_w', [m.input_shapes[0][2] if m else 0 for m in manifests])
     add('input_h', [m.input_shapes[0][1] if m else 0 for m in manifests])
+    add('embeddings_file', [config.env.framework / 'famous_embeddings.json' for _ in tasks])
     return dict(
         base,
         force_sw_decoders=not hardware_caps.vaapi,
@@ -691,6 +759,58 @@ gen_gst_marker = pytest.mark.parametrize(
             'x86_64',
             0,
         ),
+        (
+            OPENCL,
+            1,
+            'ax_models/reference/image_preprocess/yolov5s-v7-polar-onnx.yaml',
+            YOLOV5S_V5_MANIFEST,
+            'opencl/yolov5s-v7-polar.yaml',
+            1,
+            'x86_64',
+            0,
+        ),
+        (
+            OPENCL,
+            1,
+            YOLOV5S_V5_IN_YAML,
+            YOLOV5S_V5_MANIFEST,
+            'opencl/yolov5s-v7-polar.yaml',
+            [
+                'polar[2510,800,0,true,0.5,0.495,800,false,true]:/path/to/src0.mp4',
+            ],
+            'x86_64',
+            0,
+        ),
+        (
+            OPENCL,
+            1,
+            RETINAFACE_IN_YAML,
+            RETINAFCE_MANIFEST,
+            'opencl/retinaface-resnet.yaml',
+            1,
+            'x86_64',
+            0,
+        ),
+        (
+            OPENCL,
+            1,
+            RETINAFACE_TRACKER_FACENET_IN_YAML,
+            [RETINAFCE_MANIFEST, None, FACENET_MANIFEST],
+            'opencl/face-recog.yaml',
+            1,
+            'x86_64',
+            0,
+        ),
+        (
+            NONE,
+            1,
+            RETINAFACE_TRACKER_FACENET_IN_YAML,
+            [RETINAFCE_MANIFEST, None, FACENET_MANIFEST],
+            'face-recog.yaml',
+            1,
+            'x86_64',
+            0,
+        ),
     ],
 )
 
@@ -726,6 +846,16 @@ def test_lowlevel_output_new_inference(
             'x86_64',
             0,
         ),
+        (
+            NONE,
+            1,
+            YOLOV5S_V5_IN_YAML,
+            YOLOV5S_V5_MANIFEST,
+            'yolov5s-axelera-coco-tiled-2sources.yaml',
+            2,
+            'x86_64',
+            0,
+        ),
     ],
 )
 def test_tiling(caps, cores, src, manifest, golden_template, sources, proc, limit_fps):
@@ -734,10 +864,10 @@ def test_tiling(caps, cores, src, manifest, golden_template, sources, proc, limi
         sources,
         config.SystemConfig(hardware_caps=caps, allow_hardware_codec=False),
         config.PipelineConfig(specified_frame_rate=limit_fps, pipe_type='gst'),
+        tiling=True,
     )
-    tiling = config.TilingConfig(size=640, overlap=0)
     with patch.object(platform, 'processor', return_value=proc):
-        pipeline = _generate_pipeline(nn, pipein, hardware_caps=caps, tiling=tiling)
+        pipeline = _generate_pipeline(nn, pipein, hardware_caps=caps)
     actual = yaml.dump([{'pipeline': pipeline}], sort_keys=False)
     manifests = manifest if isinstance(manifest, list) else [manifest]
     exp = _prepare_expected(golden_template, manifests, nn.tasks, hardware_caps=caps)

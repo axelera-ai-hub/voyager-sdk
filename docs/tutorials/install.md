@@ -1,6 +1,10 @@
 ![](/docs/images/Ax_Page_Banner_2500x168_01.png)
 
-# Installation guide
+# SDK Installer guide
+
+> [!WARNING]
+> This tutorial is deprecated
+> Please refer to [PIP Installation Guide](/docs/tutorials/install_pip.md)
 
 ## Contents
 - [Installation guide](#installation-guide)
@@ -21,7 +25,7 @@
 - Git installed
 - Internet connection for downloading dependencies
 - Administrative/sudo privileges
-- USB 3.0 port or PCIe slot for Metis hardware
+- PCIe slot for Metis hardware
 
 ## Level
 **Beginner** - Follow step-by-step installation instructions
@@ -61,7 +65,7 @@ git branch
 To checkout a specific SDK release, run a command such as:
 
 ```
-git checkout release/v1.2.5
+git checkout release/v1.6
 git rebase
 ```
 
@@ -142,19 +146,19 @@ installer configuration file on the new release branch.
 
 ## Next Steps
 - **Verify installation**: Run `axdevice` to confirm hardware is detected
-- **Run first inference**: [Quick Start Guide](quick_start_guide.md)
-- **Enable firmware updates**: [Enable Updates Guide](enable_updates.md) for new boards
-- **For Windows users**: Complete [Windows Getting Started](windows/windows_getting_started.md)
+- **Run first inference**: [Quick Start Guide](/docs/tutorials/quick_start_guide.md)
+- **Enable firmware updates**: [Enable Updates Guide](/docs/tutorials/enable_updates.md) for new boards
+- **For Windows users**: Complete [Windows Getting Started](/docs/tutorials/windows/windows_getting_started.md)
 
 ## Related Documentation
 **Tutorials:**
-- [Quick Start Guide](quick_start_guide.md) - Run your first inference after installation
-- [Windows Getting Started](windows/windows_getting_started.md) - Windows-specific setup
-- [Installing Driver](windows/installing_driver.md) - Windows driver installation
-- [Enable Updates](enable_updates.md) - Enable firmware updates (one-time per board)
+- [Quick Start Guide](/docs/tutorials/quick_start_guide.md) - Run your first inference after installation
+- [Windows Getting Started](/docs/tutorials/windows/windows_getting_started.md) - Windows-specific setup
+- [Installing Driver](/docs/tutorials/windows/installing_driver.md) - Windows driver installation
+- [Enable Updates](/docs/tutorials/enable_updates.md) - Enable firmware updates (one-time per board)
 
 **References:**
-- [AxDevice API](../reference/axdevice.md) - Verify hardware detection after install
+- [AxDevice API](/docs/reference/axdevice.md) - Verify hardware detection after install
 
 ## Support
 
@@ -162,5 +166,7 @@ In case of using multiple PCIe cards on the same host system it is recommended t
 `ulimit -n 10240`
 
 ## Further support
-- For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
-- For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).
+
+For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
+
+For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).

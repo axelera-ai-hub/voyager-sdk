@@ -40,7 +40,46 @@ boxes, and deliver all of these to a user's application. In this document, we pr
 our GStreamer pipeline classes and operators to enable users to understand our pipeline and build
 their own elements.
 
+## Building the operators
 
+All GStreamer plugins live under the `operators/` directory and are built with the top-level
+Makefile shipped in that folder. The usual workflow is:
+
+```bash
+source containerless.sh   # exports toolchain paths
+make -C operators gst_ops_install
+```
+
+`gst_ops_install` is the default target because it does more than compile the 
+code: it
+
+- downloads the matching ONNX Runtime binary distribution into `operators/onnxruntime/`
+- configures CMake/Ninja under `operators/<Debug|Release>/`
+- installs the resulting `.so` files and pkg-config stubs into `operators/lib` so they can be found
+  by `GST_PLUGIN_PATH`
+
+### Enabling CUDA (optional)
+
+The operators build uses ONNX Runtime's CPU binaries by default. If you have an NVIDIA GPU and want
+to run the CUDA execution provider, opt in explicitly so the extra GPU dependencies are only pulled
+when needed:
+
+1. Ensure `nvidia-smi` shows the GPU, the CUDA toolkit (`nvcc`) that matches y
+our driver is
+   installed, and `libcudnn8-dev` (or equivalent) headers are present. Microsoft only publishes the
+   CUDA-enabled ONNX Runtime tarball for Linux x86_64, so other architectures must continue using
+   the CPU build.
+2. Rebuild the plugins with the CUDA flag enabled:
+
+   ```bash
+   make -C operators CUDA_AVAILABLE=1 gst_ops_install
+   ```
+
+`CUDA_AVAILABLE=1` tells the Makefile to download the CUDA tarball and forwards the flag to CMake so
+`OnnxRuntimeInference` registers the CUDA execution provider. Leaving the flag unset (or using `0`)
+keeps the default CPU execution path.
+
+ 
 ## GST Pipelines
 
 

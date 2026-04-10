@@ -7,7 +7,9 @@ class MyCppClassificationMeta : public AxMetaBase
 {
   public:
   MyCppClassificationMeta(std::vector<float> scores, std::vector<int32_t> classes, int num_classes)
-      : scores(std::move(scores)), classes(std::move(classes)), num_classes{ num_classes }
+      : scores(std::move(scores)),
+        classes(std::move(classes)),
+        num_classes{ num_classes }
   {
     if (scores.size() != classes.size()) {
       throw std::logic_error("scores and classes must have the same size");

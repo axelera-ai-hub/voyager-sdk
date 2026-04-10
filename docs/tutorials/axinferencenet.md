@@ -432,5 +432,7 @@ See the full source in [`axinferencenet_tensor.cpp`](/examples/axinferencenet/ax
 - [axinferencenet_tensor.cpp](../../examples/axinferencenet/axinferencenet_tensor.cpp) - Raw tensor access in C++
 
 ## Further support
-- For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
-- For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).
+
+For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
+
+For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).

@@ -17,7 +17,7 @@ get_meta(const std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> &map
   }
   auto *meta = position->second.get();
   EXPECT_NE(meta, nullptr);
-  EXPECT_EQ(typeid(*meta), typeid(AxMetaObjDetection));
+  EXPECT_EQ(typeid(*meta), typeid(AxMetaObjDetectionTiles));
 
   auto actual_metadata = meta->get_extern_meta();
   EXPECT_EQ(actual_metadata.size(), 3);

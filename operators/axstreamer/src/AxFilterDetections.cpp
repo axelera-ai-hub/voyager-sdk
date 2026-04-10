@@ -1,4 +1,4 @@
-
+// Copyright Axelera AI, 2025
 
 #include "AxFilterDetections.hpp"
 #include "AxLog.hpp"
@@ -84,8 +84,7 @@ Ax::filter_detections(const AxDataInterface &interface,
       }
     } else if (seg_det_meta) {
       try {
-        auto good_segment = std::move(
-            const_cast<AxMetaSegmentsDetection *>(seg_det_meta)->get_segment(i));
+        auto good_segment = seg_det_meta->get_segment(i);
         segments.push_back(std::move(good_segment));
       } catch (const std::exception &e) {
         logger(AX_ERROR)
@@ -184,11 +183,10 @@ Ax::filter_detections(const AxDataInterface &interface,
     try {
       auto shape = seg_det_meta->get_segments_shape();
       auto sizes = SegmentShape{ shape[2], shape[1] };
-      auto base_box = seg_det_meta->get_base_box();
       auto decoder_name = seg_det_meta->get_decoder_name();
       new_meta = std::make_unique<AxMetaSegmentsDetection>(std::move(boxes),
           std::move(segments), std::move(scores), std::move(classes),
-          std::move(ids), sizes, base_box, std::move(decoder_name));
+          std::move(ids), sizes, std::move(decoder_name));
     } catch (const std::exception &e) {
       logger(AX_ERROR) << "filterdetections: Exception creating AxMetaSegmentsDetection: "
                        << e.what() << std::endl;

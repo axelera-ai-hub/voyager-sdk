@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 from __future__ import annotations
 
 from . import config
@@ -13,6 +13,36 @@ def element(f):
         self.append(allprops)
 
     return wrapper
+
+
+class TileInfo:
+    def __init__(self, op, gst):
+        self.tile_meta = "axelera-tiles-internal"
+        self.gst = gst
+        self.op = op
+        self.tiling = gst.tiling and gst.add_tiles
+        if op._where:
+            self.master_key = f'master_meta:{op._where};'
+        elif self.tiling:
+            self.master_key = f'master_meta:{self.tile_meta};'
+        else:
+            self.master_key = str()
+        self.association_key = str()
+        if op._association:
+            self.association_key = f'association_meta:{op._association};'
+
+    def get_decode_keys(self):
+        return self.master_key, self.association_key
+
+    def get_nms_keys(self, flatten_meta: int = 1):
+        if self.tiling:
+            return f'flatten_meta:{flatten_meta};master_meta:{self.tile_meta};'
+        return self.master_key
+
+    def get_max_boxes(self, max_boxes: int):
+        if self.tiling:
+            return 2 * max_boxes
+        return max_boxes
 
 
 class _OldBuilder(list):
@@ -87,6 +117,9 @@ class _OldBuilder(list):
 
     @element
     def h265parse(self, props={}, **kwargs) -> None: ...
+
+    @element
+    def nvh264dec(self, props={}, **kwargs) -> None: ...
 
     @element
     def jpegdec(self, props={}, **kwargs) -> None: ...
@@ -219,6 +252,8 @@ class Builder(_OldBuilder):
         self.axinf_postops = []
         self.where = None
         self.building_axinference = False
+        self.add_tiles = True  # Will be set to False when input is from ROI
+        self.margin = None
 
     def start_axinference(self, props={}) -> None:
         self.building_axinference = True
@@ -234,8 +269,6 @@ class Builder(_OldBuilder):
                 inf[f'{phase}process{n}_options'] = opts
                 if mode:
                     inf[f'{phase}process{n}_mode'] = mode
-                if batch:
-                    inf[f'{phase}process{n}_batch'] = batch
 
         if self.axinf_preops or self.axinf_postops:
             ops('pre', self.axinf_preops)
@@ -264,6 +297,9 @@ class Builder(_OldBuilder):
     def axinplace(self, props={}, **kwargs) -> None:
         if not self.building_axinference:
             super().axinplace(props, **kwargs)
+        elif not {**props, **kwargs}.get('lib'):
+            # if no lib, this follows a gstreamer element so move out of axinferencenet
+            super().axinplace(props, **kwargs)
         else:
             ops = self.axinf_postops if self.axinf_props else self.axinf_preops
             props = {**props, **kwargs}
@@ -290,6 +326,8 @@ class Builder(_OldBuilder):
         props = kwargs
         if self.where:
             props |= self.where
+        if self.margin:
+            props['margin'] = self.margin
         if self.getconfig() and self.getconfig().opencl:
             if self.which_cl and self.which_cl != 'auto':
                 props.setdefault('cl-platform', self.which_cl)
@@ -304,7 +342,10 @@ class Builder(_OldBuilder):
         if not self.building_axinference:
             raise ValueError('distributor not allowed outside of axinferencenet building')
         props = {**props, **kwargs}
-        self.where = props
+        self.where = {'meta': props.get('meta')}
+        margin = props.get('margin')
+        if margin:
+            self.margin = margin
 
     def tee(self, props={}, **kwargs) -> None:
         if not self.building_axinference:

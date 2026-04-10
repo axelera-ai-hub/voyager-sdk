@@ -61,7 +61,8 @@ class AxTensorContainer
 class AxMetaRawTensor : public AxMetaBase
 {
   public:
-  AxMetaRawTensor() : tensor_(std::make_unique<AxTensorContainer>())
+  AxMetaRawTensor()
+      : tensor_(std::make_unique<AxTensorContainer>())
   {
   }
 

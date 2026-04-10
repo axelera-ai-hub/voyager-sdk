@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 
 from fractions import Fraction
 
@@ -337,11 +337,86 @@ def test_adjacent_letterbox_to_tensor_linear_scaling():
     ]
     transforms.run_all_transformers(got, hardware_caps=config.HardwareCaps.OPENCL)
     assert got == [
-        operators.mega.OpenCLetterBoxToTensorAndLinearScaling(
+        operators.mega.OpenCLetterBoxColorConvertToTensorAndLinearScaling(
             width=640,
             height=640,
             mean='0',
             shift='255',
+            format=None,
+        )
+    ]
+
+
+def test_adjacent_color_convert_letterbox_to_tensor_linear_scaling():
+    got = [
+        operators.ConvertColorInput(format=types.ColorFormat.RGBA),
+        operators.Letterbox(width=640, height=640),
+        operators.ToTensor(),
+        operators.PermuteChannels('NHWC', 'NCHW'),
+        operators.TypeCast(datatype='float32'),
+        operators.LinearScaling(
+            mean='0',
+            shift='255',
+            tensor_layout=types.TensorLayout.NCHW,
+        ),
+    ]
+    transforms.run_all_transformers(got, hardware_caps=config.HardwareCaps.OPENCL)
+    assert got == [
+        operators.mega.OpenCLetterBoxColorConvertToTensorAndLinearScaling(
+            width=640,
+            height=640,
+            mean='0',
+            shift='255',
+            format=types.ColorFormat.RGBA,
+        )
+    ]
+
+
+def test_adjacent_resize_color_convert():
+    sequence = [
+        operators.ConvertColorInput(format=types.ColorFormat.BGR),
+        operators.Resize(width=640, height=640),
+    ]
+    transforms.run_all_transformers(sequence, hardware_caps=config.HardwareCaps.OPENCL)
+    assert sequence == [
+        operators.mega.OpenCLResize(width=640, height=640, size=0, input_color_format="bgr")
+    ]
+    assert sequence[0]._operators == [
+        operators.custom_preprocessing.ConvertColorInput(format=types.ColorFormat.BGR),
+        operators.preprocessing.Resize(
+            width=640,
+            height=640,
+            size=0,
+        ),
+    ]
+
+
+def test_adjacent_face_align_color_convert():
+    sequence = [
+        operators.ConvertColorInput(format=types.ColorFormat.BGR),
+        operators.FaceAlign(
+            keypoints_key="meta",
+            width=640,
+            height=640,
+            padding=0.1,
+            template_keypoints_x=[],
+            template_keypoints_y=[],
+            use_self_normalizing=True,
+            save_aligned_images=False,
+        ),
+    ]
+    transforms.run_all_transformers(sequence, hardware_caps=config.HardwareCaps.OPENCL)
+    assert sequence == [
+        operators.mega.OpenCLFaceAlign(
+            keypoints_key="meta",
+            width=640,
+            height=640,
+            padding=0.1,
+            template_keypoints_x=[],
+            template_keypoints_y=[],
+            use_self_normalizing=True,
+            save_aligned_images=False,
+            format="bgr",
         )
     ]
 
@@ -413,7 +488,7 @@ def test_adjacent_resize_to_tensor_2normalise():
     ]
     transforms.run_all_transformers(got, hardware_caps=config.HardwareCaps.OPENCL)
     assert got == [
-        operators.mega.OpenCLResizeToTensorAndNormalize(
+        operators.mega.OpenCLResizeColorConverToTensorAndNormalize(
             width=640,
             height=640,
             size=0,
@@ -421,5 +496,39 @@ def test_adjacent_resize_to_tensor_2normalise():
             std='2/255, 2/255, 2/255',
             datatype='float32',
             scaleup=0,
+            format=None,
+        ),
+    ]
+
+
+def test_adjacent_color_convert_resize_to_tensor_2normalise():
+    got = [
+        operators.ConvertColorInput(format=types.ColorFormat.BGR),
+        operators.Resize(width=640, height=640),
+        operators.ToTensor(),
+        operators.PermuteChannels('NHWC', 'NCHW'),
+        operators.TypeCast(datatype='float32'),
+        operators.Normalize(
+            mean='0',
+            std='255',
+            tensor_layout=types.TensorLayout.NCHW,
+        ),
+        operators.Normalize(
+            mean='104/255, 117/255, 123/255',
+            std='2/255, 2/255, 2/255',
+            tensor_layout=types.TensorLayout.NCHW,
+        ),
+    ]
+    transforms.run_all_transformers(got, hardware_caps=config.HardwareCaps.OPENCL)
+    assert got == [
+        operators.mega.OpenCLResizeColorConverToTensorAndNormalize(
+            width=640,
+            height=640,
+            size=0,
+            mean='104/255, 117/255, 123/255',
+            std='2/255, 2/255, 2/255',
+            datatype='float32',
+            scaleup=0,
+            format=types.ColorFormat.BGR,
         ),
     ]

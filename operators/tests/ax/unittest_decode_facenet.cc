@@ -7,6 +7,7 @@
 #include <numeric>
 #include "AxMeta.hpp"
 #include "AxMetaClassification.hpp"
+#include "AxOpUtils.hpp"
 #include "AxUtils.hpp"
 #include "gmock/gmock.h"
 #include "unittest_ax_common.h"
@@ -66,6 +67,132 @@ class MockEigenMatrixProvider
   }
 };
 
+TEST(AxOpUtils, EmbeddingsCosineSimilarityNormalise)
+{
+  Eigen::MatrixXf embeddings(2, 2);
+  embeddings << 3.0f, 0.0f, 0.0f, 4.0f;
+
+  std::vector<float> desc = { 6.0f, 0.0f };
+  auto sims = ax_utils::embeddings_cosine_similarity(desc, embeddings, true);
+  ASSERT_EQ(sims.size(), 2u);
+  EXPECT_NEAR(sims[0], 1.0f, 1e-6f);
+  EXPECT_NEAR(sims[1], 0.0f, 1e-6f);
+
+  std::vector<float> zero_desc = { 0.0f, 0.0f };
+  auto zero_sims = ax_utils::embeddings_cosine_similarity(zero_desc, embeddings, true);
+  ASSERT_EQ(zero_sims.size(), 2u);
+  EXPECT_NEAR(zero_sims[0], 0.0f, 1e-6f);
+  EXPECT_NEAR(zero_sims[1], 0.0f, 1e-6f);
+}
+
+TEST(AxOpUtils, EmbeddingsEuclideanDistanceNoNormalise)
+{
+  Eigen::MatrixXf embeddings(3, 2);
+  embeddings << 1.0f, 2.0f, 2.0f, 2.0f, 4.0f, 6.0f;
+
+  std::vector<float> desc = { 1.0f, 2.0f };
+  auto distances = ax_utils::embeddings_euclidean_distance(desc, embeddings, false);
+
+  ASSERT_EQ(distances.size(), 3u);
+  EXPECT_NEAR(distances[0], 0.0f, 1e-6f);
+  EXPECT_NEAR(distances[1], 1.0f, 1e-6f);
+  EXPECT_NEAR(distances[2], 5.0f, 1e-6f);
+}
+
+TEST(AxOpUtils, EmbeddingsEuclideanDistanceNormalise)
+{
+  Eigen::MatrixXf embeddings(3, 2);
+  embeddings << 3.0f, 0.0f, 0.0f, 4.0f, 0.0f, 0.0f;
+
+  std::vector<float> desc = { 6.0f, 0.0f };
+  auto distances = ax_utils::embeddings_euclidean_distance(desc, embeddings, true);
+
+  ASSERT_EQ(distances.size(), 3u);
+  EXPECT_NEAR(distances[0], 0.0f, 1e-6f);
+  EXPECT_NEAR(distances[1], std::sqrt(2.0f), 1e-6f);
+  EXPECT_NEAR(distances[2], 1.0f, 1e-6f);
+
+  std::vector<float> zero_desc = { 0.0f, 0.0f };
+  auto zero_distances
+      = ax_utils::embeddings_euclidean_distance(zero_desc, embeddings, true);
+  ASSERT_EQ(zero_distances.size(), 3u);
+  EXPECT_NEAR(zero_distances[0], 1.0f, 1e-6f);
+  EXPECT_NEAR(zero_distances[1], 1.0f, 1e-6f);
+  EXPECT_NEAR(zero_distances[2], 0.0f, 1e-6f);
+}
+
+TEST(AxOpUtils, EmbeddingsCosineDistance)
+{
+  Eigen::MatrixXf embeddings(4, 2);
+  embeddings.row(0) << 2.0f, 1.0f;
+  embeddings.row(1) << 2.0f, -1.0f;
+  embeddings.row(2) << 1.0f, 0.0f;
+  embeddings.row(3) << 0.0f, 2.0f;
+
+  std::vector<float> desc = { 1.0f, 2.0f };
+  auto distances = ax_utils::embeddings_cosine_distance(desc, embeddings);
+
+  ASSERT_EQ(distances.size(), 4u);
+  const float inv_sqrt5 = 1.0f / std::sqrt(5.0f);
+  const float kPi = static_cast<float>(M_PI);
+  EXPECT_NEAR(distances[0], std::acos(0.8f) / kPi, 1e-5f);
+  EXPECT_NEAR(distances[1], 0.5f, 1e-5f);
+  EXPECT_NEAR(distances[2], std::acos(inv_sqrt5) / kPi, 1e-5f);
+  EXPECT_NEAR(distances[3], std::acos(2.0f * inv_sqrt5) / kPi, 1e-5f);
+}
+
+TEST(AxOpUtils, EmbeddingsCosineDistanceOriginalEdge)
+{
+  Eigen::MatrixXf embeddings(4, 2);
+  embeddings << 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f;
+
+  std::vector<float> desc = { 1.0f, 0.0f };
+  auto distances = ax_utils::embeddings_cosine_distance(desc, embeddings);
+
+  ASSERT_EQ(distances.size(), 4u);
+  EXPECT_NEAR(distances[0], 0.0f, 1e-6f);
+  EXPECT_NEAR(distances[1], 0.5f, 1e-6f);
+  EXPECT_NEAR(distances[2], 0.25f, 1e-6f);
+  EXPECT_NEAR(distances[3], 0.5f, 1e-6f);
+}
+
+TEST(AxOpUtils, EmbeddingsSquaredEuclideanDistanceNoNormalise)
+{
+  Eigen::MatrixXf embeddings(3, 2);
+  embeddings << 1.0f, 2.0f, 2.0f, 2.0f, 4.0f, 6.0f;
+
+  std::vector<float> desc = { 1.0f, 2.0f };
+  auto distances
+      = ax_utils::embeddings_squared_euclidean_distance(desc, embeddings, false);
+
+  ASSERT_EQ(distances.size(), 3u);
+  EXPECT_NEAR(distances[0], 0.0f, 1e-6f);
+  EXPECT_NEAR(distances[1], 1.0f, 1e-6f);
+  EXPECT_NEAR(distances[2], 25.0f, 1e-6f);
+}
+
+TEST(AxOpUtils, EmbeddingsSquaredEuclideanDistanceNormalise)
+{
+  Eigen::MatrixXf embeddings(3, 2);
+  embeddings << 3.0f, 0.0f, 0.0f, 4.0f, 0.0f, 0.0f;
+
+  std::vector<float> desc = { 6.0f, 0.0f };
+  auto distances = ax_utils::embeddings_squared_euclidean_distance(desc, embeddings, true);
+
+  ASSERT_EQ(distances.size(), 3u);
+  EXPECT_NEAR(distances[0], 0.0f, 1e-6f);
+  EXPECT_NEAR(distances[1], 2.0f, 1e-6f);
+  EXPECT_NEAR(distances[2], 1.0f, 1e-6f);
+
+  std::vector<float> zero_desc = { 0.0f, 0.0f };
+  auto zero_distances
+      = ax_utils::embeddings_squared_euclidean_distance(zero_desc, embeddings, true);
+  ASSERT_EQ(zero_distances.size(), 3u);
+  EXPECT_NEAR(zero_distances[0], 1.0f, 1e-6f);
+  EXPECT_NEAR(zero_distances[1], 1.0f, 1e-6f);
+  EXPECT_NEAR(zero_distances[2], 0.0f, 1e-6f);
+}
+
 TEST(FacenetDecoder, PairValidationMode)
 {
   std::vector<float> embeddings = { 0.134798, 0.269696, 0.404494, 0.539393, 0.674191 };
@@ -115,9 +242,8 @@ TEST(FacenetDecoder, ClassificationModeEuclidean)
   auto tmp_file = tempfile(embeddings_json.dump());
 
   std::unordered_map<std::string, std::string> input = { { "meta_key", meta_identifier },
-    { "pair_validation", "0" }, { "metric_type", "1" }, // EUCLIDEAN_DISTANCE
-    { "top_k", "1" }, { "distance_threshold", "0.5" },
-    { "embeddings_file", tmp_file.filename() } };
+    { "pair_validation", "0" }, { "metric_type", "euclidean_distance" }, { "top_k", "1" },
+    { "distance_threshold", "0.5" }, { "embeddings_file", tmp_file.filename() } };
 
   auto decoder = Ax::LoadDecode("facenet", input);
   Ax::MetaMap metadata;
@@ -148,9 +274,8 @@ TEST(FacenetDecoder, ClassificationModeCosine)
   auto tmp_file = tempfile(embeddings_json.dump());
 
   std::unordered_map<std::string, std::string> input = { { "meta_key", meta_identifier },
-    { "pair_validation", "0" }, { "metric_type", "4" }, // COSINE_SIMILARITY
-    { "top_k", "2" }, { "distance_threshold", "0.7" },
-    { "embeddings_file", tmp_file.filename() } };
+    { "pair_validation", "0" }, { "metric_type", "cosine_similarity" }, { "top_k", "2" },
+    { "distance_threshold", "0.7" }, { "embeddings_file", tmp_file.filename() } };
 
   auto decoder = Ax::LoadDecode("facenet", input);
   Ax::MetaMap metadata;
@@ -167,8 +292,8 @@ TEST(FacenetDecoder, ClassificationModeCosine)
 
   // The normalized input embeddings should have the highest similarity with person1
   // given the test data. However, we're testing the order from the implementation here.
-  EXPECT_EQ(labels[0], "person2");
-  EXPECT_EQ(labels[1], "person1");
+  EXPECT_EQ(labels[0], "person1");
+  EXPECT_EQ(labels[1], "person2");
 }
 
 TEST(FacenetDecoder, InvalidInput)
@@ -213,7 +338,7 @@ TEST(FacenetDecoder, ThresholdMatching)
 
   // Use a very low threshold so matches will be invalid
   std::unordered_map<std::string, std::string> input = { { "meta_key", meta_identifier },
-    { "pair_validation", "0" }, { "metric_type", "1" }, // EUCLIDEAN_DISTANCE
+    { "pair_validation", "0" }, { "metric_type", "euclidean_distance" },
     { "top_k", "2" }, { "distance_threshold", "0.1" }, // Very strict threshold
     { "embeddings_file", tmp_file.filename() } };
 
@@ -315,9 +440,8 @@ TEST(FacenetDecoder, DeduplicateExactOnLoad)
   auto tmp_file = tempfile(embeddings_json.dump());
 
   std::unordered_map<std::string, std::string> input = { { "meta_key", "classification" },
-    { "pair_validation", "0" }, { "metric_type", "4" }, // COSINE_SIMILARITY
-    { "top_k", "1" }, { "distance_threshold", "0.5" },
-    { "embeddings_file", tmp_file.filename() } };
+    { "pair_validation", "0" }, { "metric_type", "cosine_similarity" }, { "top_k", "1" },
+    { "distance_threshold", "0.5" }, { "embeddings_file", tmp_file.filename() } };
 
   // Recognition mode: should deduplicate and proceed
   auto decoder = Ax::LoadDecode("facenet", input);
@@ -338,7 +462,7 @@ TEST(FacenetDecoder, UpdateModeAlertsNearDuplicates)
   auto tmp_file = tempfile(embeddings_json.dump());
 
   std::unordered_map<std::string, std::string> input = { { "meta_key", "classification" },
-    { "pair_validation", "0" }, { "metric_type", "4" }, // COSINE_SIMILARITY
+    { "pair_validation", "0" }, { "metric_type", "cosine_similarity" },
     { "top_k", "1" }, { "distance_threshold", "0.5" },
     { "embeddings_file", tmp_file.filename() }, { "update_embeddings", "1" } };
 

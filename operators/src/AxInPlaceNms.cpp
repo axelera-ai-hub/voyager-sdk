@@ -80,8 +80,13 @@ template <typename T>
 void
 run_on_cpu_or_gpu(T &meta, const nms_properties *details, Ax::Logger &logger)
 {
+  auto merge = details->flatten;
+  if constexpr (std::is_same_v<T, AxMetaSegmentsDetection>) {
+    merge = false;
+  }
+
   meta = non_max_suppression(meta, details->nms_threshold,
-      details->class_agnostic, details->max_boxes, details->flatten);
+      details->class_agnostic, details->max_boxes, merge);
 }
 
 std::unique_ptr<AxMetaObjDetection>
@@ -122,10 +127,13 @@ flatten_metadata(const std::vector<AxMetaBase *> &meta)
   if (meta.empty()) {
     return nullptr;
   }
-  if (auto *m = dynamic_cast<AxMetaObjDetection *>(meta[0])) {
+  if (dynamic_cast<AxMetaObjDetection *>(meta[0])) {
     return flatten_metadata_t<AxMetaObjDetection>(meta);
-  } else if (auto *m = dynamic_cast<AxMetaKptsDetection *>(meta[0])) {
+  } else if (dynamic_cast<AxMetaKptsDetection *>(meta[0])) {
     return flatten_metadata_t<AxMetaKptsDetection>(meta);
+  } else if (dynamic_cast<AxMetaSegmentsDetection *>(meta[0])) {
+    //  We do not flatten segments metadata yet
+    return nullptr;
   } else {
     throw std::runtime_error("flatten_metadata : Metadata type not supported yet: "
                              + std::string(typeid(*meta[0]).name()));
@@ -168,6 +176,19 @@ inplace(const AxDataInterface &, const nms_properties *details, unsigned int,
       return;
     }
     metas = { ret.first->second.get() };
+  } else if (details->flatten) {
+    //  If we get here we have a request to flatten on a type of metadata that does not support it
+    //  Currently this is only AxMetaSegmentsDetection
+    //  We need to do some smart flattening so that we can perform NMS on all of the submetas together
+    //  and then move the submetas to meta_key
+    auto flattened = non_max_suppression(metas, details->nms_threshold,
+        details->class_agnostic, details->max_boxes);
+    auto ret = map.try_emplace(details->meta_key, std::move(flattened));
+    if (!ret.second) {
+      logger(AX_ERROR) << "inplace_nms : Failed to insert flattened metadata" << std::endl;
+    }
+
+    return;
   }
   for (auto m : metas) {
     if (!m) {

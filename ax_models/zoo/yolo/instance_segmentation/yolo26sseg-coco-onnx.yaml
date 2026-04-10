@@ -1,0 +1,64 @@
+axelera-model-format: 1.0.0
+
+name: yolo26sseg-coco-onnx
+
+description: yolo26s instance segmentation, 640x640 (COCO), NMS free model
+
+pipeline:
+  - segmentations:
+      model_name: yolo26sseg-coco-onnx
+      input:
+        type: image
+      preprocess:
+        - letterbox:
+            half_pixel_centers: true
+            height: ${{input_height}}
+            scaleup: true
+            width: ${{input_width}}
+        - torch-totensor:
+      inference:
+        handle_all: false
+      postprocess:
+        - decodeyolo26seg:
+            box_format: xyxy
+            conf_threshold: 0.25
+            dfl_size: 1
+            label_filter: ${{label_filter}}
+            nms_free: true
+            nms_top_k: 300
+            normalized_coord: false
+            use_multi_label: false
+            eval:
+              conf_threshold: 0.001
+              dfl_size: 1
+              use_multi_label: true
+
+models:
+  yolo26sseg-coco-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: yolo26s-seg.onnx
+    weight_url: https://media.axelera.ai/artifacts/model_cards/weights/yolo/instance_segmentation/yolo26s-seg-202602-official.onnx
+    weight_md5: 3ca8a68a8bbe3206fa07677f813580eb
+    task_category: InstanceSegmentation
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 640, 640]
+    input_color_format: RGB
+    num_classes: 80
+    dataset: CocoDataset-Segment-COCO2017
+    extra_kwargs:
+      yolo26_seg_insert_proto_identity: true
+      compiler_config_file: yolo26.toml
+
+datasets:
+  CocoDataset-Segment-COCO2017:
+    class: SegDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
+    data_dir_name: coco
+    labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/coco.names
+    label_type: COCO2017
+
+operators:
+  decodeyolo26seg:
+    class: DecodeYoloSeg
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/yoloseg.py

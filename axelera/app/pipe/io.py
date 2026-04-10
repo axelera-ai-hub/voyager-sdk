@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Construct application pipeline
 from __future__ import annotations
 
@@ -211,11 +211,11 @@ class DatasetInput(PipeInput):
 def _parse_livestream_location(location: str) -> Tuple[str, str, str]:
     # example: location=rtsp://id:pwd@10.40.130.221/axis-media/media.amp?audio=0&videocodec=jpeg&resolution=1280x960
     res = urllib.parse.urlparse(location)
-    username = res.username or ''
-    password = res.password or ''
+    username = urllib.parse.unquote(res.username or '')
+    password = urllib.parse.unquote(res.password or '')
     # urllib won't let you replace user/pass and leaves it in netloc, so instead:
     if '@' in res.netloc:
-        res = res._replace(netloc=res.netloc.split('@', 1)[1])
+        res = res._replace(netloc=res.netloc.rsplit('@', 1)[1])
     return username, password, urllib.parse.urlunparse(res)
 
 
@@ -401,18 +401,25 @@ class SinglePipeInput(PipeInput):
     def frame_generator(self) -> FrameInputGenerator:
         if self._src.type == config.SourceType.IMAGE_FILES:
             LOG.debug("Create image generator from a series of images")
-            for image in self._src.images:
-                if (frame := cv2.imread(str(image))) is None:
-                    raise RuntimeError(f"Failed to read image: {image}")
-                img = types.Image.fromarray(frame, types.ColorFormat.BGR)
-                img_id = os.path.relpath(str(image), os.getcwd())
-                yield types.FrameInput(img=img, img_id=img_id, stream_id=self._sid)
+            while True:
+                for image in self._src.images:
+                    if (frame := cv2.imread(str(image))) is None:
+                        raise RuntimeError(f"Failed to read image: {image}")
+                    img = types.Image.fromarray(frame, types.ColorFormat.BGR)
+                    img_id = os.path.relpath(str(image), os.getcwd())
+                    yield types.FrameInput(img=img, img_id=img_id, stream_id=self._sid)
+                if self._src.loop:
+                    LOG.debug("End of image directory, looping")
+                    continue
+                break
             LOG.trace("Finished iterating images from a file list")
 
         elif self._src.type == config.SourceType.DATA_SOURCE:
             LOG.debug("Create image generator from a python generator of images")
             for frame in self._src.reader:
                 try:
+                    if frame is None:
+                        raise TypeError("Cannot create Image from None")
                     img = types.Image.fromany(frame, types.ColorFormat.BGR)
                 except TypeError:
                     raise RuntimeError(
@@ -466,6 +473,7 @@ class SinglePipeInput(PipeInput):
         elif self._src.type in (config.SourceType.IMAGE_FILES, config.SourceType.DATA_SOURCE):
             _build_data_loader(gst, stream_idx)
             gst.images = [os.path.relpath(str(i), os.getcwd()) for i in self._src.images]
+            fps_limit = f';fps_limit:{self._requested_fps}' if self._requested_fps else ''
         elif self._src.type == config.SourceType.VIDEO_FILE:
             gst.filesrc(location=self._src.location)
             requires_decodebin = True

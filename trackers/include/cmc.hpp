@@ -1,8 +1,9 @@
+// Copyright Axelera AI, 2025
 #ifndef CMC_HPP
 #define CMC_HPP
 
 #include <Eigen/Dense>
-#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
 #include <string>
 #include <unordered_map>
 #include <vector>

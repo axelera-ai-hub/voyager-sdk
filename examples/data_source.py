@@ -1,10 +1,16 @@
 #!/usr/bin/env python
 # Copyright Axelera AI, 2025
 import os
+import sys
 import time
 
 from axelera.types import ColorFormat, Image
 import cv2
+
+if __name__ == '__main__':
+    # Application Framework is not a package, so add it to the path to import it
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
 
 from axelera.app import config, display
 from axelera.app.stream import create_inference_stream
@@ -18,9 +24,13 @@ SOURCES = [
 TITLE = "Axelera Python Data Reader Example"
 TITLE_FONT = 39
 
-LOGO0 = os.path.join(config.env.framework, "axelera/app/axelera-ai-logo-logo-only.png")
-LOGO1 = os.path.join(config.env.framework, "axelera/app/voyager-sdk-logo-white.png")
-LOGO2 = os.path.join(config.env.framework, "axelera/app/axelera-ai-logo-text-only.png")
+LOGO0 = os.path.join(
+    config.env.framework, "axelera/app/render_assets/axelera-ai-logo-logo-only.png"
+)
+LOGO1 = os.path.join(config.env.framework, "axelera/app/render_assets/voyager-sdk-logo-white.png")
+LOGO2 = os.path.join(
+    config.env.framework, "axelera/app/render_assets/axelera-ai-logo-text-only.png"
+)
 
 
 def frame_reader(src):

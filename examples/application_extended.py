@@ -1,13 +1,20 @@
 #!/usr/bin/env python
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 # Extended app with additional config, showing advanced usage of metadata
+import os
+import sys
 import time
+
+if __name__ == '__main__':
+    # Application Framework is not a package, so add it to the path to import it
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
 
 from axelera.app import config, display, inf_tracers, logging_utils
 from axelera.app.stream import create_inference_stream
 
 framework = config.env.framework
-tracers = inf_tracers.create_tracers('core_temp', 'end_to_end_fps', 'cpu_usage')
+tracers = inf_tracers.create_tracers('core_temp', 'end_to_end_fps', 'cpu_usage', pipe_type='gst')
 stream = create_inference_stream(
     network="yolov5m-v7-coco-tracker",
     sources=[

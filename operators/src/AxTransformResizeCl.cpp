@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2026
+// Copyright Axelera AI, 2024
 #include <array>
 #include <unordered_map>
 #include <unordered_set>
@@ -31,218 +31,33 @@ struct resize_properties {
   std::unique_ptr<CLResize> resize;
 };
 
-const char *kernel_cl = R"##(
+const char *resize_kernel = R"##(
 
+uchar4 color_convert(uchar4 pixel, float16 matrix) {
+    float4 in_pixel = convert_float4(pixel);
+    float4 color = mad(in_pixel.x, matrix.s0123, mad(in_pixel.y, matrix.s4567, mad(in_pixel.z, matrix.s89ab, matrix.scdef)));
+    color.w = in_pixel.w;
+    return convert_uchar4_sat(color);
+}
 
-__kernel void rgba_resize_bl(__global const uchar4 *in, __global uchar4 *out, int in_width, int in_height, int crop_x, int crop_y,
-                            int out_width, int out_height, int strideIn, int strideOut, float xscale, float yscale, int scaled_width,
-                            int scaled_height, uchar fill, uchar is_bgr, float4 mul, float4 add) {
+__kernel void resize_kernel_cl(__global const %s *in, __global %s *out, int4 image_dims, int crop_x, int crop_y,
+                            int4 strides, int4 offsets, float xscale, float yscale, int scaled_width,
+                            int scaled_height, uchar fill, float4 mul, float4 add, float16 color_matrix) {
 
     const int col = get_global_id(0);
     const int row = get_global_id(1);
-
-    int xoffset = (out_width - scaled_width) / 2;
-    int yoffset = (out_height - scaled_height) / 2;
-
-    int strideO = strideOut / sizeof(uchar4);
-    if (col < xoffset || row < yoffset || col >= scaled_width + xoffset || row >= scaled_height + yoffset) {
-      if (row < out_height && col < out_width) {
-        uchar4 pixel = (uchar4)(fill, fill, fill, 255);
-        if (mul.x != 0.0F) {
-          char4 pix = convert_char4_sat(mad(convert_float4(pixel), mul, add));
-          pixel = convert_uchar4(pix);
-        }
-        out[row * strideO + col] = pixel;
-      }
+    if (row >= image_dims.w || col >= image_dims.z) {
       return;
     }
 
-    int strideI = strideIn / sizeof(uchar4);
-    rgb_image img = {in_width, in_height, strideI, crop_x, crop_y};
-    uchar4 pixel = rgba_sampler_bl(in, (0.5F + col - xoffset) * xscale, (0.5F + row - yoffset) * yscale, &img);
-    pixel = is_bgr ? pixel.zyxw : pixel;
-    if (mul.x != 0.0F) {
-      char4 pix = convert_char4_sat(mad(convert_float4(pixel), mul, add));
-      pixel = convert_uchar4(pix);
-    }
-    out[row * strideO + col] = pixel;
-}
+    int xoffset = (image_dims.z - scaled_width) / 2;
+    int yoffset = (image_dims.w - scaled_height) / 2;
 
-__kernel void rgb_resize_bl(__global const uchar *in, __global uchar4 *out, int in_width, int in_height, int crop_x, int crop_y,
-                            int out_width, int out_height, int strideIn, int strideOut, float xscale, float yscale, int scaled_width,
-                            int scaled_height, uchar fill, uchar is_bgr, float4 mul, float4 add) {
-
-    const int col = get_global_id(0);
-    const int row = get_global_id(1);
-
-    int xoffset = (out_width - scaled_width) / 2;
-    int yoffset = (out_height - scaled_height) / 2;
-
-    int strideO = strideOut / sizeof(uchar4);
-
-    if (col < xoffset || row < yoffset || col >= scaled_width + xoffset || row >= scaled_height + yoffset) {
-      if (row < out_height && col < out_width) {
-        uchar4 pixel = (uchar4)(fill, fill, fill, 255);
-        if (mul.x != 0.0F) {
-          char4 pix = convert_char4_sat(mad(convert_float4(pixel), mul, add));
-          pixel = convert_uchar4(pix);
-        }
-        out[row * strideO + col] = pixel;
-      }
-      return;
-    }
-
-    rgb_image img = {in_width, in_height, strideIn, crop_x, crop_y};
-    uchar4 pixel = rgb_sampler_bl(in, (0.5F + col - xoffset) * xscale, (0.5F + row - yoffset) * yscale, &img);
-    pixel = is_bgr ? pixel.zyxw : pixel;
-    if (mul.x != 0.0F) {
-      char4 pix = convert_char4_sat(mad(convert_float4(pixel), mul, add));
-      pixel = convert_uchar4(pix);
-    }
-    out[row * strideO + col] = pixel;
-}
-
-
-__kernel void nv12_resize_bl(__global const uchar *in_y, __global uchar4 *out, int uv_offset, int in_width, int in_height,
-                            int crop_x, int crop_y, int out_width, int out_height, int strideInY, int strideInUV, int strideOut,
-                            float xscale, float yscale, int scaled_width, int scaled_height, uchar fill, uchar is_bgr, float4 mul, float4 add) {
-
-    const int col = get_global_id(0);
-    const int row = get_global_id(1);
-
-    int xoffset = (out_width - scaled_width) / 2;
-    int yoffset = (out_height - scaled_height) / 2;
-
-    int strideO = strideOut / sizeof(uchar4);
-    if (col < xoffset || row < yoffset || col >= scaled_width + xoffset || row >= scaled_height + yoffset) {
-      if (row < out_height && col < out_width) {
-        uchar4 pixel = (uchar4)(fill, fill, fill, 255);
-        if (mul.x != 0.0F) {
-          char4 pix = convert_char4_sat(mad(convert_float4(pixel), mul, add));
-          pixel = convert_uchar4(pix);
-        }
-        out[row * strideO + col] = pixel;
-      }
-      return;
-    }
-
-    __global uchar2 *in_uv = (__global uchar2 *)(in_y + uv_offset);
-    int uvStrideI = strideInUV / sizeof(uchar2);
-    nv12_image img = {in_width, in_height, strideInY, uvStrideI, crop_x, crop_y};
-    uchar4 pixel = nv12_sampler(in_y, in_uv, (0.5F + col - xoffset) * xscale, (0.5F + row - yoffset) * yscale, &img);
-    pixel = is_bgr ? pixel.zyxw : pixel;
-    if (mul.x != 0.0F) {
-      char4 pix = convert_char4_sat(mad(convert_float4(pixel), mul, add));
-      pixel = convert_uchar4(pix);
-    }
-    out[row * strideO + col] = pixel;
-}
-
-__kernel void i420_resize_bl(__global const uchar *in_y, __global uchar4 *out, int u_offset, int v_offset, int in_width, int in_height,
-                            int crop_x, int crop_y, int out_width, int out_height, int strideInY, int strideInU, int strideInV, int strideOut,
-                            float xscale, float yscale, int scaled_width, int scaled_height, uchar fill, uchar is_bgr, float4 mul, float4 add) {
-
-    const int col = get_global_id(0);
-    const int row = get_global_id(1);
-
-    int xoffset = (out_width - scaled_width) / 2;
-    int yoffset = (out_height - scaled_height) / 2;
-
-    int strideO = strideOut / sizeof(uchar4);
-    if (col < xoffset || row < yoffset || col >= scaled_width + xoffset || row >= scaled_height + yoffset) {
-      if (row < out_height && col < out_width) {
-        uchar4 pixel = (uchar4)(fill, fill, fill, 255);
-        if (mul.x != 0.0F) {
-          char4 pix = convert_char4_sat(mad(convert_float4(pixel), mul, add));
-          pixel = convert_uchar4(pix);
-        }
-        out[row * strideO + col] = pixel;
-      }
-      return;
-    }
-
-    __global const uchar *in_u = in_y + u_offset;
-    __global const uchar *in_v = in_y + v_offset;
-
-    i420_image img = {in_width, in_height, strideInY, strideInU, strideInV, crop_x, crop_y};
-    uchar4 pixel = i420_sampler(in_y, in_u, in_v, (0.5F + col - xoffset) * xscale, (0.5F + row - yoffset) * yscale, &img);
-    pixel = is_bgr ? pixel.zyxw : pixel;
-    if (mul.x != 0.0F) {
-      char4 pix = convert_char4_sat(mad(convert_float4(pixel), mul, add));
-      pixel = convert_uchar4(pix);
-    }
-    out[row * strideO + col] = pixel;
-}
-
-__kernel void yuyv_resize_bl(__global const uchar4 *in_y, __global uchar4 *out, int in_width, int in_height,
-                            int crop_x, int crop_y, int out_width, int out_height, int strideInY, int strideOut,
-                            float xscale, float yscale, int scaled_width, int scaled_height, uchar fill, uchar is_bgr, float4 mul, float4 add) {
-
-    const int col = get_global_id(0);
-    const int row = get_global_id(1);
-
-    int xoffset = (out_width - scaled_width) / 2;
-    int yoffset = (out_height - scaled_height) / 2;
-
-    int strideO = strideOut / sizeof(uchar4);
-    int strideI = strideInY / sizeof(uchar4);
-    if (col < xoffset || row < yoffset || col >= scaled_width + xoffset || row >= scaled_height + yoffset) {
-      if (row < out_height && col < out_width) {
-        uchar4 pixel = (uchar4)(fill, fill, fill, 255);
-        if (mul.x != 0.0F) {
-          char4 pix = convert_char4_sat(mad(convert_float4(pixel), mul, add));
-          pixel = convert_uchar4(pix);
-        }
-        out[row * strideO + col] = pixel;
-      }
-      return;
-    }
-
-    yuyv_image img = {in_width, in_height, strideI, crop_x, crop_y};
-    uchar4 pixel = yuyv_sampler(in_y, (0.5F + col - xoffset) * xscale, (0.5F + row - yoffset) * yscale, &img);
-    pixel = is_bgr ? pixel.zyxw : pixel;
-    if (mul.x != 0.0F) {
-      char4 pix = convert_char4_sat(mad(convert_float4(pixel), mul, add));
-      pixel = convert_uchar4(pix);
-    }
-    out[row * strideO + col] = pixel;
-}
-
-__kernel void gray8_resize_bl(__global const uchar *in, __global uchar *out, int in_width, int in_height,
-                            int crop_x, int crop_y, int out_width, int out_height, int strideIn, int strideOut,
-                            float xscale, float yscale, int scaled_width, int scaled_height, uchar fill, float mul, float add) {
-
-    const int col = get_global_id(0);
-    const int row = get_global_id(1);
-
-    int xoffset = (out_width - scaled_width) / 2;
-    int yoffset = (out_height - scaled_height) / 2;
-
-    int strideO = strideOut / sizeof(uchar);
-    if (col < xoffset || row < yoffset || col >= scaled_width + xoffset || row >= scaled_height + yoffset) {
-      if (row < out_height && col < out_width) {
-        uchar pixel = fill;
-        if (mul != 0.0F) {
-          char pix = convert_char_sat(mad(convert_float(pixel), mul, add));
-          pixel = convert_uchar(pix);
-        }
-        out[row * strideO + col] = pixel;
-      }
-      return;
-    }
-
-    gray8_image img = {in_width, in_height, strideIn, crop_x, crop_y};
-    float src_x = ((col - xoffset) + 0.5F) * xscale;
-    float src_y = ((row - yoffset) + 0.5F) * yscale;
-    uchar pixel = gray8_sampler_bl(in, src_x, src_y, &img);
-    if (mul != 0.0F) {
-      char pix = convert_char_sat(mad(convert_float(pixel), mul, add));
-      pixel = convert_uchar(pix);
-    }
-    out[row * strideO + col] = pixel;
-}
+    float2 corrected = ((float2)(0.5F + col - xoffset, 0.5F + row - yoffset) * (float2)(xscale, yscale));
+    image_description img = {image_dims, strides, offsets, (int4)(xoffset, yoffset, scaled_width, scaled_height), (int4)(crop_x, crop_y, 0, 0)};
 
 )##";
+
 
 using ax_utils::buffer_details;
 using ax_utils::CLProgram;
@@ -259,61 +74,53 @@ add_alpha(AxVideoFormat format)
   return format;
 }
 
+ax_utils::CLProgram::ax_kernel
+build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
+    AxVideoFormat out_format, int flip_type, const resize_properties &prop)
+{
+  std::string kernel_code = resize_kernel;
+
+  auto [unused1, in_type, sampler_code] = ax_utils::get_input_details(in_format);
+  auto [unused2, out_type, output_code]
+      = prop.mul[0] != 0.0F ? ax_utils::get_output_norm_details(in_format, out_format) :
+                              ax_utils::get_output_details(in_format, out_format);
+
+  auto n = snprintf(nullptr, 0, kernel_code.c_str(), in_type.c_str(), out_type.c_str());
+  std::vector<char> buffer(n + 1);
+  snprintf(buffer.data(), buffer.size(), kernel_code.c_str(), in_type.c_str(),
+      out_type.c_str());
+  auto final_kernel = std::string(buffer.data());
+  final_kernel += ax_utils::get_rotation(flip_type);
+  final_kernel += sampler_code;
+  final_kernel += output_code;
+  final_kernel = ax_utils::get_kernel_utils(flip_type) + final_kernel;
+
+  return program.build_kernel_from_source(final_kernel, "resize_kernel_cl");
+}
+
 class CLResize
 {
   using buffer = CLProgram::ax_buffer;
   using kernel = CLProgram::ax_kernel;
 
   public:
-  CLResize(std::string source, opencl_details *display, Ax::Logger &logger)
-      : program(ax_utils::get_kernel_utils() + source, display, logger),
-        rgba_resize{ program.get_kernel("rgba_resize_bl") }, //
-        rgb_resize{ program.get_kernel("rgb_resize_bl") }, //
-        nv12_resize{ program.get_kernel("nv12_resize_bl") },
-        i420_resize{ program.get_kernel("i420_resize_bl") }, //
-        yuyv_resize{ program.get_kernel("yuyv_resize_bl") }, gray8_resize{
-          program.get_kernel("gray8_resize_bl")
-        }
+  CLResize(opencl_details *display, Ax::Logger &logger)
+      : program("", display, logger)
   {
   }
 
-  ax_utils::CLProgram::flush_details run_kernel(cl_kernel kernel,
-      const buffer_details &out, const buffer &outbuf, bool start_flush)
+  cl_kernel get_converter(ax_utils::CLProgram &program, AxVideoFormat in_format,
+      AxVideoFormat out_format, int flip_type, const resize_properties &prop)
   {
-    size_t global_work_size[3] = { 1, 1, 1 };
-    global_work_size[0] = out.width;
-    global_work_size[1] = out.height;
-    error = program.execute_kernel(kernel, 2, global_work_size);
-    if (error != CL_SUCCESS) {
-      throw std::runtime_error("Unable to execute kernel. Error code: "
-                               + ax_utils::cl_error_to_string(error));
+    auto hash = (static_cast<int>(in_format) << 16)
+                + (static_cast<int>(out_format) << 8) + flip_type;
+    auto it = std::find_if(std::begin(all_kernels), std::end(all_kernels),
+        [hash](auto &x) { return x.hash == hash; });
+    if (it != all_kernels.end()) {
+      return *it->cl_prog;
     }
-    if (start_flush) {
-      //  Here the downstream does not support OpenCL buffers, so start the
-      //  mapping now.
-      return program.start_flush_output_buffer(outbuf, out.stride * out.height);
-    }
-    return {};
-  }
-
-  int run_kernel(cl_kernel k, const buffer_details &out, buffer &inbuf,
-      buffer &outbuf, bool start_flush)
-  {
-    auto details = run_kernel(k, out, outbuf, start_flush);
-    if (details.event) {
-      // The downstream does not support OpenCL buffers so the buffer has begun
-      //  mapping to system memory. The event will be signalled when complete.
-      //  Store this away so that when the buffer is mapped we just wait on the
-      //  event.
-      if (auto *p = std::get_if<opencl_buffer *>(&out.data)) {
-        (*p)->event = std::move(details.event);
-        (*p)->mapped = details.mapped;
-      } else {
-        clWaitForEvents(1, &*details.event);
-        details.event.reset();
-      }
-    }
-    return 0;
+    auto k = build_kernel(program, in_format, out_format, flip_type, prop);
+    return *all_kernels.emplace_back(hash, std::move(k)).cl_prog;
   }
 
   ax_utils::CLProgram::ax_buffer create_buffer(const buffer_details &info, cl_mem_flags flags)
@@ -323,6 +130,7 @@ class CLResize
 
   int run(const buffer_details &in, const buffer_details &out, const resize_properties &prop)
   {
+    auto converter = get_converter(program, in.format, out.format, 0, prop);
     bool start_flush = prop.downstream_supports_opencl == 0;
     cl_float xscale = (float) in.width / out.width;
     cl_float yscale = (float) in.height / out.height;
@@ -352,78 +160,31 @@ class CLResize
       scaled_height = in.height;
     }
     cl_uchar fill = prop.fill;
+    auto image_dims = (cl_int4){ in.width, in.height, out.width, out.height };
+    auto strides = ax_utils::build_strides(in, out);
+    auto offsets = ax_utils::build_offsets(in, out);
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
+    auto inbuf_y = create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
+    auto matrix = ax_utils::get_color_conversion_matrix(in.format, out.format);
+    program.set_kernel_args(converter, 0, *inbuf_y, *outbuf, image_dims,
+        in.crop_x, in.crop_y, strides, offsets, xscale, yscale, scaled_width,
+        scaled_height, fill, prop.mul, prop.add, matrix);
+    return run_kernel(program, converter, in, out, inbuf_y, outbuf, start_flush);
+  }
 
-    if (in.format == AxVideoFormat::RGBA || in.format == AxVideoFormat::BGRA
-        || in.format == AxVideoFormat::RGB || in.format == AxVideoFormat::BGR) {
-      auto inbuf = create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
-
-      cl_char is_bgr = add_alpha(in.format) != out.format;
-      auto kernel = in.format == AxVideoFormat::RGB || in.format == AxVideoFormat::BGR ?
-                        *rgb_resize :
-                        *rgba_resize;
-      program.set_kernel_args(kernel, 0, *inbuf, *outbuf, in.width, in.height,
-          in.crop_x, in.crop_y, out.width, out.height, in.stride, out.stride, xscale,
-          yscale, scaled_width, scaled_height, fill, is_bgr, prop.mul, prop.add);
-      return run_kernel(kernel, out, inbuf, outbuf, start_flush);
-
-    } else if (in.format == AxVideoFormat::NV12) {
-      auto inbuf_y = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
-
-      cl_int uv_offset = in.offsets[1];
-      cl_int uv_stride = in.strides[1];
-      cl_char is_bgr = out.format == AxVideoFormat::BGRA;
-      program.set_kernel_args(*nv12_resize, 0, *inbuf_y, *outbuf, uv_offset,
-          in.width, in.height, in.crop_x, in.crop_y, out.width, out.height,
-          in.stride, uv_stride, out.stride, xscale, yscale, scaled_width,
-          scaled_height, fill, is_bgr, prop.mul, prop.add);
-      return run_kernel(*nv12_resize, out, inbuf_y, outbuf, start_flush);
-    } else if (in.format == AxVideoFormat::I420) {
-      auto inbuf_y = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
-
-      cl_int u_offset = in.offsets[1];
-      cl_int u_stride = in.strides[1];
-      cl_int v_offset = in.offsets[2];
-      cl_int v_stride = in.strides[2];
-      cl_char is_bgr = out.format == AxVideoFormat::BGRA;
-      program.set_kernel_args(*i420_resize, 0, *inbuf_y, *outbuf, u_offset,
-          v_offset, in.width, in.height, in.crop_x, in.crop_y, out.width,
-          out.height, in.stride, u_stride, v_stride, out.stride, xscale, yscale,
-          scaled_width, scaled_height, fill, is_bgr, prop.mul, prop.add);
-
-      return run_kernel(*i420_resize, out, inbuf_y, outbuf, start_flush);
-
-    } else if (in.format == AxVideoFormat::YUY2) {
-      auto inbuf_y = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
-
-      cl_char is_bgr = out.format == AxVideoFormat::BGRA;
-      program.set_kernel_args(*yuyv_resize, 0, *inbuf_y, *outbuf, in.width, in.height,
-          in.crop_x, in.crop_y, out.width, out.height, in.stride, out.stride, xscale,
-          yscale, scaled_width, scaled_height, fill, is_bgr, prop.mul, prop.add);
-
-      return run_kernel(*yuyv_resize, out, inbuf_y, outbuf, start_flush);
-    } else if (in.format == AxVideoFormat::GRAY8) {
-      auto inbuf = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
-      program.set_kernel_args(*gray8_resize, 0, *inbuf, *outbuf, in.width, in.height,
-          in.crop_x, in.crop_y, out.width, out.height, in.stride, out.stride, xscale,
-          yscale, scaled_width, scaled_height, fill, prop.mul[0], prop.add[0]);
-      return run_kernel(*gray8_resize, out, inbuf, outbuf, start_flush);
-    } else {
-      throw std::runtime_error("Unsupported input format in resize_cl2: "
-                               + AxVideoFormatToString(in.format));
-    }
-    return {};
+  bool can_use_dmabuf() const
+  {
+    return program.can_use_dmabuf();
   }
 
   private:
   CLProgram program;
   int error{};
-  kernel rgba_resize;
-  kernel rgb_resize;
-  kernel nv12_resize;
-  kernel i420_resize;
-  kernel yuyv_resize;
-  kernel gray8_resize;
+  struct kernels {
+    int hash;
+    kernel cl_prog{ nullptr };
+  };
+  std::vector<kernels> all_kernels;
   struct last_buffer_details {
     buffer mem{ nullptr };
     buffer_details in{};
@@ -460,7 +221,7 @@ init_and_set_static_properties_with_context(
 {
   auto prop = std::make_shared<resize_properties>();
   prop->resize = std::make_unique<CLResize>(
-      kernel_cl, static_cast<ax_utils::opencl_details *>(context), logger);
+      static_cast<ax_utils::opencl_details *>(context), logger);
   prop->size = Ax::get_property(input, "size", "resize_cl_static_properties", prop->size);
   prop->width = Ax::get_property(input, "width", "resize_cl_static_properties", prop->width);
   prop->height
@@ -630,6 +391,7 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
     AxVideoFormat::RGBA,
     AxVideoFormat::BGRA,
     AxVideoFormat::NV12,
+    AxVideoFormat::NV16,
     AxVideoFormat::I420,
     AxVideoFormat::YUY2,
     AxVideoFormat::GRAY8,
@@ -656,13 +418,17 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
 }
 
 extern "C" bool
-query_supports(Ax::PluginFeature feature, const void *resize_properties, Ax::Logger &logger)
+query_supports(Ax::PluginFeature feature,
+    const resize_properties *resize_properties, Ax::Logger &logger)
 {
   if (feature == Ax::PluginFeature::opencl_buffers) {
     return true;
   }
   if (feature == Ax::PluginFeature::crop_meta) {
     return true;
+  }
+  if (feature == Ax::PluginFeature::dmabuf_buffers) {
+    return resize_properties->resize->can_use_dmabuf();
   }
   return Ax::PluginFeatureDefaults(feature);
 }

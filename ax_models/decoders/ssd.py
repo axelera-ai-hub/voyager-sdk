@@ -74,6 +74,7 @@ class DecodeSsdMobilenet(AxOperator):
         self.model_height = model_info.input_height
         self.labels = model_info.labels
         self.num_classes = model_info.num_classes
+        self._association = context.association or None
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
         if self._tmp_labels is None:
@@ -86,12 +87,15 @@ class DecodeSsdMobilenet(AxOperator):
                 ','.join(str(num) for num in sublist) for sublist in self._n_padded_ch_outputs
             )
         sieve = utils.build_class_sieve(self.label_filter, self.labels)
-
+        tiling = gst_builder.TileInfo(self, gst)
+        master_key, association_key = tiling.get_decode_keys()
         gst.decode_muxer(
             name=f'decoder_task{self._taskn}{stream_idx}',
             lib='libdecode_ssd2.so',
             mode='read',
             options=f'meta_key:{str(self.task_name)};'
+            f'{master_key}'
+            f'{association_key}'
             f'confidence_threshold:{self.conf_threshold};'
             f'classes:{self.num_classes};'
             f'classlabels_file:{self._tmp_labels};'
@@ -107,9 +111,15 @@ class DecodeSsdMobilenet(AxOperator):
             + (f';padding:{paddings}' if self._n_padded_ch_outputs else '')
             + (f';label_filter:{",".join(sieve)}' if sieve else ''),
         )
+
+        master_key = tiling.get_nms_keys()
         gst.axinplace(
             lib='libinplace_nms.so',
-            options=f'meta_key:{str(self.task_name)};nms_threshold:{self.nms_iou_threshold};class_agnostic:{int(self.nms_class_agnostic)};max_boxes:{self.nms_top_k}',
+            options=f'meta_key:{str(self.task_name)};'
+            f'{master_key}'
+            f'nms_threshold:{self.nms_iou_threshold};'
+            f'class_agnostic:{int(self.nms_class_agnostic)};'
+            f'max_boxes:{tiling.get_max_boxes(self.nms_top_k)}',
         )
 
     def exec_torch(self, image, predict, meta):

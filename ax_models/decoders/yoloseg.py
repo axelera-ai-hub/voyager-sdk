@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 # Operators that convert YOLO-SEG-specific tensor output to
 # generalized metadata representation
 
@@ -21,6 +21,9 @@ class DecodeYoloSeg(AxOperator):
     """
     Decoding YOLO-SEG into Axelera metadata
 
+    Supports both YOLO8-SEG and YOLO26-SEG models.
+    YOLO26 uses end-to-end detection with built-in NMS.
+
     Input:
         predict: batched predictions
         kwargs: model info
@@ -38,8 +41,9 @@ class DecodeYoloSeg(AxOperator):
     nms_class_agnostic: bool = True
     cpp_opt_heatmap: bool = False
     nms_iou_threshold: float = 0.7
-    nms_top_k: int = 30
-    unpad: bool = True
+    nms_top_k: int = 300
+    nms_free: bool = False  # True for YOLO26 (built-in NMS), False for YOLO8
+    dfl_size: int = 16  # DFL size: 1 for YOLO26, 16 for YOLO8/YOLO10
 
     def _post_init(self):
         self.label_filter = utils.parse_labels_filter(self.label_filter)
@@ -97,37 +101,44 @@ class DecodeYoloSeg(AxOperator):
         scales = ','.join(str(s) for s in self._deq_scales)
         zeros = ','.join(str(s) for s in self._deq_zeropoints)
         sieve = utils.build_class_sieve(self.label_filter, self.labels)
-        master_key = f'master_meta:{self._where};' if self._where else str()
-        association_key = f'association_meta:{self._association};' if self._association else str()
+
+        tiling = gst_builder.TileInfo(self, gst)
+        master_key, association_key = tiling.get_decode_keys()
 
         gst.decode_muxer(
             name=f'decoder_task{self._taskn}{stream_idx}',
-            lib='libdecode_yolov8seg.so',
+            lib='libdecode_yolov8.so',
             mode='read',
             options=f'meta_key:{str(self.task_name)};'
             f'decoder_name:{self.meta_type_name};'
             f'{master_key}'
             f'{association_key}'
             f'classes:{self.num_classes};'
+            f'num_seg_masks:32;'
             f'confidence_threshold:{self.conf_threshold};'
             f'scales:{scales};'
             f'zero_points:{zeros};'
             f'padding:{paddings};'
             f'multiclass:{int(self.use_multi_label)};'
-            f'classlabels_file:{self._tmp_labels};'
+            f'dfl_size:{self.dfl_size};'
+            + (f'topk:{self.nms_top_k};materialize_masks:1;' if self.nms_free else '')
+            + f'classlabels_file:{self._tmp_labels};'
             f'model_width:{self.model_width};'
             f'model_height:{self.model_height};'
             + (f';label_filter:{",".join(sieve)}' if sieve else ''),
         )
-        gst.axinplace(
-            lib='libinplace_nms.so',
-            options=f'meta_key:{str(self.task_name)};'
-            f'{master_key}'
-            f'max_boxes:{self.nms_top_k};'
-            f'nms_threshold:{self.nms_iou_threshold};'
-            f'class_agnostic:0;'
-            f'location:CPU;',
-        )
+        # NMS: skip for nms_free models unless tiling is enabled
+        if not self.nms_free or gst.tiling:
+            master_key = tiling.get_nms_keys(flatten_meta=1)
+            gst.axinplace(
+                lib='libinplace_nms.so',
+                options=f'meta_key:{str(self.task_name)};'
+                f'{master_key}'
+                f'max_boxes:{tiling.get_max_boxes(self.nms_top_k)};'
+                f'nms_threshold:{self.nms_iou_threshold};'
+                f'class_agnostic:0;'
+                f'location:CPU;',
+            )
 
     def exec_torch(self, image, predict, meta):
         if not isinstance(predict, list) or len(predict) != 2:
@@ -150,7 +161,13 @@ class DecodeYoloSeg(AxOperator):
             pred_bboxes = pred_bboxes.transpose([0, 2, 1])
 
         for pred, proto in zip(pred_bboxes, protos):
-            boxes, scores, classes, mask_coef = self._process_predictions(pred)
+            if self.nms_free:
+                # YOLO26 output format: [batch, num_detections, 6+mask_coeffs]
+                # where 6 = [x1, y1, x2, y2, confidence, class_id]
+                boxes, scores, classes, mask_coef = self._process_predictions_nms_free(pred)
+            else:
+                # YOLO8 format
+                boxes, scores, classes, mask_coef = self._process_predictions(pred)
             if self._where:
                 master_meta = meta[self._where]
                 # get boxes of the last secondary frame index
@@ -182,7 +199,9 @@ class DecodeYoloSeg(AxOperator):
                 self.normalized_coord,
                 self.scaled,
                 self.max_nms_boxes,
-                self.nms_iou_threshold,
+                nms_iou_threshold=(
+                    0.0 if self.nms_free else self.nms_iou_threshold
+                ),  # Disable NMS for YOLO26
                 nms_class_agnostic=self.nms_class_agnostic,
                 output_top_k=self.nms_top_k,
                 labels=self.labels,
@@ -246,4 +265,23 @@ class DecodeYoloSeg(AxOperator):
         scores = scores[mask]
         classes = classes[mask]
         mask_coef = mask_coef[mask]
+        return boxes, scores, classes, mask_coef
+
+    def _process_predictions_nms_free(self, pred):
+        """Process YOLO26 predictions with built-in NMS format."""
+        # YOLO26 output format: [num_detections, 6+mask_coeffs]
+        # where 6 = [x1, y1, x2, y2, confidence, class_id]
+
+        box_coordinates = pred[:, :4]  # x1, y1, x2, y2
+        box_confidence = pred[:, 4]  # confidence
+        box_classes = pred[:, 5]  # class_id
+        mask_coef = pred[:, 6:]  # mask coefficients
+
+        # Filter by confidence threshold
+        mask = box_confidence > self.conf_threshold
+        boxes = box_coordinates[mask]
+        scores = box_confidence[mask]
+        classes = box_classes[mask]
+        mask_coef = mask_coef[mask]
+
         return boxes, scores, classes, mask_coef

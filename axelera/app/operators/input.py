@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # A model pipeline must start from an Input Operator
 # which return a list of Axelera Image and meta.
 from __future__ import annotations
@@ -28,6 +28,8 @@ def get_input_operator(source: str):
         return Input
     elif source == "roi":
         return InputFromROI
+    elif source == "no_tiles":
+        return InputNoTiles
     elif source == "image_processing":
         return InputWithImageProcessing
     else:
@@ -77,9 +79,65 @@ class Input(AxOperator):
         super().configure_model_and_context_info(
             model_info, context, task_name, taskn, compiled_model_dir, task_graph
         )
-        context.color_format = self.color_format
+        if model_info.model_type is not types.ModelType.CLASSICAL_CV:
+            # CLASSIC_CV models typically do not require color conversion, so
+            # do not update the the pipeline color format
+            context.color_format = self.color_format
+            context.pipeline_input_color_format = self.color_format
         context.imreader_backend = self.imreader_backend
-        context.pipeline_input_color_format = self.color_format
+
+    def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
+        pass
+
+    def exec_torch(self, image, result, meta, stream_id=0):
+        if result is None and meta is None:
+            image = _convert_image_to_types_image_for_deploy(image, self.color_format)
+
+        if isinstance(image, types.Image):
+            result = [image]
+        elif isinstance(image, list):
+            for im in image:
+                if not isinstance(im, types.Image):
+                    raise ValueError("Input must be a list of types.Image")
+            result = image
+        else:
+            raise ValueError("Input must be an types.Image or a list of types.Image")
+
+        if self.color_format != image.color_format:
+            for im in result:
+                new_im = im.asarray(self.color_format)
+                im.update(new_im, color_format=self.color_format)
+        return image, result, meta
+
+
+@builtin
+class InputNoTiles(AxOperator):
+    type: str = 'image'
+    color_format: types.ColorFormat = types.ColorFormat.RGB
+    imreader_backend: types.ImageReader = types.ImageReader.PIL
+
+    def _post_init(self):
+        self._enforce_member_type('color_format')
+        self._enforce_member_type('imreader_backend')
+
+    def configure_model_and_context_info(
+        self,
+        model_info: types.ModelInfo,
+        context: PipelineContext,
+        task_name: str,
+        taskn: int,
+        compiled_model_dir: Path | None,
+        task_graph: graph.DependencyGraph,
+    ):
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
+        if model_info.model_type is not types.ModelType.CLASSICAL_CV:
+            # CLASSIC_CV models typically do not require color conversion, so
+            # do not update the the pipeline color format
+            context.color_format = self.color_format
+            context.pipeline_input_color_format = self.color_format
+        context.imreader_backend = self.imreader_backend
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
         pass
@@ -122,6 +180,7 @@ class InputFromROI(AxOperator):
     min_height: int = 0
     top_k: int = 0
     which: str = 'NONE'
+    margin: float = None
     label_filter: list[str] = []
     image_processing_on_roi: list[PreprocessOperator] = []
     color_format: types.ColorFormat = types.ColorFormat.RGB
@@ -207,16 +266,23 @@ class InputFromROI(AxOperator):
                 f'{classes_to_keep_str}',
             )
 
-        if self._need_color_convert:
+        opencl = gst.getconfig() is not None and gst.getconfig().opencl
+        # OpenCL inserts the color conversion into the preprocessing for fusion
+        if self._need_color_convert and not opencl:
             vaapi = gst.getconfig() is not None and gst.getconfig().vaapi
-            opencl = gst.getconfig() is not None and gst.getconfig().opencl
             utils.insert_color_convert(gst, self.color_format, vaapi, opencl)
 
         gst.start_axinference()
-        gst.distributor(meta=str(self._association))
+        gst.distributor(meta=str(self._association), margin=self.margin)
+        lib = "libtransform_roicrop_cl.so" if gst.getconfig().opencl else "libtransform_roicrop.so"
+        conv = (
+            f';format:{utils.add_alpha_channel(self.color_format)}'
+            if gst.getconfig().opencl
+            else ""
+        )
         gst.axtransform(
-            lib='libtransform_roicrop.so',
-            options=f'meta_key:{self._association}',
+            lib=lib,
+            options=f'meta_key:{self._association}{conv}',
         )
 
         for op in self.image_processing_on_roi:

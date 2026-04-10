@@ -312,7 +312,13 @@ def model_info_as_kwargs(model_info: types.ModelInfo):
 def _get_template_processing_steps(processing_steps, model_info):
     template = {'input': None, 'preprocess': None, 'postprocess': None}
     if template_path := (processing_steps and processing_steps.get('template_path')):
-        template_path = os.path.expandvars(template_path)
+        template_path = config.env.expandvars(template_path)
+        if not Path(template_path).is_file():
+            raise FileNotFoundError(
+                f"Template file not found: {template_path}\n"
+                f"Check that the template_path in your model card points to a valid file."
+            )
+
         refs = model_info_as_kwargs(model_info)
         compiled_schema = schema.load_task(template_path, False)
         template.update(utils.load_yaml_by_reference(template_path, refs, compiled_schema))
@@ -398,6 +404,7 @@ def _deploy_model(
     cal_seed: int | None,
     is_default_representative_images: bool = True,
     dump_core_model: bool = False,
+    toml_metadata: dict = None,
 ):
     # Compile specified model
     batch = 1
@@ -483,6 +490,7 @@ def _deploy_model(
                             metis,
                             decoration_flags,
                             dump_core_model,
+                            toml_metadata,
                         )
 
         _trace_model_info(task.model_info, LOG.trace)
@@ -762,10 +770,13 @@ def _deploy_from_yaml(
                 model_name, pipeline_config.aipu_cores, metis, pipeline_config.low_latency
             )
             try:
-                compilation_cfg = config.gen_compilation_config(
+                # Extract yaml_dir from compiler_overrides (added by ModelInfos)
+                yaml_dir = compiler_overrides.pop('_yaml_dir', None)
+                compilation_cfg, toml_metadata = config.gen_compilation_config(
                     deploy_cores,
                     compiler_overrides,
                     deploy_mode,
+                    yaml_dir=yaml_dir,
                 )
             except (ImportError, ModuleNotFoundError, OSError):
                 if compile_obj:
@@ -776,6 +787,7 @@ def _deploy_from_yaml(
                         "compilation config, as we are not compiling"
                     )
                     compilation_cfg = dict()
+                    toml_metadata = None
 
             LOG.info(f"Compile model: {model_name}")
             model_dir = nn_dir / model_name
@@ -823,6 +835,7 @@ def _deploy_from_yaml(
                             deploy_config.cal_seed,
                             deploy_config.default_representative_images,
                             deploy_config.dump_core_model,
+                            toml_metadata,
                         )
                     except exceptions.PrequantizedModelRequired as e:
                         if not retried_quantize:

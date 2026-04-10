@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #ifndef OC_SORT_CPP_KALMANBOXTRACKER_HPP
 #define OC_SORT_CPP_KALMANBOXTRACKER_HPP
 ////////////// KalmanBoxTracker /////////////
@@ -19,9 +19,9 @@ class KalmanBoxTracker
 {
   public:
   /*method*/
-  KalmanBoxTracker(){};
+  KalmanBoxTracker() {};
   KalmanBoxTracker(Eigen::VectorXf bbox_, const Eigen::VectorXf &emb_, int cls_,
-      int det_id, int delta_t_ = 3);
+      int det_id, int delta_t_ = 3, int frame_id = 0);
   void update(Eigen::Matrix<float, 5, 1> *bbox_, int cls_, int det_id, int frame_id);
   void update_emb(const Eigen::VectorXf &emb_, float alpha = 0.9);
   Eigen::VectorXf get_emb() const;

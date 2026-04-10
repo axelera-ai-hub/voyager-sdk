@@ -45,9 +45,9 @@ pipeline:
           top_k: 1
           min_width: 80
           min_height: 80
+          margin: 0.25
           image_processing_on_roi:
           - facealign:
-              keypoints_submeta_key: detections
               width: 192
               height: 192
               use_self_normalizing: False

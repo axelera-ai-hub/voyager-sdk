@@ -14,29 +14,20 @@
     - [3. Verify the Update](#3-verify-the-update)
   - [Important Notes](#important-notes)
     - [Multi-Card Systems](#multi-card-systems)
-    - [New Boards](#new-boards)
     - [Safety Reminder](#safety-reminder)
   - [Next Steps](#next-steps)
   - [Related Documentation](#related-documentation)
   - [Getting Help](#getting-help)
 
 ## Prerequisites (Listed Below)
-- Your board has already been enabled for firmware updates
 - Voyager SDK is installed on your system
 - You have the Voyager SDK Python virtual environment available
 
 ## Level
-**Beginner** - Simple update procedure for already-enabled boards
+**Beginner** - Simple update procedure for single-device systems
 
 ## Overview
 
-> [!WARNING]
-> **This guide is ONLY for boards that have already been enabled for firmware updates.**
-> 
-> If this is a **new board** or you're unsure whether firmware updates have been enabled, you **MUST** first go through the [Enable Card Firmware Update Guide](/docs/tutorials/enable_updates.md) before proceeding.
-
-
----
 > ** WHICH FIRMWARE GUIDE DO YOU NEED?**
 > See the [Firmware Update Decision Tree](firmware_update_decision_tree.md) to determine which firmware guide to follow.
 
@@ -52,7 +43,7 @@ source venv/bin/activate
 ### 2. Run the Interactive Firmware Update Tool
 
 ```bash
-$AXELERA_DEVICE_DIR/firmware/interactive_flash_update.sh
+axdevice interactive_flash_update
 ```
 
 Follow the on-screen instructions. The script will guide you through the entire process, including when power cycling is needed.
@@ -75,12 +66,6 @@ If you have a system with **multiple Metis cards** or an **Axelera® AI PCIe car
 
 Each Metis core must be updated individually using the `--device` option.
 
-### New Boards
-
-If you're working with a **new board** that hasn't been flashed before, you **MUST** first:
-1. Go through the [Enable Card Firmware Update Guide](/docs/tutorials/enable_updates.md)
-2. Then follow the [complete firmware update guide](/docs/tutorials/firmware_flash_update.md)
-
 ### Safety Reminder
 
 - Never interrupt power during firmware updates
@@ -95,7 +80,6 @@ If you're working with a **new board** that hasn't been flashed before, you **MU
 ## Related Documentation
 **Firmware Guides:**
 - **[Firmware Update Decision Tree](firmware_update_decision_tree.md)** - START HERE to choose the right guide
-- [Enable Updates](enable_updates.md) - Required FIRST if board is new or not yet enabled
 - [Firmware Update Guide (Full)](firmware_flash_update.md) - For multi-device systems or recovery
 
 **Tutorials:**

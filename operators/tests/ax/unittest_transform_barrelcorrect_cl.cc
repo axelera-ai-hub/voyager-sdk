@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #include "unittest_ax_common.h"
 
 #define CL_TARGET_OPENCL_VERSION 210
@@ -216,5 +216,70 @@ TEST(barrel_correction, nv12_to_gray8_conversion)
   EXPECT_FALSE(std::all_of(
       out_buf.begin(), out_buf.end(), [](uint8_t value) { return value == 0; }));
 }
+
+TEST(barrel_correction, nv16_to_gray8_conversion)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "camera_props", "1180.74606734,1179.14890352,938.45253964,527.68112542" },
+    { "distort_coefs", "-0.37793616,0.11966818,-0.00067655,0.0,-0.00115868" },
+    { "normalized_properties", "0" }, { "format", "gray8" }, // GRAY output
+  };
+
+  auto xform = Ax::LoadTransform("barrelcorrect_cl", input);
+
+  auto in_buf = std::vector<uint8_t>(1920 * 1080 * 2);
+  std::iota(in_buf.begin(), in_buf.end(), 0); // Fill with increasing values for testing
+  auto out_buf = std::vector<uint8_t>(1920 * 1080, 0); // Grayscale output
+
+  std::vector<size_t> strides{ 1920, 1920 };
+  std::vector<size_t> offsets{ 0, 1920 * 1080 };
+
+  auto in = AxVideoInterface{ { 1920, 1080, int(strides[0]), 0, AxVideoFormat::NV16 },
+    in_buf.data(), strides, offsets, -1 };
+  auto out = AxVideoInterface{ { 1920, 1080, 1920, 0, AxVideoFormat::GRAY8 },
+    out_buf.data(), { 1920 }, { 0 }, -1 };
+
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+
+  EXPECT_FALSE(std::all_of(
+      out_buf.begin(), out_buf.end(), [](uint8_t value) { return value == 0; }));
+}
+
+TEST(barrel_correction, i420_to_gray8_conversion)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "camera_props", "1180.74606734,1179.14890352,938.45253964,527.68112542" },
+    { "distort_coefs", "-0.37793616,0.11966818,-0.00067655,0.0,-0.00115868" },
+    { "normalized_properties", "0" }, { "format", "gray8" }, // GRAY output
+  };
+
+  auto xform = Ax::LoadTransform("barrelcorrect_cl", input);
+
+  auto in_buf = std::vector<uint8_t>(1920 * 1080 * 3 / 2); // All pixels set to 100
+  std::iota(in_buf.begin(), in_buf.end(), 0); // Fill with increasing values for testing
+  auto out_buf = std::vector<uint8_t>(1920 * 1080, 0); // Grayscale output
+
+  std::vector<size_t> strides{ 1920, 960, 960 };
+  std::vector<size_t> offsets{ 0, 1920 * 1080, 1920 * 1080 + 960 * 540 };
+
+  auto in = AxVideoInterface{ { 1920, 1080, int(strides[0]), 0, AxVideoFormat::I420 },
+    in_buf.data(), strides, offsets, -1 };
+  auto out = AxVideoInterface{ { 1920, 1080, 1920, 0, AxVideoFormat::GRAY8 },
+    out_buf.data(), { 1920 }, { 0 }, -1 };
+
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+
+  EXPECT_FALSE(std::all_of(
+      out_buf.begin(), out_buf.end(), [](uint8_t value) { return value == 0; }));
+}
+
 
 } // namespace

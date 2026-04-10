@@ -287,7 +287,7 @@ class _TritonTrace:
         continuous: list[str],
         restore_args: list[str],
     ):
-        tt = ['triton_trace'] + (['--device', device] if device else [])
+        tt = ['axtrace'] + (['--device', device] if device else [])
         if reset_args:
             _run(tt + reset_args)
         _run(tt + initial_args)
@@ -306,17 +306,17 @@ class _TritonTrace:
         return ''.join(log)
 
     def prepare_to_stop(self):
-        LOG.trace("SIGTERM triton_trace process")
+        LOG.trace("SIGTERM axtrace process")
         self._p.terminate()
 
     def stop(self) -> str:
         try:
-            LOG.trace("Waiting for triton_trace process")
+            LOG.trace("Waiting for axtrace process")
             try:
                 out, _ = self._p.communicate(timeout := 2)
 
             except subprocess.TimeoutExpired as e:
-                LOG.warning(f"Failed to stop triton_trace process after {timeout}s, killing it")
+                LOG.warning(f"Failed to stop axtrace process after {timeout}s, killing it")
                 self._p.kill()
                 out = e.stdout
             return out.decode('utf-8') if isinstance(out, bytes) else (out or '')
@@ -326,7 +326,7 @@ class _TritonTrace:
 
 
 class AipuTracer(Tracer):
-    '''A class to monitor AIPU inference server using triton_trace.'''
+    '''A class to monitor AIPU inference server using axtrace.'''
 
     key = '__device_fps__'
     title = 'Metis'
@@ -431,7 +431,7 @@ class AipuTracer(Tracer):
 
 
 class CoreTempTracer(Tracer):
-    '''A class to monitor AIPU inference server using triton_trace.'''
+    '''A class to monitor AIPU inference server using axtrace.'''
 
     key = '__core_temp__'
     title = 'Core Temp'
@@ -491,7 +491,7 @@ class CoreTempTracer(Tracer):
         return m
 
     def stop_monitoring(self):
-        LOG.trace("SIGTERM triton_trace slog process")
+        LOG.trace("SIGTERM axtrace slog process")
         for t in self._tritons:
             t.prepare_to_stop()
         outputs = [t.stop() for t in self._tritons]

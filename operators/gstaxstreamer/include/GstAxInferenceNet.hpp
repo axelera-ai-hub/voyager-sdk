@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2026
+// Copyright Axelera AI, 2024
 #pragma once
 
 #include <atomic>
@@ -30,8 +30,8 @@ class InferenceNetProperties;
 } // namespace Ax
 
 struct delayed_event {
-  GstPad *pad;
-  Ax::GstHandle<GstEvent> event;
+  GstPad *pad{};
+  Ax::GstHandle<GstEvent> event{};
 };
 
 struct event_queue {
@@ -47,8 +47,6 @@ struct _GstAxInferenceNet {
   std::unique_ptr<Ax::InferenceNet> net;
   std::unique_ptr<Ax::InferenceNetProperties> properties;
   std::unique_ptr<event_queue> event_queue;
-  Ax::GstHandle<GstAllocator> allocator;
-  Ax::GstHandle<GstBufferPool> pool;
   bool at_eos = false;
   gboolean loop = false;
   std::unique_ptr<std::unordered_set<GstPad *>> flushing_pads;
@@ -62,9 +60,6 @@ struct _GstAxInferenceNetClass {
 };
 
 G_GNUC_INTERNAL GType gst_axinferencenet_get_type(void);
-
-// Custom query type for querying buffer pool requirements
-#define GST_QUERY_AX_BUFFER_REQUIREMENTS ((GstQueryType) (GST_QUERY_CUSTOM))
 
 // Create a new buffer requirements query
 GstQuery *gst_query_new_ax_buffer_requirements(void);

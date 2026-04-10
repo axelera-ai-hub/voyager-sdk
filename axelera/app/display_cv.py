@@ -101,7 +101,7 @@ class CVWindow:
             self._closed_sources.discard(msg.stream_id)
             return
         blocking = isinstance(msg, display._BlockingFrame)
-        if msg.stream_id in self._closed_sources:
+        if getattr(msg, 'stream_id', None) in self._closed_sources:
             if blocking:
                 LOG.error(f"Received blocking frame from closed source {msg.stream_id}")
             return  # ignore messages from closed sources
@@ -212,7 +212,7 @@ def _coords(centre, length):
 @functools.lru_cache
 def _get_speedometer(diameter):
     here = os.path.dirname(__file__)
-    x = PIL.Image.open(f'{here}/speedo-alpha-transparent.png')
+    x = PIL.Image.open(f'{here}/render_assets/speedo-alpha-transparent.png')
     return x.resize((diameter, diameter))
 
 
@@ -470,7 +470,7 @@ class CVDraw(display.Draw):
         try:
             return self._font_cache[args]
         except KeyError:
-            path = os.path.join(os.path.dirname(__file__), "axelera-sans.ttf")
+            path = os.path.join(os.path.dirname(__file__), "render_assets", "axelera-sans.ttf")
             f = self._font_cache[args] = PIL.ImageFont.truetype(path, size=font.size)
             self._font_offset_cache[args] = self._get_offset(f)
             return f

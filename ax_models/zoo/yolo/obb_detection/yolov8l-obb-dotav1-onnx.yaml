@@ -47,6 +47,9 @@ models:
     input_color_format: RGB
     num_classes: 15
     dataset: DOTAv1DetectionOBBDataset
+    extra_kwargs:
+      m2:
+        mvm_limitation: 45
 
 datasets:
   DOTAv1DetectionOBBDataset:

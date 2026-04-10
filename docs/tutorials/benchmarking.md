@@ -221,7 +221,7 @@ the full product development lifecycle.
 
 ## Next Steps
 - **Monitor hardware during inference**: [AxMonitor Tutorial](axmonitor.md)
-- **Optimize thermal performance**: [Thermal Guide](../reference/thermal_guide.md)
+- **Optimize thermal performance**: [Thermal and Power Guide](../reference/thermal_and_power_guide.md)
 - **Deploy custom models**: [Custom Weights Tutorial](custom_weights.md)
 - **Build production applications**: [Application Integration](application.md)
 
@@ -234,10 +234,12 @@ the full product development lifecycle.
 
 **References:**
 - [Model Zoo](../reference/model_zoo.md) - Reference accuracy metrics for pre-trained models
-- [Thermal Guide](../reference/thermal_guide.md) - Manage thermal state during sustained benchmarks
+- [Thermal and Power Guide](../reference/thermal_and_power_guide.md) - Manage thermal state during sustained benchmarks
 - [inference.py CLI](../reference/inference.md) - Command-line options for benchmarking modes
 
 
 ## Further support
-- For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
-- For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).
+
+For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
+
+For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).

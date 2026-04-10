@@ -1,5 +1,5 @@
 # Axelera Torchvision datasets
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 from __future__ import annotations
 
 import os
@@ -198,6 +198,35 @@ class VOCDetection(torchvision.datasets.VOCDetection):
         )
 
 
+def _init_lfw_with_fallback(
+    dataset_key: str,
+    image_set: str,
+    root: Path,
+    transform,
+    download: bool,
+    constructor,
+):
+    try:
+        import urllib
+
+        constructor(download=download)
+    except (Exception, urllib.error.URLError) as e:
+        if image_set == 'deepfunneled':
+            LOG.debug(f"Standard download failed: {e}. Using custom download method...")
+            data_utils.check_and_download_dataset(
+                dataset_key,
+                root,
+                'val',
+                is_private=False,
+            )
+            utils.extract(root / 'lfw-py/lfw-deepfunneled.tgz', dest=root / 'lfw-py')
+            constructor(download=False)
+        else:
+            raise RuntimeError(
+                f"Failed to download {dataset_key} dataset with image_set '{image_set}': {e}"
+            ) from e
+
+
 class LFWPairs(torchvision.datasets.LFWPairs):
     def __init__(self, transform, root, args):
         yargs = MapYAMLtoFunction(
@@ -209,25 +238,16 @@ class LFWPairs(torchvision.datasets.LFWPairs):
         )
         image_set = yargs.get_arg('image_set')
         download = yargs.get_arg('download')
-        try:
-            import urllib
-
-            super().__init__(root, transform=transform, download=download, image_set=image_set)
-        except (Exception, urllib.error.URLError) as e:
-            if image_set == 'deepfunneled':
-                LOG.debug(f"Standard download failed: {e}. Using custom download method...")
-                data_utils.check_and_download_dataset(
-                    'LFWPairs',
-                    root,
-                    'val',
-                    is_private=False,
-                )
-                utils.extract(root / 'lfw-py/lfw-deepfunneled.tgz', dest=root / 'lfw-py')
-                super().__init__(root, transform=transform, download=False, image_set=image_set)
-            else:
-                raise RuntimeError(
-                    f"Failed to download LFWPairs dataset with image_set '{image_set}': {e}"
-                ) from e
+        _init_lfw_with_fallback(
+            dataset_key='LFWPairs',
+            image_set=image_set,
+            root=root,
+            transform=transform,
+            download=download,
+            constructor=lambda download: super(LFWPairs, self).__init__(
+                root, transform=transform, download=download, image_set=image_set
+            ),
+        )
 
     def __getitem__(self, index: int) -> Tuple[Any, Any, int, str]:
         """
@@ -263,7 +283,16 @@ class LFWPeople(torchvision.datasets.LFWPeople):
         )
         image_set = yargs.get_arg('image_set')
         download = yargs.get_arg('download')
-        super().__init__(root, transform=transform, download=download, image_set=image_set)
+        _init_lfw_with_fallback(
+            dataset_key='LFWPeople',
+            image_set=image_set,
+            root=root,
+            transform=transform,
+            download=download,
+            constructor=lambda download: super(LFWPeople, self).__init__(
+                root, transform=transform, download=download, image_set=image_set
+            ),
+        )
 
 
 class Caltech101(torchvision.datasets.Caltech101):

@@ -223,7 +223,6 @@ nms_results(const AxMetaSegmentsDetection &meta,
   std::vector<int> class_ids{};
   std::vector<ax_utils::segment> segment_maps{};
 
-
   const int num_boxes = std::distance(first, last);
   boxes_xyxy.reserve(num_boxes);
   scores.reserve(num_boxes);
@@ -238,7 +237,7 @@ nms_results(const AxMetaSegmentsDetection &meta,
     if (meta.has_class_id()) {
       class_ids.push_back(meta.class_id(idx));
     }
-    segment_maps.push_back(const_cast<AxMetaSegmentsDetection &>(meta).get_segment(idx));
+    segment_maps.push_back(meta.get_segment(idx));
   }
 
   auto shape = meta.get_segments_shape();
@@ -246,7 +245,7 @@ nms_results(const AxMetaSegmentsDetection &meta,
   std::vector<int> ids;
   return AxMetaSegmentsDetection{ std::move(boxes_xyxy),
     std::move(segment_maps), std::move(scores), std::move(class_ids), ids,
-    sizes, std::move(meta.get_base_box()), std::move(meta.get_decoder_name()) };
+    sizes, std::move(meta.get_decoder_name()) };
 }
 
 template <typename meta_type>
@@ -306,7 +305,7 @@ std::vector<int>::iterator
 merge_boxes_impl(meta_type &meta, std::vector<int>::iterator first,
     std::vector<int>::iterator last, F1 &&is_adjacent, float threshold)
 {
-  const float ios_threshold = 0.7F;
+  const float ios_threshold = 0.9F;
   std::vector<kpt_xyv> this_kpts{};
   while (first != last) {
     const int i = *first++;
@@ -350,11 +349,12 @@ merge_boxes(T &meta, std::vector<int>::iterator first,
     std::vector<int>::iterator last, float threshold)
 {
   //  This probably needs adjusting dependent on the video size
-  const int MERGE_THRESHOLD = 2;
+  const int MERGE_THRESHOLD = 1;
 
   auto is_adjacent_horizontal = [](const box_xyxy &lhs, const box_xyxy &rhs) {
-    auto diff = std::abs(lhs.x2 - rhs.x1);
-    if (diff > MERGE_THRESHOLD) {
+    auto diff1 = std::abs(lhs.x1 - rhs.x2);
+    auto diff2 = std::abs(lhs.x2 - rhs.x1);
+    if (diff1 > MERGE_THRESHOLD && diff2 > MERGE_THRESHOLD) {
       return false;
     }
     auto ydiff1 = std::abs(lhs.y1 - rhs.y1);
@@ -369,8 +369,9 @@ merge_boxes(T &meta, std::vector<int>::iterator first,
   auto last_merged = merge_boxes_impl(meta, first, last, is_adjacent_horizontal, threshold);
 
   auto is_adjacent_vertical = [](const box_xyxy &lhs, const box_xyxy &rhs) {
-    auto diff = std::abs(lhs.y2 - rhs.y1);
-    if (diff > MERGE_THRESHOLD) {
+    auto diff1 = std::abs(lhs.y2 - rhs.y1);
+    auto diff2 = std::abs(lhs.y1 - rhs.y2);
+    if (diff1 > MERGE_THRESHOLD && diff2 > MERGE_THRESHOLD) {
       return false;
     }
     auto ydiff1 = std::abs(lhs.x1 - rhs.x1);
@@ -382,6 +383,10 @@ merge_boxes(T &meta, std::vector<int>::iterator first,
     return meta.get_box_xyxy(a).y2 < meta.get_box_xyxy(b).y2;
   });
   last_merged = merge_boxes_impl(meta, first, last_merged, is_adjacent_vertical, threshold);
+
+  last_merged = merge_boxes_impl(
+      meta, first, last_merged,
+      [](const box_xyxy &lhs, const box_xyxy &rhs) { return false; }, threshold);
   return nms_results(meta, first, last_merged);
 }
 
@@ -415,8 +420,7 @@ nms_results(const AxMetaPoseSegmentsDetection &meta,
     auto good_kpts = meta.get_kpts_xyv(idx, kpts_shape[0]);
     kpts_xyv.insert(kpts_xyv.end(), good_kpts.begin(), good_kpts.end());
 
-    segment_maps.push_back(
-        const_cast<AxMetaPoseSegmentsDetection &>(meta).get_segment(idx));
+    segment_maps.push_back(meta.get_segment(idx));
   }
 
   auto shape = meta.get_segments_shape();
@@ -453,7 +457,8 @@ non_max_suppression_impl(
   std::iota(first, last, 0);
 
   if (merge) {
-    if constexpr (std::is_same_v<T, AxMetaObjDetection> || std::is_same_v<T, AxMetaKptsDetection>) {
+    if constexpr (std::is_same_v<T, AxMetaObjDetection>
+                  || std::is_same_v<T, AxMetaKptsDetection>) {
       return merge_boxes(meta, first, last, threshold);
     } else {
       auto id = typeid(T).name();
@@ -545,4 +550,76 @@ non_max_suppression(AxMetaObjDetectionOBB &meta, float threshold,
 {
   std::ignore = merge;
   return non_max_suppression_impl_obb(meta, threshold, class_agnostic, max_boxes);
+}
+
+template <typename Iterator>
+std::unique_ptr<AxMetaSegmentsDetection>
+unflattened_nms_results(std::span<AxMetaBase *> metas, Iterator first, Iterator last)
+{
+  auto detections = std::make_unique<AxMetaSegmentsDetection>();
+  int current_index = 0;
+  for (auto *p : metas) {
+    auto *m = dynamic_cast<AxMetaSegmentsDetection *>(p);
+    auto last_index = current_index + m->num_elements();
+    auto new_end = std::partition(
+        first, last, [last_index](auto idx) { return idx < last_index; });
+    //  Now [first, new_end) contains the indices for this metadata
+    std::transform(first, new_end, first,
+        [current_index](auto idx) { return idx - current_index; });
+    detections->extend(nms_results(*m, first, new_end));
+    m->enable_extern = false;
+    current_index = last_index;
+    first = new_end;
+  }
+  return detections;
+}
+
+struct boxinfo {
+  box_xyxy box;
+  float score;
+  int class_id;
+};
+
+std::unique_ptr<AxMetaSegmentsDetection>
+non_max_suppression(std::span<AxMetaBase *> metas, float threshold,
+    bool class_agnostic, int max_boxes)
+{
+  //  First let's create a table of bboxes, scores and class ids that we can
+  //  perform NMS on. This is a temporarily flattened structure
+
+  auto temp_boxes = std::vector<boxinfo>{};
+  for (auto *p : metas) {
+    auto *m = dynamic_cast<AxMetaSegmentsDetection *>(p);
+    if (!m) {
+      throw std::runtime_error("non_max_suppression : Expected AxMetaSegmentsDetection metadata");
+    }
+    for (size_t i = 0; i < m->num_elements(); ++i) {
+      temp_boxes.push_back({ m->get_box_xyxy(i), m->score(i), m->class_id(i) });
+    }
+  }
+
+  std::vector<int> indices(temp_boxes.size());
+  auto first = std::begin(indices);
+  auto last = std::end(indices);
+  std::iota(first, last, 0);
+
+  std::sort(first, last, [&temp_boxes](int a, int b) {
+    return temp_boxes[a].score > temp_boxes[b].score;
+  });
+  int count = 0;
+  while (first != last && count != max_boxes) {
+    ++count;
+    const int i = *first++;
+    auto this_box = temp_boxes[i].box;
+    auto this_class = temp_boxes[i].class_id;
+    last = std::remove_if(first, last, [&](auto idx) {
+      auto other_box = temp_boxes[idx].box;
+      return (class_agnostic || this_class == temp_boxes[idx].class_id)
+             && ::IntersectionOverUnion(this_box, other_box) >= threshold;
+    });
+  }
+  //  When here, the range std::begin(indices) to last contains the indices of
+  //  the boxes that should be kept.
+  //  Now we need to reconstruct the metadata from the kept indices
+  return unflattened_nms_results(metas, std::begin(indices), first);
 }

@@ -32,10 +32,6 @@ typedef struct {
 
 #define GST_ALIGNED_MEMORY_NAME "GstAlignedMemory"
 #define GST_ALIGNED_MEMORY_CAST(mem) ((GstAlignedMemory *) (mem))
-enum { PROP_0, PROP_DEVICE, N_PROPERTIES };
-static GParamSpec *obj_properties[N_PROPERTIES] = {
-  NULL,
-};
 
 /*
  * @brief struct for type GstAlignedAllocator
@@ -95,7 +91,6 @@ static void
 gst_aligned_allocator_class_init(GstAlignedAllocatorClass *klass)
 {
   GstAllocatorClass *alloc = (GstAllocatorClass *) klass;
-  GObjectClass *gobject_class = G_OBJECT_CLASS(klass);
 
   alloc->alloc = GST_DEBUG_FUNCPTR(gst_aligned_alloc);
   alloc->free = GST_DEBUG_FUNCPTR(gst_aligned_free);

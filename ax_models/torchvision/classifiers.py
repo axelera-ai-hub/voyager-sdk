@@ -19,13 +19,13 @@ class AxTorchvisionClassifierModel(types.Model):
     def init_model_deploy(self, model_info: types.ModelInfo, dataset_config: dict, **kwargs):
         torchvision_args = kwargs.get('torchvision_args', None)
         if model_info.weight_path:
-            if not Path(model_info.weight_path).exists():
-                if model_info.weight_url:
-                    utils.download(
-                        model_info.weight_url, Path(model_info.weight_path), model_info.weight_md5
-                    )
-                else:
-                    raise FileNotFoundError(f"weight_path: {model_info.weight_path} not found")
+            weights = Path(model_info.weight_path)
+            utils.download_model_artifacts(
+                weights,
+                model_info.weight_url,
+                model_info.weight_md5,
+                model_name=model_info.name,
+            )
             weights = torch.load(model_info.weight_path, map_location=torch.device('cpu'))
         elif torchvision_args:  # should be a torchvision default model
             torchvision_weights_args = YAML.attribute(torchvision_args, 'torchvision_weights_args')

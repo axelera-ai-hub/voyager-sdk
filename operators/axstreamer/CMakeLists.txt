@@ -54,11 +54,10 @@ target_link_directories(axstreamer PUBLIC
 target_include_directories(axstreamer PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
+    ${axruntime_INCLUDE_DIRS}
 )
-
-if (axruntime_FOUND)
-    target_include_directories(axstreamer PRIVATE ${axruntime_INCLUDE_DIRS})
-    target_link_libraries(axstreamer PUBLIC ${axruntime_LIBRARIES})
-    target_link_directories(axstreamer PUBLIC ${axruntime_LIBRARY_DIRS})
-    target_compile_definitions(axstreamer PUBLIC -DAXELERA_ENABLE_AXRUNTIME)
-endif()
+set_target_properties(axstreamer
+    PROPERTIES
+    INSTALL_RPATH_USE_LINK_PATH TRUE
+    INSTALL_RPATH "$ORIGIN"
+)

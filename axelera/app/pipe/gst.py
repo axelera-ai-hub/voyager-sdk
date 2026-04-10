@@ -1,8 +1,10 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Construct GStreamer application pipeline
 from __future__ import annotations
 
 import collections
+import ctypes
+import functools
 import os
 from pathlib import Path
 import pprint
@@ -16,8 +18,11 @@ import warnings
 
 try:
     from gi.repository import GObject, Gst, GstApp, GstVideo  # noqa: F401
+
+    GST_AVAILABLE = True
 except ModuleNotFoundError:
-    pass
+    (GObject, Gst, GstApp, GstVideo) = (None, None, None, None)
+    GST_AVAILABLE = False
 
 import yaml
 
@@ -138,7 +143,10 @@ class GstStream:
                 LOG.warning("Unable to identify error source, but recently removed source")
                 return CONTINUE
             else:
-                LOG.warning("Unable to identify error source, stopping pipeline")
+                loc = gst_helper.src_info(src)
+                raise RuntimeError(
+                    f"Error in GStreamer pipeline from an unlinked source : {loc}):\n{err.message}\nDebug info: {debug}"
+                )
             try:
                 gst_helper.set_state_and_wait(self.pipeline, Gst.State.NULL)
             except Exception as e:
@@ -154,7 +162,7 @@ class GstStream:
             return CONTINUE
 
     def _pre_roll_pipeline(self):
-        # we send the first frame through the pipeline to ensure all elemnets are
+        # we send the first frame through the pipeline to ensure all elements are
         # fully constructed, this means errors in the pipeline are detected early
         while not self._at_eos():
             for stream_id, sink in enumerate(self._appsinks):
@@ -162,6 +170,7 @@ class GstStream:
                 if sample:
                     LOG.debug("Received first frame from gstreamer")
                     return stream_id, sample
+        raise RuntimeError('Failed to pre-roll pipeline, aborting pipeline build')
 
     def _frame_from_sample(self, sample, stream_id) -> tuple[FrameEvent, GstTaskMeta]:
         now = time.time()
@@ -430,6 +439,146 @@ def _read_low_level_pipeline(
         ) from None
 
 
+def _collect_gst_plugins(pipeline: list[dict[str, Any]]) -> list[str]:
+    """Collect all GStreamer element factories required by the pipeline.
+
+    Returns a sorted list of unique element names.
+    """
+    return sorted({e['instance'] for e in pipeline if 'instance' in e})
+
+
+def _collect_ax_plugins(pipeline: list[dict[str, Any]]) -> list[str]:
+    """Collect axelera plugin names used in the pipeline.
+
+    Extracts the 'lib' key from axinplace/axtransform elements and
+    'preprocess{N}_lib' / 'postprocess{N}_lib' keys from axinferencenet elements.
+    """
+    plugin_wrappers = {'axinplace', 'axtransform', 'axdecode'}
+    plugins = [elem.get('lib', '') for elem in pipeline if elem.get('instance') in plugin_wrappers]
+    axnets = [elem for elem in pipeline if elem.get('instance') == 'axinferencenet']
+    is_op = re.compile(r'(pre|post)process\d+_lib$')
+    plugins += [v for axnet in axnets for k, v in axnet.items() if is_op.match(k) and v]
+    return sorted({p for p in plugins if p})
+
+
+def _resolve_lib(lib: str, search_dirs: list[Path]) -> Path | None:
+    """Resolve a shared library filename to a full path."""
+    p = Path(lib)
+    if not p.is_absolute():
+        for d in search_dirs:
+            p = d / lib
+            if p.exists():
+                break
+        else:
+            search = ':'.join(str(d) for d in search_dirs)
+            LOG.debug("Failed to find library %s in any of: %s", lib, search)
+            return None
+    try:
+        handle = ctypes.CDLL(str(p))
+        del handle
+    except OSError as e:
+        LOG.debug("Failed to load library %s at %s: %s", lib, p, e)
+        return None
+    else:
+        LOG.trace("Found library %s at %s", lib, p)
+        return p
+
+
+def _find_missing_gst_plugins(gst_plugins: list[str]) -> list[str]:
+    """Find any GStreamer elements that do not have a valid Gst factory."""
+    if not Gst.is_initialized():
+        Gst.init(None)
+    return [name for name in gst_plugins if Gst.ElementFactory.find(name) is None]
+
+
+@functools.lru_cache(maxsize=1)
+def _get_search_dirs_for_ax_plugins() -> list[Path]:
+    """Get the list of directories to search for axelera plugin shared libraries."""
+
+    def _split_path(env) -> list[Path]:
+        return [Path(d) for d in os.environ.get(env, '').split(os.pathsep) if d]
+
+    gstaxstreamer_name = 'libgstaxstreamer.so'
+    if axstreamer := _resolve_lib(gstaxstreamer_name, _split_path('GST_PLUGIN_PATH')):
+        LOG.debug(
+            "Found %s in GST_PLUGIN_PATH, using %s for axelera plugins",
+            gstaxstreamer_name,
+            axstreamer.parent,
+        )
+        search_dirs = [axstreamer.parent]
+    else:
+        LOG.warning(
+            "Failed to find %s in GST_PLUGIN_PATH, falling back to searching LD_LIBRARY_PATH for axelera plugins",
+            gstaxstreamer_name,
+        )
+        search_dirs: list[Path] = []
+
+    for env in ('AX_SUBPLUGIN_PATH', 'LD_LIBRARY_PATH'):
+        search_dirs.extend(_split_path(env))
+    return search_dirs
+
+
+def _find_missing_ax_plugins(ax_plugins: list[str]) -> list[str]:
+    """Verify that all required gst elements and ax plugins can be loaded."""
+    # Build a search path matching what dlopen / the C++ load_plugin will use
+    search_dirs = _get_search_dirs_for_ax_plugins()
+    return [p for p in ax_plugins if _resolve_lib(p, search_dirs) is None]
+
+
+def _report_missing_plugins(gst_missing: list[str], ax_missing: list[str]) -> None:
+    ax_gst = [name for name in gst_missing if name.startswith('ax')]
+    std_gst = [name for name in gst_missing if not name.startswith('ax')]
+    if std_gst:
+        s = '' if len(std_gst) == 1 else 's'
+        LOG.error("The following GStreamer element%s are missing:\n  %s", s, '\n  '.join(std_gst))
+        LOG.error("Please ensure the required GStreamer plugins are installed")
+    if ax_gst:
+        s = '' if len(ax_gst) == 1 else 's'
+        LOG.error(
+            "The following Axelera GStreamer element%s are missing:\n  %s", s, '\n  '.join(ax_gst)
+        )
+
+    plugin_path = os.environ.get('GST_PLUGIN_PATH', '')
+    if gst_missing:
+        if plugin_path:
+            LOG.error(f"GST_PLUGIN_PATH is set to: {plugin_path}")
+        else:
+            LOG.error(
+                "GST_PLUGIN_PATH is not set\n"
+                "[ This should have be configured by the Axelera framework at runtime]"
+            )
+
+    if ax_missing:
+        search_dirs = _get_search_dirs_for_ax_plugins()
+        searched = '\n  '.join(str(d) for d in search_dirs) if search_dirs else '<none>'
+        formatted = '\n  '.join(ax_missing)
+        s = '' if len(ax_missing) == 1 else 's'
+        LOG.error(
+            f"The following axstreamer plugin{s} could not be loaded:\n  {formatted}\n"
+            f"Search directories:\n  {searched}\n"
+        )
+    LOG.error(
+        "Please ensure all GStreamer elements and operators are built by running:\n"
+        "  make clobber operators"
+    )
+
+
+def _verify_pipeline_plugins(pipeline: list[dict[str, Any]]) -> None:
+    '''Verify that all required gst elements and ax plugins can be loaded and emit a report.'''
+    gst_plugins = _collect_gst_plugins(pipeline)
+    ax_plugins = _collect_ax_plugins(pipeline)
+    LOG.debug(
+        "Verifying required plugins for gst pipeline, GST_PLUGIN_PATH=%s",
+        os.environ.get('GST_PLUGIN_PATH', '<notset>'),
+    )
+    LOG.debug("Required GStreamer plugins: %s", ', '.join(gst_plugins))
+    LOG.debug("Required Axelera plugin libraries: %s", ', '.join(ax_plugins))
+    gst_missing = _find_missing_gst_plugins(gst_plugins)
+    ax_missing = _find_missing_ax_plugins(ax_plugins)
+    if gst_missing or ax_missing:
+        _report_missing_plugins(gst_missing, ax_missing)
+
+
 def _add_element_name(name_counter, e):
     if 'instance' in e and 'name' not in e:
         prefix = e['instance']
@@ -470,11 +619,11 @@ def _build_pipeline(
     nn: network.AxNetwork,
     pipein: io.PipeInput,
     hw_caps: config.HardwareCaps,
-    tiling: config.TilingConfig,
     which_cl: str,
     low_latency: bool,
 ) -> list[dict[str, Any]]:
     qsize = 1 if low_latency else 4
+    tiling = any(s.has_tiling for s in pipein.sources)
     gst = gst_builder.builder(hw_caps, tiling, qsize, which_cl)
     _build_input_pipeline(gst, nn.tasks[0], pipein)
 
@@ -484,11 +633,17 @@ def _build_pipeline(
             for op in task.cv_process:
                 op.build_gst(gst, '')
             continue
+        if isinstance(task.input, operators.Input):
+            gst.add_tiles = bool(gst.tiling)
+        if isinstance(task.input, operators.InputNoTiles):
+            gst.add_tiles = False
         if isinstance(task.input, operators.InputFromROI):
             task.input.build_gst(gst, '')
+            gst.add_tiles = False
         else:
             gst.start_axinference()
-        if gst.tiling:
+        # TODO: We probably need a better way to ensure we only tile the network we actually want to tile
+        if gst.tiling and gst.add_tiles:
             gst.axtransform(
                 lib='libtransform_roicrop.so',
                 options='meta_key:axelera-tiles-internal',
@@ -589,9 +744,8 @@ class GstPipe(base.Pipe):
 
     def add_source(self, pipe_newinput: io.PipeInput):
         qsize = 1 if config.env.low_latency else 4
-        gst = gst_builder.builder(
-            self.hardware_caps, self.config.tiling, qsize, self.config.which_cl
-        )
+        tiling = any(s.has_tiling for s in pipe_newinput.sources)
+        gst = gst_builder.builder(self.hardware_caps, tiling, qsize, self.config.which_cl)
         _build_input_pipeline(gst, self.nn.tasks[0], pipe_newinput)
         self._stream.agg_pads[pipe_newinput.source_id] = gst_helper.add_input(
             gst, self._stream.pipeline
@@ -644,7 +798,6 @@ class GstPipe(base.Pipe):
                 self.nn,
                 self._pipein,
                 self.hardware_caps,
-                self.config.tiling,
                 self.config.which_cl,
                 self.config.low_latency,
             )
@@ -692,12 +845,19 @@ class GstPipe(base.Pipe):
         self._meta_assembler = meta.GstMetaAssembler(model_info_provider)
 
     def init_loop(self) -> Callable[[], None]:
+        if not GST_AVAILABLE:
+            raise RuntimeError(
+                "Python bindings for GStreamer are not available, please run\n"
+                " ./install-dependencies.sh\n"
+                " pip install -r requirements.application.txt"
+            )
         if LOG.isEnabledFor(logging_utils.TRACE):
             env = {k: v for k, v in sorted(os.environ.items()) if k.startswith('AX')}
             senv = pprint.pformat(env, width=1, compact=True, depth=1)
             LOG.trace("environment at gst pipeline construction:\n%s", senv)
 
         start = time.time()
+        _verify_pipeline_plugins(self.pipeline)
         LOG.debug("Started building gst pipeline")
         loop = any(s.loop for s in self.config.sources)
         gst = gst_helper.build_pipeline(self.pipeline, loop)

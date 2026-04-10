@@ -1,0 +1,60 @@
+axelera-model-format: 1.0.0
+
+name: yolo26x-coco-onnx
+
+description: yolo26x, 640x640 (COCO), NMS free model
+
+pipeline:
+  - detections:
+      model_name: yolo26x-coco-onnx
+      input:
+        type: image
+      preprocess:
+        - letterbox:
+            height: ${{input_height}}
+            scaleup: true
+            width: ${{input_width}}
+        - torch-totensor:
+      inference:
+        handle_all: false
+      postprocess:
+        - decodeyolo10:
+            box_format: xyxy
+            conf_threshold: 0.4
+            dfl_size: 1
+            label_filter: ${{label_filter}}
+            normalized_coord: false
+            top_k: 300
+            use_multi_label: false
+            eval:
+              conf_threshold: 0.001
+              use_multi_label: true
+
+models:
+  yolo26x-coco-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/yolo26x.onnx
+    weight_url: https://media.axelera.ai/artifacts/model_cards/weights/yolo/object_detection/yolo26x-202601-official.onnx
+    weight_md5: 5fb1fc33b3909cdd44564e4c628e8a15
+    task_category: ObjectDetection
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 640, 640]
+    input_color_format: RGB
+    num_classes: 80
+    dataset: CocoDataset-COCO2017
+    extra_kwargs:
+      compiler_config_file: yolo26x.toml
+
+datasets:
+  CocoDataset-COCO2017:
+    class: ObjDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
+    data_dir_name: coco
+    labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/coco.names
+    label_type: COCO2017
+
+operators:
+  decodeyolo10:
+    class: DecodeYolo10
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/yolo10.py

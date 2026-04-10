@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Oriented bounding boxes for object detection task
 from __future__ import annotations
 
@@ -135,12 +135,13 @@ class ObjectDetectionMetaOBB(AxTaskMeta):
             raise ValueError(f"Unknown OBB format with {self.boxes.shape[1]} coordinates")
 
     def draw(self, draw: display.Draw):
-        draw_bounding_boxes(
-            self,
-            draw,
-            self.task_render_config.show_labels,
-            self.task_render_config.show_annotations,
-        )
+        if draw.options.show_bounding_boxes:
+            draw_bounding_boxes(
+                self,
+                draw,
+                self.task_render_config.show_labels,
+                self.task_render_config.show_annotations,
+            )
 
     def to_evaluation(self):
         if not (ground_truth := self.access_ground_truth()):

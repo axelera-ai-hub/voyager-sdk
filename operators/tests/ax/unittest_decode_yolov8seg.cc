@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #include "gtest/gtest.h"
 #include <gmodule.h>
 #include "gmock/gmock.h"
@@ -62,7 +62,7 @@ get_segment_meta(const std::unordered_map<std::string, std::unique_ptr<AxMetaBas
   std::vector<float> masks;
   auto *smeta = dynamic_cast<AxMetaSegmentsDetection *>(meta);
   for (auto i = 0; i < smeta->num_elements(); ++i) {
-    std::vector<float> smap = smeta->get_segment_map(i);
+    auto smap = smeta->get_segment(i).map;
     masks.insert(masks.end(), smap.begin(), smap.end());
   }
 
@@ -74,7 +74,7 @@ AxTensorsInterface
 tensors_from_vector(std::vector<T> &tensors, std::vector<int> sizes)
 {
   return {
-    { sizes, sizeof tensors[0], tensors.data() },
+    { sizes, sizeof(tensors[0]), tensors.data() },
   };
 }
 
@@ -82,8 +82,9 @@ TEST(yolov8seg_errors, no_zero_points_throws)
 {
   std::unordered_map<std::string, std::string> properties = {
     { "scales", "1" },
+    { "num_seg_masks", "32" },
   };
-  EXPECT_THROW(Ax::LoadDecode("yolov8seg", properties), std::runtime_error);
+  EXPECT_THROW(Ax::LoadDecode("yolov8", properties), std::runtime_error);
 }
 
 
@@ -91,8 +92,9 @@ TEST(yolov8seg_errors, no_scales_throws)
 {
   std::unordered_map<std::string, std::string> properties = {
     { "zero_points", "0" },
+    { "num_seg_masks", "32" },
   };
-  EXPECT_THROW(Ax::LoadDecode("yolov8seg", properties), std::runtime_error);
+  EXPECT_THROW(Ax::LoadDecode("yolov8", properties), std::runtime_error);
 }
 
 TEST(yolov8seg_errors, different_scale_and_zero_point_sizes_throws)
@@ -100,8 +102,9 @@ TEST(yolov8seg_errors, different_scale_and_zero_point_sizes_throws)
   std::unordered_map<std::string, std::string> properties = {
     { "zero_points", "0, 0" },
     { "scales", "1" },
+    { "num_seg_masks", "32" },
   };
-  EXPECT_THROW(Ax::LoadDecode("yolov8seg", properties), std::runtime_error);
+  EXPECT_THROW(Ax::LoadDecode("yolov8", properties), std::runtime_error);
 }
 
 TEST(yolov8seg_decode_scores, all_filtered_at_max_confidence)
@@ -125,8 +128,9 @@ TEST(yolov8seg_decode_scores, all_filtered_at_max_confidence)
     { "multiclass", "0" },
     { "model_width", "640" },
     { "model_height", "640" },
+    { "num_seg_masks", "32" },
   };
-  auto decoder = Ax::LoadDecode("yolov8seg", properties);
+  auto decoder = Ax::LoadDecode("yolov8", properties);
 
   AxVideoInterface video_info{ { 64, 64, 64, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
@@ -165,8 +169,10 @@ TEST(yolov8seg_decode_scores, none_filtered_at_min_confidence_with_multiclass)
     { "multiclass", "1" },
     { "model_width", "640" },
     { "model_height", "640" },
+    { "num_seg_masks", "32" },
+    { "materialize_masks", "1" },
   };
-  auto decoder = Ax::LoadDecode("yolov8seg", properties);
+  auto decoder = Ax::LoadDecode("yolov8", properties);
 
   AxVideoInterface video_info{ { 64, 64, 64, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
@@ -212,8 +218,10 @@ TEST(yolov8seg_decode_scores, all_but_first_highest_filtered_at_min_confidence_w
     { "multiclass", "0" },
     { "model_width", "640" },
     { "model_height", "640" },
+    { "num_seg_masks", "32" },
+    { "materialize_masks", "1" },
   };
-  auto decoder = Ax::LoadDecode("yolov8seg", properties);
+  auto decoder = Ax::LoadDecode("yolov8", properties);
 
   AxVideoInterface video_info{ { 64, 64, 64, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
@@ -261,8 +269,10 @@ TEST(yolov8seg_decode_scores, with_multiclass_all_below_threshold_are_filtered)
     { "multiclass", "1" },
     { "model_width", "640" },
     { "model_height", "640" },
+    { "num_seg_masks", "32" },
+    { "materialize_masks", "1" },
   };
-  auto decoder = Ax::LoadDecode("yolov8seg", properties);
+  auto decoder = Ax::LoadDecode("yolov8", properties);
 
   AxVideoInterface video_info{ { 64, 64, 64, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
@@ -308,8 +318,10 @@ TEST(yolov8seg_decode_scores, without_scaling_segments)
     { "multiclass", "1" },
     { "model_width", "640" },
     { "model_height", "640" },
+    { "num_seg_masks", "32" },
+    { "materialize_masks", "1" },
   };
-  auto decoder = Ax::LoadDecode("yolov8seg", properties);
+  auto decoder = Ax::LoadDecode("yolov8", properties);
 
   AxVideoInterface video_info{ { 64, 64, 64, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
@@ -356,8 +368,10 @@ TEST(yolov8seg_decode_scores, with_heatmap)
     { "heatmap", "1" },
     { "model_width", "640" },
     { "model_height", "640" },
+    { "num_seg_masks", "32" },
+    { "materialize_masks", "1" },
   };
-  auto decoder = Ax::LoadDecode("yolov8seg", properties);
+  auto decoder = Ax::LoadDecode("yolov8", properties);
 
   AxVideoInterface video_info{ { 64, 64, 64, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};

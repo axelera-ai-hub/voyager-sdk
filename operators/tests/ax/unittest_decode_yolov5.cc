@@ -183,7 +183,7 @@ TEST(yolov5_decode_scores, all_filtered_at_max_confidence)
 
   AxVideoInterface video_info{ { 64, 48, 64, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo, { 1, 9, 1, 1 });
+  auto tensors = tensors_from_vector(yolo, { 1, 1, 1, 9 });
   decoder->decode_to_meta(tensors, 0, 1, map, video_info);
 
   auto [actual_boxes, actual_scores, actual_classes] = get_meta(map, meta_identifier);
@@ -217,7 +217,7 @@ TEST(yolov5_decode_scores, none_filtered_at_min_confidence_with_multiclass)
 
   AxVideoInterface video_info{ { 64, 48, 64, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo, { 1, 9, 1, 1 });
+  auto tensors = tensors_from_vector(yolo, { 1, 1, 1, 9 });
   decoder->decode_to_meta(tensors, 0, 1, map, video_info);
 
   auto [actual_boxes, actual_scores, actual_classes] = get_meta(map, meta_identifier);
@@ -251,7 +251,7 @@ TEST(yolov5_decode_scores, all_but_first_highest_filtered_at_min_confidence_with
 
   AxVideoInterface video_info{ { 64, 48, 64, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo, { 1, 9, 1, 1 });
+  auto tensors = tensors_from_vector(yolo, { 1, 1, 1, 9 });
   decoder->decode_to_meta(tensors, 0, 1, map, video_info);
 
   auto [actual_boxes, actual_scores, actual_classes] = get_meta(map, meta_identifier);
@@ -285,7 +285,7 @@ TEST(yolov5_decode_scores, with_multiclass_all_below_threshold_are_filtered)
 
   AxVideoInterface video_info{ { 64, 48, 64, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo, { 1, 9, 1, 1 });
+  auto tensors = tensors_from_vector(yolo, { 1, 1, 1, 9 });
   decoder->decode_to_meta(tensors, 0, 1, map, video_info);
 
   auto [actual_boxes, actual_scores, actual_classes] = get_meta(map, meta_identifier);
@@ -319,7 +319,7 @@ TEST(yolov5_decode_scores, dequantize_with_sigmoid)
 
   AxVideoInterface video_info{ { 64, 48, 64, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo, { 1, 9, 1, 1 });
+  auto tensors = tensors_from_vector(yolo, { 1, 1, 1, 9 });
   decoder->decode_to_meta(tensors, 0, 1, map, video_info);
 
   auto [actual_boxes, actual_scores, actual_classes] = get_meta(map, meta_identifier);
@@ -352,7 +352,7 @@ TEST(yolov5_decode_scores, pure_dequantize)
 
   AxVideoInterface video_info{ { 64, 48, 64, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo, { 1, 9, 1, 1 });
+  auto tensors = tensors_from_vector(yolo, { 1, 1, 1, 9 });
   decoder->decode_to_meta(tensors, 0, 1, map, video_info);
 
   auto [actual_boxes, actual_scores, actual_classes] = get_meta(map, meta_identifier);
@@ -367,17 +367,16 @@ TEST(yolov5_decode_scores, two_by_two)
   //  With the scale and zero point values 14 -> 0.5
   //  This means with an object score of 0.5, the confidence of a class with a
   //  score value of 0 becomes 0.25
+
   std::vector<int8_t> yolo = {
-    14, 14, 14, 14, // x
-    14, 14, 14, 14, // y
-    14, 14, 14, 14, // w
-    14, 14, 14, 14, // h
-    14, 0, 1, 14, // score
-    13, 13, 13, 13, // class 0 score
-    14, 14, 10, 1, // class 1 score
-    12, 12, 12, 12, // class 2 score
-    1, 1, 1, 14, // class 3 score
+    // clang-format off
+    14, 14, 14, 14, 14, 13, 14, 12,  1,
+    14, 14, 14, 14,  0, 13, 14, 12,  1,
+    14, 14, 14, 14,  1, 13, 10, 12,  1,
+    14, 14, 14, 14, 14, 13,  1, 12, 14
+    // clang-format on
   };
+
   std::string meta_identifier = "yolov5";
 
   std::unordered_map<std::string, std::string> properties = {
@@ -396,7 +395,7 @@ TEST(yolov5_decode_scores, two_by_two)
 
   AxVideoInterface video_info{ { 64, 64, 64, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo, { 1, 9, 2, 2 });
+  auto tensors = tensors_from_vector(yolo, { 1, 2, 2, 9 });
   decoder->decode_to_meta(tensors, 0, 1, map, video_info);
 
   auto [actual_boxes, actual_scores, actual_classes] = get_meta(map, meta_identifier);
@@ -415,17 +414,28 @@ TEST(yolov5_decode_scores, letterbox)
   //  With the scale and zero point values 14 -> 0.5
   //  This means with an object score of 0.5, the confidence of a class with a
   //  score value of 0 becomes 0.25
+
   std::vector<int8_t> yolo = {
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // x
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // y
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // w
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // h
-    0, 0, 0, 0, 0, 0, 0, 0, 14, 0, 1, 14, 0, 0, 0, 0, // score
-    0, 0, 0, 0, 0, 0, 0, 0, 13, 13, 13, 13, 0, 0, 0, 0, // class 0 score
-    0, 0, 0, 0, 0, 0, 0, 0, 14, 14, 10, 1, 0, 0, 0, 0, // class 1 score
-    0, 0, 0, 0, 0, 0, 0, 0, 12, 12, 12, 12, 0, 0, 0, 0, // class 2 score,
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 14, 0, 0, 0, 0, // class 3 score
+    // clang-format off
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14, 14, 13, 14, 12,  1,
+    14, 14, 14, 14,  0, 13, 14, 12,  1,
+    14, 14, 14, 14,  1, 13, 10, 12,  1,
+    14, 14, 14, 14, 14, 13,  1, 12, 14,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0
+    // clang-format on
   };
+
   std::string meta_identifier = "yolov5";
 
   std::unordered_map<std::string, std::string> properties = {
@@ -445,7 +455,7 @@ TEST(yolov5_decode_scores, letterbox)
 
   AxVideoInterface video_info{ { 128, 64, 128, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo, { 1, 9, 4, 4 });
+  auto tensors = tensors_from_vector(yolo, { 1, 4, 4, 9 });
   decoder->decode_to_meta(tensors, 0, 1, map, video_info);
 
   auto [actual_boxes, actual_scores, actual_classes] = get_meta(map, meta_identifier);
@@ -465,16 +475,27 @@ TEST(yolov5_decode_scores, letterbox_topk)
   //  This means with an object score of 0.5, the confidence of a class with a
   //  score value of 0 becomes 0.25
   std::vector<int8_t> yolo = {
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // x
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // y
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // w
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // h
-    0, 0, 0, 0, 0, 0, 0, 0, 14, 0, 1, 14, 0, 0, 0, 0, // score
-    0, 0, 0, 0, 0, 0, 0, 0, 13, 13, 13, 13, 0, 0, 0, 0, // class 0 score
-    0, 0, 0, 0, 0, 0, 0, 0, 14, 14, 10, 1, 0, 0, 0, 0, // class 1 score
-    0, 0, 0, 0, 0, 0, 0, 0, 12, 12, 12, 12, 0, 0, 0, 0, // class 2 score,
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 15, 0, 0, 0, 0, // class 3 score
+    // clang-format off
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14, 14, 13, 14, 12,  1,
+    14, 14, 14, 14,  0, 13, 14, 12,  1,
+    14, 14, 14, 14,  1, 13, 10, 12,  1,
+    14, 14, 14, 14, 14, 13,  1, 12, 15,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0
+    // clang-format on
   };
+
+
   std::string meta_identifier = "yolov5";
 
   std::unordered_map<std::string, std::string> properties = {
@@ -495,7 +516,7 @@ TEST(yolov5_decode_scores, letterbox_topk)
 
   AxVideoInterface video_info{ { 128, 64, 128, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo, { 1, 9, 4, 4 });
+  auto tensors = tensors_from_vector(yolo, { 1, 4, 4, 9 });
   decoder->decode_to_meta(tensors, 0, 1, map, video_info);
 
   auto [actual_boxes, actual_scores, actual_classes] = get_meta(map, meta_identifier);
@@ -534,7 +555,6 @@ TEST(yolov5_decode_scores, two_by_two_transposed)
     { "confidence_threshold", "0.20" },
     { "classes", "4" },
     { "multiclass", "1" },
-    { "transpose", "1" },
     { "sigmoid_in_postprocess", "1" },
     { "model_width", "640" },
     { "model_height", "640" },
@@ -594,7 +614,6 @@ TEST(yolov5_decode_scores, two_by_two_transposed_pad)
     { "confidence_threshold", "0.20" },
     { "classes", "4" },
     { "multiclass", "1" },
-    { "transpose", "1" },
     { "sigmoid_in_postprocess", "1" },
     { "model_width", "640" },
     { "model_height", "640" },
@@ -655,7 +674,6 @@ TEST(yolov5_decode_scores, letterbox_topk_transpose)
     { "classes", "4" },
     { "multiclass", "1" },
     { "topk", "1" },
-    { "transpose", "1" },
     { "sigmoid_in_postprocess", "1" },
     { "model_width", "640" },
     { "model_height", "640" },
@@ -715,7 +733,6 @@ TEST(yolov5_decode_scores, letterbox_topk_transpose_float)
     { "classes", "4" },
     { "multiclass", "1" },
     { "topk", "1" },
-    { "transpose", "1" },
     { "sigmoid_in_postprocess", "1" },
     { "model_width", "640" },
     { "model_height", "640" },
@@ -745,24 +762,12 @@ TEST(yolov5_decode_scores, two_by_two_with_2_acnhors)
   //  This means with an object score of 0.5, the confidence of a class with a
   //  score value of 0 becomes 0.25
   std::vector<int8_t> yolo = {
-    14, 14, 14, 14, // x
-    14, 14, 14, 14, // y
-    14, 14, 14, 14, // w
-    14, 14, 14, 14, // h
-    10, 0, 1, 14, // score
-    13, 13, 13, 13, // class 0 score
-    14, 14, 10, 1, // class 1 score
-    12, 12, 12, 12, // class 2 score
-    1, 1, 1, 14, // class 3 score
-    14, 14, 14, 14, // x
-    14, 14, 14, 14, // y
-    14, 14, 14, 14, // w
-    14, 14, 14, 14, // h
-    14, 0, 1, 10, // score
-    13, 13, 13, 13, // class 0 score
-    14, 14, 10, 1, // class 1 score
-    12, 12, 12, 12, // class 2 score
-    1, 1, 1, 14, // class 3 score
+    // clang-format off
+    14, 14, 14, 14, 10, 13, 14, 12,  1, 14, 14, 14, 14, 14, 13, 14, 12,  1,
+    14, 14, 14, 14,  0, 13, 14, 12,  1, 14, 14, 14, 14,  0, 13, 14, 12,  1,
+    14, 14, 14, 14,  1, 13, 10, 12, 14, 14, 14, 14, 14,  1, 13, 10, 12,  1,
+    14, 14, 14, 14, 14, 13,  1, 12, 14, 14, 14, 14, 14, 10, 13,  1, 12, 14,
+    // clang-format on
   };
   std::string meta_identifier = "yolov5";
 
@@ -783,7 +788,7 @@ TEST(yolov5_decode_scores, two_by_two_with_2_acnhors)
 
   AxVideoInterface video_info{ { 64, 64, 64, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo, { 1, 18, 2, 2 });
+  auto tensors = tensors_from_vector(yolo, { 1, 2, 2, 18 });
   decoder->decode_to_meta(tensors, 0, 1, map, video_info);
 
   auto [actual_boxes, actual_scores, actual_classes] = get_meta(map, meta_identifier);
@@ -802,28 +807,34 @@ TEST(yolov5_decode_scores, four_by_four_and_two_by_two)
   //  With the scale and zero point values 14 -> 0.5
   //  This means with an object score of 0.5, the confidence of a class with a
   //  score value of 0 becomes 0.25
-  std::vector<int8_t> yolo4x4 = {
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // x
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // y
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // w
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // h
-    0, 0, 0, 0, 0, 0, 0, 0, 14, 0, 1, 14, 0, 0, 0, 0, // score
-    0, 0, 0, 0, 0, 0, 0, 0, 14, 13, 13, 13, 0, 0, 0, 0, // class 0 score
-    0, 0, 0, 0, 0, 0, 0, 0, 13, 14, 10, 1, 0, 0, 0, 0, // class 1 score
-    0, 0, 0, 0, 0, 0, 0, 0, 12, 12, 12, 12, 0, 0, 0, 0, // class 2 score,
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 14, 0, 0, 0, 0, // class 3 score
-  };
 
+  std::vector<int8_t> yolo4x4 = {
+    // clang-format off
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14, 14, 14, 13, 12,  1,
+    14, 14, 14, 14,  0, 13, 13, 12,  1,
+    14, 14, 14, 14,  1, 13, 10, 12,  1,
+    14, 14, 14, 14, 14, 13,  1, 12, 14,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    // clang-format on
+  };
   std::vector<int8_t> yolo2x2 = {
-    14, 14, 14, 14, // x
-    14, 14, 14, 14, // y
-    14, 14, 14, 14, // w
-    14, 14, 14, 14, // h
-    14, 0, 1, 14, // score
-    13, 13, 13, 13, // class 0 score
-    14, 14, 10, 1, // class 1 score
-    12, 12, 12, 14, // class 2 score
-    1, 1, 1, 12, // class 3 score
+    // clang-format off
+    14, 14, 14, 14, 14, 13, 14, 12,  1,
+    14, 14, 14, 14,  0, 13, 14, 12,  1,
+    14, 14, 14, 14,  1, 13, 10, 12,  1,
+    14, 14, 14, 14, 14, 13,  1, 14, 12,
+    // clang-format on
   };
 
   std::string meta_identifier = "yolov5";
@@ -845,8 +856,8 @@ TEST(yolov5_decode_scores, four_by_four_and_two_by_two)
 
   AxVideoInterface video_info{ { 640, 640, 640, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo4x4, { 1, 9, 4, 4 });
-  auto tensors2x2 = tensors_from_vector(yolo2x2, { 1, 9, 2, 2 });
+  auto tensors = tensors_from_vector(yolo4x4, { 1, 4, 4, 9 });
+  auto tensors2x2 = tensors_from_vector(yolo2x2, { 1, 2, 2, 9 });
   tensors.push_back(std::move(tensors2x2[0]));
 
   decoder->decode_to_meta(tensors, 0, 1, map, video_info);
@@ -872,28 +883,34 @@ TEST(yolov5_decode_scores, two_by_two_and_four_by_four)
   //  With the scale and zero point values 14 -> 0.5
   //  This means with an object score of 0.5, the confidence of a class with a
   //  score value of 0 becomes 0.25
-  std::vector<int8_t> yolo4x4 = {
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // x
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // y
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // w
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // h
-    0, 0, 0, 0, 0, 0, 0, 0, 14, 0, 1, 14, 0, 0, 0, 0, // score
-    0, 0, 0, 0, 0, 0, 0, 0, 14, 13, 13, 13, 0, 0, 0, 0, // class 0 score
-    0, 0, 0, 0, 0, 0, 0, 0, 13, 14, 10, 1, 0, 0, 0, 0, // class 1 score
-    0, 0, 0, 0, 0, 0, 0, 0, 12, 12, 12, 12, 0, 0, 0, 0, // class 2 score,
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 14, 0, 0, 0, 0, // class 3 score
-  };
 
+  std::vector<int8_t> yolo4x4 = {
+    // clang-format off
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14, 14, 14, 13, 12,  1,
+    14, 14, 14, 14,  0, 13, 13, 12,  1,
+    14, 14, 14, 14,  1, 13, 10, 12,  1,
+    14, 14, 14, 14, 14, 13,  1, 12, 14,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    // clang-format on
+  };
   std::vector<int8_t> yolo2x2 = {
-    14, 14, 14, 14, // x
-    14, 14, 14, 14, // y
-    14, 14, 14, 14, // w
-    14, 14, 14, 14, // h
-    14, 0, 1, 14, // score
-    13, 13, 13, 13, // class 0 score
-    14, 14, 10, 1, // class 1 score
-    12, 12, 12, 14, // class 2 score
-    1, 1, 1, 12, // class 3 score
+    // clang-format off
+    14, 14, 14, 14, 14, 13, 14, 12,  1,
+    14, 14, 14, 14,  0, 13, 14, 12,  1,
+    14, 14, 14, 14,  1, 13, 10, 12,  1,
+    14, 14, 14, 14, 14, 13,  1, 14, 12,
+    // clang-format on
   };
 
   std::string meta_identifier = "yolov5";
@@ -915,8 +932,8 @@ TEST(yolov5_decode_scores, two_by_two_and_four_by_four)
 
   AxVideoInterface video_info{ { 640, 640, 640, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo2x2, { 1, 9, 2, 2 });
-  auto tensors4x4 = tensors_from_vector(yolo4x4, { 1, 9, 4, 4 });
+  auto tensors = tensors_from_vector(yolo2x2, { 1, 2, 2, 9 });
+  auto tensors4x4 = tensors_from_vector(yolo4x4, { 1, 4, 4, 9 });
   tensors.push_back(std::move(tensors4x4[0]));
 
   decoder->decode_to_meta(tensors, 0, 1, map, video_info);
@@ -942,17 +959,17 @@ TEST(yolov5_decode_scores, four_by_two)
   //  With the scale and zero point values 14 -> 0.5
   //  This means with an object score of 0.5, the confidence of a class with a
   //  score value of 0 becomes 0.25
+
   std::vector<int8_t> yolo4x4 = {
     // clang-format off
-    14, 14, 14, 14, 14, 14, 14, 14,  // x
-    14, 14, 14, 14, 14, 14, 14, 14,  // y
-    14, 14, 14, 14, 14, 14, 14, 14,  // w
-    14, 14, 14, 14, 14, 14, 14, 14,  // h
-     0, 14,  0,  0,  0,  1, 14,  0,  // score
-     0, 14, 13,  0,  0, 13, 13,  0,  // class 0 score
-     0, 13, 14,  0,  0, 10,  1,  0,  // class 1 score
-     0, 12, 12,  0,  0, 12, 12,  0,  // class 2 score,
-     0,  1,  1,  0,  0,  1, 14,  0,  // class 3 score
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14, 14, 14, 13, 12,  1,
+    14, 14, 14, 14,  0, 13, 14, 12,  1,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  1, 13, 10, 12,  1,
+    14, 14, 14, 14, 14, 13,  1, 12, 14,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
     // clang-format on
   };
 
@@ -975,7 +992,7 @@ TEST(yolov5_decode_scores, four_by_two)
 
   AxVideoInterface video_info{ { 640, 640, 640, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo4x4, { 1, 9, 2, 4 });
+  auto tensors = tensors_from_vector(yolo4x4, { 1, 2, 4, 9 });
 
   decoder->decode_to_meta(tensors, 0, 1, map, video_info);
 
@@ -997,17 +1014,17 @@ TEST(yolov5_decode_scores, two_by_four)
   //  With the scale and zero point values 14 -> 0.5
   //  This means with an object score of 0.5, the confidence of a class with a
   //  score value of 0 becomes 0.25
+
   std::vector<int8_t> yolo4x4 = {
     // clang-format off
-    14, 14, 14, 14, 14, 14, 14, 14,  // x
-    14, 14, 14, 14, 14, 14, 14, 14,  // y
-    14, 14, 14, 14, 14, 14, 14, 14,  // w
-    14, 14, 14, 14, 14, 14, 14, 14,  // h
-     0,  0, 14,  0,  1, 14,  0,  0,  // score
-     0,  0, 14, 13, 13, 13,  0,  0,  // class 0 score
-     0,  0, 13, 14, 10,  1,  0,  0,  // class 1 score
-     0,  0, 12, 12, 12, 12,  0,  0,  // class 2 score,
-     0,  0,  1,  1,  1, 14,  0,  0,  // class 3 score
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14, 14, 14, 13, 12,  1,
+    14, 14, 14, 14,  0, 13, 14, 12,  1,
+    14, 14, 14, 14,  1, 13, 10, 12,  1,
+    14, 14, 14, 14, 14, 13,  1, 12, 14,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
     // clang-format on
   };
 
@@ -1030,7 +1047,7 @@ TEST(yolov5_decode_scores, two_by_four)
 
   AxVideoInterface video_info{ { 640, 640, 640, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo4x4, { 1, 9, 4, 2 });
+  auto tensors = tensors_from_vector(yolo4x4, { 1, 4, 2, 9 });
 
   decoder->decode_to_meta(tensors, 0, 1, map, video_info);
 
@@ -1053,28 +1070,34 @@ TEST(yolov5_decode_filter, two_by_two_and_four_by_four)
   //  This means with an object score of 0.5, the confidence of a class with a
   //  score value of 0 becomes 0.25
   std::vector<int8_t> yolo4x4 = {
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // x
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // y
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // w
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, // h
-    0, 0, 0, 0, 0, 0, 0, 0, 14, 0, 1, 14, 0, 0, 0, 0, // score
-    0, 0, 0, 0, 0, 0, 0, 0, 14, 13, 13, 13, 0, 0, 0, 0, // class 0 score
-    0, 0, 0, 0, 0, 0, 0, 0, 13, 14, 10, 1, 0, 0, 0, 0, // class 1 score
-    0, 0, 0, 0, 0, 0, 0, 0, 12, 12, 12, 12, 0, 0, 0, 0, // class 2 score,
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 14, 0, 0, 0, 0, // class 3 score
+    // clang-format off
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14, 14, 14, 13, 12,  1,
+    14, 14, 14, 14,  0, 13, 13, 12,  1,
+    14, 14, 14, 14,  1, 13, 10, 12,  1,
+    14, 14, 14, 14, 14, 13,  1, 12, 14,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    14, 14, 14, 14,  0,  0,  0,  0,  0,
+    // clang-format on
+  };
+  std::vector<int8_t> yolo2x2 = {
+    // clang-format off
+    14, 14, 14, 14, 14, 13, 14, 12,  1,
+    14, 14, 14, 14,  0, 13, 14, 12,  1,
+    14, 14, 14, 14,  1, 13, 10, 12,  1,
+    14, 14, 14, 14, 14, 13,  1, 14, 12,
+    // clang-format on
   };
 
-  std::vector<int8_t> yolo2x2 = {
-    14, 14, 14, 14, // x
-    14, 14, 14, 14, // y
-    14, 14, 14, 14, // w
-    14, 14, 14, 14, // h
-    14, 0, 1, 14, // score
-    13, 13, 13, 13, // class 0 score
-    14, 14, 10, 1, // class 1 score
-    12, 12, 12, 14, // class 2 score
-    1, 1, 1, 12, // class 3 score
-  };
 
   std::string meta_identifier = "yolov5";
 
@@ -1096,8 +1119,8 @@ TEST(yolov5_decode_filter, two_by_two_and_four_by_four)
 
   AxVideoInterface video_info{ { 640, 640, 640, 0, AxVideoFormat::RGB }, nullptr };
   std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo2x2, { 1, 9, 2, 2 });
-  auto tensors4x4 = tensors_from_vector(yolo4x4, { 1, 9, 4, 4 });
+  auto tensors = tensors_from_vector(yolo2x2, { 1, 2, 2, 9 });
+  auto tensors4x4 = tensors_from_vector(yolo4x4, { 1, 4, 4, 9 });
   tensors.push_back(std::move(tensors4x4[0]));
 
   decoder->decode_to_meta(tensors, 0, 1, map, video_info);
@@ -1113,80 +1136,6 @@ TEST(yolov5_decode_filter, two_by_two_and_four_by_four)
   EXPECT_FLOAT_EQ(actual_scores[0], expected_scores[0]);
   EXPECT_FLOAT_EQ(actual_scores[1], expected_scores[1]);
   EXPECT_EQ(actual_boxes, expected_boxes);
-}
-
-TEST(yolov5_decode_remove_degnerate_boxes, remove_with_no_width)
-{
-  //  With the scale and zero point values 14 -> 0.5
-  //  This means with an object score of 0.5, the confidence of a class with a
-  //  score value of 0 becomes 0.25
-  std::vector<int8_t> yolo = { 14, 14, 0, 14, 14, 13, 15, 12, 1 };
-  std::string meta_identifier = "yolov5";
-
-  std::unordered_map<std::string, std::string> properties = {
-    { "meta_key", meta_identifier },
-    { "zero_points", "14" },
-    { "scales", "2.0" },
-    { "anchors", "10, 10" },
-    { "confidence_threshold", "0.20" },
-    { "classes", "4" },
-    { "multiclass", "1" },
-    { "sigmoid_in_postprocess", "1" },
-    { "model_width", "640" },
-    { "model_height", "640" },
-    { "scale_up", "1" },
-  };
-  auto decoder = Ax::LoadDecode("yolov5", properties);
-
-  AxVideoInterface video_info{ { 64, 64, 64, 0, AxVideoFormat::RGB }, nullptr };
-  std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo, { 1, 9, 1, 1 });
-  decoder->decode_to_meta(tensors, 0, 1, map, video_info);
-
-  auto [actual_boxes, actual_scores, actual_classes] = get_meta(map, meta_identifier);
-  auto expected_classes = std::vector<int32_t>{};
-  auto expected_scores = std::vector<float>{};
-  auto expected_boxes = std::vector<int32_t>{};
-  ASSERT_EQ(actual_classes, expected_classes);
-  ASSERT_EQ(actual_scores, expected_scores);
-  ASSERT_EQ(actual_boxes, expected_boxes);
-}
-
-TEST(yolov5_decode_remove_degnerate_boxes, remove_with_no_height)
-{
-  //  With the scale and zero point values 14 -> 0.5
-  //  This means with an object score of 0.5, the confidence of a class with a
-  //  score value of 0 becomes 0.25
-  std::vector<int8_t> yolo = { 14, 14, 14, 0, 14, 13, 15, 12, 1 };
-  std::string meta_identifier = "yolov5";
-
-  std::unordered_map<std::string, std::string> properties = {
-    { "meta_key", meta_identifier },
-    { "zero_points", "14" },
-    { "scales", "2.0" },
-    { "anchors", "10, 10" },
-    { "confidence_threshold", "0.20" },
-    { "classes", "4" },
-    { "multiclass", "1" },
-    { "sigmoid_in_postprocess", "1" },
-    { "model_width", "640" },
-    { "model_height", "640" },
-    { "scale_up", "1" },
-  };
-  auto decoder = Ax::LoadDecode("yolov5", properties);
-
-  AxVideoInterface video_info{ { 64, 64, 64, 0, AxVideoFormat::RGB }, nullptr };
-  std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
-  auto tensors = tensors_from_vector(yolo, { 1, 9, 1, 1 });
-  decoder->decode_to_meta(tensors, 0, 1, map, video_info);
-
-  auto [actual_boxes, actual_scores, actual_classes] = get_meta(map, meta_identifier);
-  auto expected_classes = std::vector<int32_t>{};
-  auto expected_scores = std::vector<float>{};
-  auto expected_boxes = std::vector<int32_t>{};
-  ASSERT_EQ(actual_classes, expected_classes);
-  ASSERT_EQ(actual_scores, expected_scores);
-  ASSERT_EQ(actual_boxes, expected_boxes);
 }
 
 } // namespace

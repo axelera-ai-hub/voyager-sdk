@@ -244,7 +244,7 @@ associate(Eigen::MatrixXf detections, Eigen::MatrixXf trackers,
         }
       }
       std::vector<int> rowsol, colsol;
-      float MIN_cost = execLapjv(cost_iou_matrix, rowsol, colsol, true, 0.01, true);
+      execLapjv(cost_iou_matrix, rowsol, colsol, true, 0.01, false);
       for (int i = 0; i < rowsol.size(); i++) {
         if (rowsol.at(i) >= 0) {
           Eigen::RowVectorXf row(2);

@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Utility functions used by the Voyager SDK
 from __future__ import annotations
 
@@ -162,9 +162,9 @@ def visit_dict(obj, visitor):
 def _make_path_absolute(base, path):
     """
     Convert a path to an absolute path relative to the base directory.
-    Handles environment variables and home directory (~) expansion.
+    Handles axelera environment variables and home directory (~) expansion.
     """
-    path = os.path.expandvars(path)
+    path = env.expandvars(path)
     path = os.path.expanduser(path)
     if not Path(path).is_absolute():
         return str(Path(base, path).resolve())
@@ -364,6 +364,38 @@ def download(url: str, path: Path, checksum=""):
             f"Downloaded file {path} failed CRC check; expected {checksum}, got {generate_md5(path)}"
         )
     return True
+
+
+def download_model_artifacts(
+    path: Path, url: str, md5: str = None, model_name: str = '', artifact: str = 'weight'
+) -> None:
+    """
+    Download model artifacts like weights and anchors giving useful error messages.
+    """
+    if artifact:
+        name = f'{artifact}s' if artifact == 'weight' else artifact
+        yaml_prefix = f'{artifact}_'
+    else:
+        name = 'file'
+        yaml_prefix = ''
+
+    if model_name:
+        model_name = f'{model_name}: '
+
+    if not path.exists() or (md5 and not md5_validates(path, md5)):
+        if not url:
+            extra = 'no "anchors" specified, ' if artifact == 'anchors' else ''
+            raise ValueError(
+                f'{model_name}{extra}no suitable {name} found at "{path}" and no "{yaml_prefix}url" specified'
+            )
+        try:
+            download(url, path, md5)
+        except Exception as e:
+            raise RuntimeError(
+                f'{model_name}failed to download {name} at "{path}" from "{url}"\n'
+                f'Please check settings for "{yaml_prefix}url" and "{yaml_prefix}path"\n'
+                f'\t{e}'
+            ) from None
 
 
 def download_from_internal_s3(s3_bucket_name: str, s3_filepath: str, cache_path: Path) -> str:
@@ -836,11 +868,15 @@ def is_opencl_available():
                     sdevs = ', '.join(d.name for d in devs)
                     LOG.debug(f"Found OpenCL GPU devices for platform {p.name}: {sdevs}")
                     return True
+                elif devs := p.get_devices(pyopencl.device_type.CPU):
+                    sdevs = ', '.join(d.name for d in devs)
+                    LOG.debug(f"Found OpenCL CPU devices for platform {p.name}: {sdevs}")
+                    return True
 
-                LOG.debug(f"No GPU OpenCL devices in platform {p.name}")
+                LOG.debug(f"No GPU or CPU OpenCL devices in platform {p.name}")
             except Exception as e:
                 LOG.warning(f"Failed to get OpenCL devices for platform {p.name} : {e}")
-        LOG.warning("No OpenCL GPU devices found")
+        LOG.warning("No OpenCL GPU or CPU devices found")
         LOG.warning(CHECK_DOCS)
         return False
 
@@ -955,21 +991,33 @@ def ensure_dependencies_are_installed(dependencies: list[str], dry_run: bool = F
         if dry_run:
             return
 
-        # Install missing straightforward dependencies
+    except subprocess.CalledProcessError as e:
+        is_build_failure = 'Failed to build' in (e.stderr or '')
+        if dry_run:
+            if is_build_failure:
+                LOG.debug(
+                    "Dry-run dependency check skipped for %s"
+                    " (source package incompatible with pip build isolation)",
+                    ', '.join(dependencies),
+                )
+                return
+            msg = '\n'.join(
+                [' '.join(["pip", "install", "--dry-run"] + dependencies), e.stdout, e.stderr]
+            )
+            raise RuntimeError(
+                f"Failed to check dependencies requested in the network yaml:\n{msg}"
+            )
+        LOG.warning("Dry-run check failed, installing all dependencies")
+
+    # Install missing straightforward dependencies
+    if without_extra:
         cmd = ["pip", "install"] + without_extra
         run_command_with_progress(cmd)
 
-        for dep, extra in with_extra.items():
-            # Install dependencies with extra text
-            LOG.info(f"Installing {dep} {extra}'. On some platforms this may take a while...")
-            cmd = ["pip", "install", dep] + extra.split()
-            run_command_with_progress(cmd)
-
-    except subprocess.CalledProcessError as e:
-        msg = '\n'.join(
-            [' '.join(["pip", "install", "--dry-run"] + dependencies), e.stdout, e.stderr]
-        )
-        raise RuntimeError(f"Failed to check dependencies requested in the network yaml:\n{msg}")
+    for dep, extra in with_extra.items():
+        LOG.info(f"Installing {dep} {extra}'. On some platforms this may take a while...")
+        cmd = ["pip", "install", dep] + extra.split()
+        run_command_with_progress(cmd)
 
 
 class FrozenIntEnumMeta(EnumMeta):

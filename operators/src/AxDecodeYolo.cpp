@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2024
+// Copyright Axelera AI, 2025
 // General YOLO decoder, the tensor is decoded by ONNXRuntime, filtered by
 // parameters, and then passed into the ObjDetectionMeta
 
@@ -404,7 +404,7 @@ decode_to_meta(const AxTensorsInterface &in_tensors, const yolo::properties *pro
   }
 
   auto predictions = yolo::decode_tensors(tensors, *prop, logger);
-  predictions = ax_utils::topk(predictions, prop->topk);
+  predictions = ax_utils::topk(std::move(predictions), prop->topk);
 
   auto video_info = std::get<AxVideoInterface>(video_interface).info;
 

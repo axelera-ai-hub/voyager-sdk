@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 from abc import ABC
 
 from axelera.types import enums
@@ -278,6 +278,7 @@ class InputSource(Enum):
         'meta',
         'roi',
         'image_processing',
+        'no_tiles',
     ]
 
 

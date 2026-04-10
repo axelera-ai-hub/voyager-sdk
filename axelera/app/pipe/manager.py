@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # functions for deploying pipeline and base object for building pipeline
 from __future__ import annotations
 
@@ -167,12 +167,12 @@ def compile_pipelines(
     nn: network.AxNetwork,
     srcs: list[config.Source],
     hwcaps: config.HardwareCaps,
-    tiling: config.TilingConfig | None = None,
 ) -> None:
     '''Compile the pipeline for the given network and sources.
 
     Converts source image preprocessing operations to AxOperator instances in the first task,
     and runs all transformers for the image preproc and task preprocs.
+    Tiling is applied if any task in the pipeline has Input operator (not InputNoTiles).
     '''
     _assign_image_preproc_ops(nn.tasks[0], srcs, nn.custom_operators)
     if len(nn.tasks) > 1 and any(
@@ -184,13 +184,25 @@ def compile_pipelines(
         )
     from ..operators.custom_preprocessing import ConvertColorInput, _AddTiles
 
-    for preproc in nn.tasks[0].image_preproc_ops.values():
-        preproc.insert(0, ConvertColorInput(nn.tasks[0].input.color_format))
-        if tiling:
-            preproc.append(_AddTiles(tiling, nn.tasks[0].model_info.input_tensor_shape))
+    any_task_needs_tiling = any(isinstance(task.input, operators.Input) for task in nn.tasks)
+    for preproc, src in zip(nn.tasks[0].image_preproc_ops.values(), srcs):
+        if src.has_image_preproc or not hwcaps.opencl:
+            # We only need to convert color if there are image processing ops
+            preproc.insert(0, ConvertColorInput(nn.tasks[0].input.color_format))
+        if not any_task_needs_tiling:
+            # If no task needs tiling, we need to remove any tiling preproc
+            preproc[:] = [op for op in preproc if not isinstance(op, _AddTiles)]
     for preproc in nn.tasks[0].image_preproc_ops.values():
         transforms.run_all_transformers(preproc, hardware_caps=hwcaps)
     for task in nn.tasks:
+        if isinstance(task.input, operators.InputFromROI):
+            # Add image processing to preprocessing ops to enable fusion
+            if task.input.image_processing_on_roi:
+                task.preprocess[:0] = task.input.image_processing_on_roi
+                task.input.image_processing_on_roi = []
+
+        if task.preprocess and hwcaps.opencl:
+            task.preprocess.insert(0, ConvertColorInput(task.input.color_format))
         transforms.run_all_transformers(task.preprocess, hardware_caps=hwcaps)
 
 
@@ -248,15 +260,14 @@ def _propagate_model_and_context_info(nn: network.AxNetwork, task_graph: graph.D
     task_contexts = {}
 
     for taskn, task in enumerate(nn.tasks):
+
         # master_task is "where" defined in the Input operator
         if master_task := task_graph.get_master(task.name):
             if master_task in task_contexts:
                 task.context.update(task_contexts[master_task])
 
-        if not task.is_dl_task:
-            op_list = [task.input] + task.cv_process
-            compiled_model_dir = None
-            for op in op_list:
+        def configure_ops(ops, compiled_model_dir):
+            for op in ops:
                 op.configure_model_and_context_info(
                     task.model_info,
                     task.context,
@@ -266,6 +277,14 @@ def _propagate_model_and_context_info(nn: network.AxNetwork, task_graph: graph.D
                     task_graph,
                 )
 
+        if not task.is_dl_task:
+            op_list = [task.input] + task.cv_process
+            compiled_model_dir = None
+            for image_preproc_ops in task.image_preproc_ops.values():
+                configure_ops(image_preproc_ops, compiled_model_dir=compiled_model_dir)
+            configure_ops(op_list, compiled_model_dir=compiled_model_dir)
+
+            for op in op_list:
                 # pass labels from detections to tracker
                 if isinstance(op, operators.Tracker):
                     model_name = nn.find_model_info_from_task(op.bbox_task_name).name
@@ -279,15 +298,9 @@ def _propagate_model_and_context_info(nn: network.AxNetwork, task_graph: graph.D
             elif isinstance(task.input, operators.InputFromROI):
                 op_list += task.input.image_processing_on_roi
             op_list += task.preprocess + [task.inference] + task.postprocess
-            for op in op_list:
-                op.configure_model_and_context_info(
-                    task.model_info,
-                    task.context,
-                    task.name,
-                    taskn,
-                    compiled_model_dir,
-                    task_graph,
-                )
+            for image_preproc_ops in task.image_preproc_ops.values():
+                configure_ops(image_preproc_ops, compiled_model_dir=compiled_model_dir)
+            configure_ops(op_list, compiled_model_dir=compiled_model_dir)
 
         # Store this task's propagated context for its children to use
         task_contexts[task.name] = task.context.propagate()
@@ -432,7 +445,7 @@ class PipeManager:
         logging_dir = pipeline.download_nn_assets(system_config, nn)
 
         # this is kind of the core of the pipeline builder. But note it is still dependent on the device manager
-        compile_pipelines(nn, sources, self.hardware_caps, pipeline_config.tiling)
+        compile_pipelines(nn, sources, self.hardware_caps)
         _create_inference_operators(self._device_man, nn, low_latency=pipeline_config.low_latency)
         nn.model_infos.add_label_enums(nn.datasets)
         _propagate_model_and_context_info(nn, task_graph)

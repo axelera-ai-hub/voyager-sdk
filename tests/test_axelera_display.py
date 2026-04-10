@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 import builtins
 import contextlib
 import os
@@ -238,27 +238,19 @@ def _mock_display_gl_import(succeeds=True):
     # importing display_gl is a little risky, so we mock it
     # (we should probably make it less risky to import display_gl!!!)
 
-    orig_import = builtins.__import__
+    class MockDisplayGLModule:
+        class GLApp:
+            pass
 
-    class package:
-        class display_gl:
-            class GLApp:
-                pass
-
-    class WasImported:
-        was_imported = False
-
-    def new_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if 'display_gl' in fromlist:
+    def mock_import_module(name, package=None):
+        if name == '.display_gl':
             if succeeds:
-                return package
+                return MockDisplayGLModule
             raise ImportError('display_gl import failed')
-        return orig_import(name, globals, locals, fromlist, level)
+        raise ImportError(f'Unexpected module import: {name}')
 
-    with patch.dict(sys.modules, {'axelera.app.display_gl': None}):
-        del sys.modules['axelera.app.display_gl']
-        with patch.object(builtins, '__import__', new_import):
-            yield WasImported
+    with patch('axelera.app.display.importlib.import_module', side_effect=mock_import_module):
+        yield
 
 
 def test_find_display_class_auto_opengl_enabled():

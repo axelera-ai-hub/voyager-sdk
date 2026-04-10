@@ -1,3 +1,4 @@
+// Copyright Axelera AI, 2024
 #pragma once
 
 #include "STrack.h"
@@ -16,6 +17,11 @@ class BYTETracker
 
   vector<STrack> update(const vector<Object> &objects);
   Scalar get_color(int idx);
+
+  // Track lists exposed for state visualization
+  vector<STrack> tracked_stracks;
+  vector<STrack> lost_stracks;
+  vector<STrack> removed_stracks;
 
   private:
   vector<STrack *> joint_stracks(vector<STrack *> &tlista, vector<STrack> &tlistb);
@@ -44,8 +50,5 @@ class BYTETracker
   int frame_id;
   int max_time_lost;
 
-  vector<STrack> tracked_stracks;
-  vector<STrack> lost_stracks;
-  vector<STrack> removed_stracks;
   byte_kalman::KalmanFilter kalman_filter;
 };

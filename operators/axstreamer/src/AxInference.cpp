@@ -102,7 +102,9 @@ class MockInference : public Ax::BasicInference
   public:
   MockInference(Ax::Logger &logger, const std::string &model,
       const std::string &shapes, int fps)
-      : logger_(logger), path_(model), frame_duration_(1000000us / std::max(fps, 1))
+      : logger_(logger),
+        path_(model),
+        frame_duration_(1000000us / std::max(fps, 1))
   {
     for (auto &&i : Ax::Internal::split(shapes, ',')) {
       AxTensorInterface tensor{};
@@ -151,7 +153,8 @@ class SaveInference : public Ax::BasicInference
   public:
   SaveInference(const std::string &path, axrModel *model,
       std::unique_ptr<Ax::BasicInference> &&inference)
-      : path_(path), inference_(std::move(inference))
+      : path_(path),
+        inference_(std::move(inference))
   {
     std::tie(inputs_, outputs_) = get_shapes_from_model(model);
     std::string shapes;
@@ -340,7 +343,8 @@ class RoundRobinExecutor : public Executor
 {
   public:
   explicit RoundRobinExecutor(size_t num_instances)
-      : inqs_(num_instances), outqs_(num_instances)
+      : inqs_(num_instances),
+        outqs_(num_instances)
   {
   }
 
@@ -390,7 +394,8 @@ class LowLatencyExecutor : public Executor
 {
   public:
   explicit LowLatencyExecutor(Ax::InferenceReadyCallback callback)
-      : callback_(std::move(callback))
+      : inq_(4),
+        callback_(std::move(callback))
   {
   }
 
@@ -419,7 +424,7 @@ class LowLatencyExecutor : public Executor
   }
 
   // TODO we need to empirally measure some other queue sizes here:
-  Ax::BlockingQueue<Ax::InferenceParams, 4> inq_;
+  Ax::BlockingQueue<Ax::InferenceParams> inq_;
   Ax::InferenceReadyCallback callback_;
 };
 
@@ -428,7 +433,8 @@ class MultiThreadedInference : public Ax::Inference
   public:
   MultiThreadedInference(Ax::Logger &logger,
       const Ax::InferenceProperties &props, Ax::InferenceReadyCallback callback)
-      : logger_(logger), context_(create_context(logger)),
+      : logger_(logger),
+        context_(create_context(logger)),
         model_(axr_load_model(context_.get(), props.model.c_str()))
   {
     if (!model_) {

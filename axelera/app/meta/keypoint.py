@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Metadata for keypoint and landmark detection
 from __future__ import annotations
 
@@ -10,12 +10,15 @@ from typing_extensions import Self
 
 from axelera import types
 
-from .. import display, logging_utils, utils
+from .. import config, display, logging_utils, utils
 from ..model_utils import box
 from .base import AxTaskMeta, MetaObject, draw_bounding_boxes
 from .gst_decode_utils import decode_bbox
 
 LOG = logging_utils.getLogger(__name__)
+
+_SHOW_KEYPOINT_SKELETONS = config.env.render_keypoint_skeletons
+_SHOW_KEYPOINTS = config.env.render_keypoints
 
 
 class KeypointObject(MetaObject):
@@ -293,6 +296,8 @@ class BottomUpKeypointDetectionMeta(KeypointDetectionMeta):
 
 _red = (255, 0, 0, 255)
 _yellow = (255, 255, 0, 255)
+_green = (0, 255, 0, 255)
+_white = (255, 255, 255, 255)
 
 
 class CocoBodyKeypointsMeta(BottomUpKeypointDetectionMeta):
@@ -316,14 +321,15 @@ class CocoBodyKeypointsMeta(BottomUpKeypointDetectionMeta):
     ]
 
     def draw(self, draw: display.Draw):
-        draw_bounding_boxes(
-            self,
-            draw,
-            self.task_render_config.show_labels,
-            self.task_render_config.show_annotations,
-        )
+        if draw.options.show_bounding_boxes:
+            draw_bounding_boxes(
+                self,
+                draw,
+                self.task_render_config.show_labels,
+                self.task_render_config.show_annotations,
+            )
 
-        if not self.task_render_config.show_annotations:
+        if not self.task_render_config.show_annotations or draw.options.show_keypoints is False:
             return
 
         if len(self.keypoints) == 0:
@@ -340,11 +346,14 @@ class CocoBodyKeypointsMeta(BottomUpKeypointDetectionMeta):
                 lines.append(
                     [det_pts[0][:2], np.array(display.midpoint(det_pts[5][:2], det_pts[6][:2]))]
                 )  # nose to middle of shoulders
-            for x, y, v in det_pts:
-                if v > 0.5:
-                    draw.keypoint((x, y), _red, 6)
-        if lines:
-            draw.polylines(lines, False, _yellow, 2)
+            if _SHOW_KEYPOINTS:
+                for x, y, v in det_pts:
+                    if v > 0.5:
+                        draw.keypoint((x, y), _white)
+
+        if _SHOW_KEYPOINT_SKELETONS:
+            if lines:
+                draw.polylines(lines, False, _yellow, 2)
 
 
 class FaceLandmarkLocalizationMeta(BottomUpKeypointDetectionMeta):
@@ -375,19 +384,21 @@ class FaceLandmarkLocalizationMeta(BottomUpKeypointDetectionMeta):
             )
 
     def draw(self, draw: display.Draw):
-        draw_bounding_boxes(
-            self,
-            draw,
-            self.task_render_config.show_labels,
-            self.task_render_config.show_annotations,
-        )
+        if draw.options.show_bounding_boxes:
+            draw_bounding_boxes(
+                self,
+                draw,
+                self.task_render_config.show_labels,
+                self.task_render_config.show_annotations,
+            )
 
-        if not self.task_render_config.show_annotations:
+        if not self.task_render_config.show_annotations or draw.options.show_keypoints is False:
             return
 
-        for det_pts in self.keypoints:
-            for x, y in det_pts:
-                draw.keypoint((x, y), _red, 6)
+        if _SHOW_KEYPOINTS:
+            for det_pts in self.keypoints:
+                for x, y in det_pts:
+                    draw.keypoint((x, y), _green)
 
 
 class FaceLandmarkTopDownMeta(TopDownKeypointDetectionMeta):
@@ -397,12 +408,12 @@ class FaceLandmarkTopDownMeta(TopDownKeypointDetectionMeta):
     keypoints_shape = [5, 3]  # x, y, score
 
     def draw(self, draw: display.Draw):
-        if not self.task_render_config.show_annotations:
+        if not self.task_render_config.show_annotations or draw.options.show_keypoints is False:
             return
 
         for det_pts in self._keypoints:
             for x, y, _ in det_pts:
-                draw.keypoint((x, y), _red, 6)
+                draw.keypoint((x, y), _green)
 
     @classmethod
     def decode(cls, data: Dict[str, Union[bytes, bytearray]]) -> Self:

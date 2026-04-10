@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Base dataclasses used to represent metadata
 from __future__ import annotations
 
@@ -88,10 +88,12 @@ def class_as_color(meta: AxTaskMeta, draw: display.Draw, class_id: int, alpha: i
     return _class_as_color(label, class_id, draw.options.bbox_class_colors, alpha=alpha)
 
 
-def _draw_bounding_box(box, score, cls, labels, draw, bbox_label_format, color_map):
+def _draw_bounding_box(
+    box, score, cls, labels, draw, bbox_label_format, color_map, override_color
+):
     p1, p2 = (int(box[0]), int(box[1])), (int(box[2]), int(box[3]))
     label = class_as_label(labels, cls)
-    color = _class_as_color(label, int(cls), color_map)
+    color = override_color or _class_as_color(label, int(cls), color_map)
     # An id less than zero is a manufactured box, so do not label
     if cls < 0:
         txt = ''
@@ -100,7 +102,9 @@ def _draw_bounding_box(box, score, cls, labels, draw, bbox_label_format, color_m
     draw.labelled_box(p1, p2, txt, color)
 
 
-def _draw_oriented_bounding_box(box, score, cls, labels, draw, bbox_label_format, color_map):
+def _draw_oriented_bounding_box(
+    box, score, cls, labels, draw, bbox_label_format, color_map, override_color
+):
     if len(box) != 8 and len(box) != 5:
         raise ValueError(
             f"Oriented bounding box must have 5 (xywhr) or 8 (xyxyxyxy) coordinates, got {len(box)}"
@@ -111,7 +115,7 @@ def _draw_oriented_bounding_box(box, score, cls, labels, draw, bbox_label_format
 
     box = box.reshape(4, 2).astype(int)
     label = class_as_label(labels, cls)
-    color = _class_as_color(label, int(cls), color_map)
+    color = override_color or _class_as_color(label, int(cls), color_map)
     # An id less than zero is a manufactured box, so do not label
     if cls < 0:
         txt = ''
@@ -123,7 +127,7 @@ def _draw_oriented_bounding_box(box, score, cls, labels, draw, bbox_label_format
 _SHOW_OPTIONS = {(False, False): '', (False, True): '{score:.2f}', (True, False): '{label}'}
 
 
-def draw_bounding_boxes(meta, draw, show_labels=True, show_annotations=True):
+def draw_bounding_boxes(meta, draw, show_labels=True, show_annotations=True, override_color=None):
     """
     Draw bounding boxes on an image.
 
@@ -147,9 +151,11 @@ def draw_bounding_boxes(meta, draw, show_labels=True, show_annotations=True):
     if show_annotations:
         for box, score, cls in zip(meta.boxes, meta.scores, class_ids):
             if len(box) == 4:
-                _draw_bounding_box(box, score, cls, labels, draw, fmt, color_map)
+                _draw_bounding_box(box, score, cls, labels, draw, fmt, color_map, override_color)
             else:
-                _draw_oriented_bounding_box(box, score, cls, labels, draw, fmt, color_map)
+                _draw_oriented_bounding_box(
+                    box, score, cls, labels, draw, fmt, color_map, override_color
+                )
 
 
 class RestrictedDict(dict):

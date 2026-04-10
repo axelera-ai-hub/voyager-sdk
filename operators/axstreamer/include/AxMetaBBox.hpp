@@ -72,8 +72,10 @@ class AxMetaBbox : public virtual AxMetaBase
 
   explicit AxMetaBbox(BboxXyxyVector boxes, std::vector<float> scores,
       std::vector<int> classes, std::vector<int> ids)
-      : bboxvec(std::move(boxes)), scores_(std::move(scores)),
-        classes_(std::move(classes)), ids(std::move(ids))
+      : bboxvec(std::move(boxes)),
+        scores_(std::move(scores)),
+        classes_(std::move(classes)),
+        ids(std::move(ids))
   {
     if (num_elements() != classes_.size() && !classes_.empty()) {
       throw std::logic_error(
@@ -311,6 +313,22 @@ class AxMetaBbox : public virtual AxMetaBase
     ids.insert(ids.end(), other.ids.begin(), other.ids.end());
   }
 
+  void extend(AxMetaBbox &&other)
+  {
+    if (other.bboxvec.size() != other.scores_.size()) {
+      throw std::runtime_error(
+          "Other bbox and scores must have the same size in extend of AxMetaBbox");
+    }
+    bboxvec.insert(bboxvec.end(), std::make_move_iterator(other.bboxvec.begin()),
+        std::make_move_iterator(other.bboxvec.end()));
+    scores_.insert(scores_.end(), std::make_move_iterator(other.scores_.begin()),
+        std::make_move_iterator(other.scores_.end()));
+    classes_.insert(classes_.end(), std::make_move_iterator(other.classes_.begin()),
+        std::make_move_iterator(other.classes_.end()));
+    ids.insert(ids.end(), std::make_move_iterator(other.ids.begin()),
+        std::make_move_iterator(other.ids.end()));
+  }
+
   protected:
   // Protected accessors for derived classes
   size_t scores_size() const
@@ -349,7 +367,9 @@ class AxMetaBboxOBBBase : public virtual AxMetaBase
 
   protected:
   AxMetaBboxOBBBase(std::vector<float> scores, std::vector<int> classes, std::vector<int> ids)
-      : scores_(std::move(scores)), classes_(std::move(classes)), ids(std::move(ids))
+      : scores_(std::move(scores)),
+        classes_(std::move(classes)),
+        ids(std::move(ids))
   {
   }
 

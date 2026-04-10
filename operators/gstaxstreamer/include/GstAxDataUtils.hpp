@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #pragma once
 
 #include "AxDataInterface.h"
@@ -100,6 +100,7 @@ void update_tensor_dimensions(GstCaps *caps, GstCaps *peer_caps);
   GST_AX_VIDEO_FORMAT_REGISTER(BGRx)                       \
   GST_AX_VIDEO_FORMAT_REGISTER(GRAY8)                      \
   GST_AX_VIDEO_FORMAT_REGISTER(NV12)                       \
+  GST_AX_VIDEO_FORMAT_REGISTER(NV16)                       \
   GST_AX_VIDEO_FORMAT_REGISTER(I420)                       \
   GST_AX_VIDEO_FORMAT_REGISTER(YUY2)
 
@@ -140,3 +141,7 @@ extern "C" AxAllocationContext *gst_opencl_allocator_get_context(
 extern "C" void gst_opencl_mem_reset(GstMemory *mem);
 
 extern "C" void gst_opencl_memory_add_dependency(GstMemory *mem, GstBuffer *dependency);
+
+// Custom query type for querying buffer pool requirements
+#define GST_QUERY_AX_BUFFER_REQUIREMENTS ((GstQueryType) (GST_QUERY_CUSTOM))
+#define GST_QUERY_SUPPORTS_OPENCL ((GstQueryType) (GST_QUERY_CUSTOM + 1))

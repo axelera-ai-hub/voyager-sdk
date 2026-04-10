@@ -196,6 +196,15 @@ Ax::add_uint_property(GObjectClass *object_klass, int id, const std::string &nam
 }
 
 void
+Ax::add_float_property(GObjectClass *object_klass, int id, const std::string &name,
+    const std::string &blurb, float min, float max, float def)
+{
+  g_object_class_install_property(object_klass, id,
+      g_param_spec_float(name.c_str(), (name + " float").c_str(), blurb.c_str(),
+          min, max, def, G_PARAM_READWRITE));
+}
+
+void
 Ax::add_boolean_property(GObjectClass *object_klass, int id,
     const std::string &name, const std::string &blurb)
 {

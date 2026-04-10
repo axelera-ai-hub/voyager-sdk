@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 
 '''
 This example runs all 4 streams and then processes a command list to add, remove, pause, and
@@ -134,9 +134,9 @@ if __name__ == '__main__':
         default_network=NETWORK, description='Perform inference on an Axelera platform'
     )
     args = parser.parse_args()
-    tracers = inf_tracers.create_tracers('core_temp', 'end_to_end_fps')
     if args.pipe != 'gst':
         sys.exit("Only gst pipe is supported for this example")
+    tracers = inf_tracers.create_tracers('core_temp', 'end_to_end_fps', pipe_type=args.pipe)
     if args.sources == ['rtsp']:
         # For simplicity allow sources to be just `rtsp` and use a local rtsp server
         args.sources = [f'rtsp://127.0.0.1:8554/{n}' for n in range(4)]

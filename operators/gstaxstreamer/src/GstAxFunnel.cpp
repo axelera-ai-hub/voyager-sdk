@@ -153,7 +153,6 @@ gst_axfunnel_src_query(GstAggregator *aggregator, GstQuery *query)
     case GST_QUERY_ACCEPT_CAPS:
     case GST_QUERY_ALLOCATION:
       {
-        GstAxfunnel *muxer = GST_AXFUNNEL(aggregator);
         GList *item = GST_ELEMENT(aggregator)->sinkpads;
         if (item == NULL) {
           throw std::runtime_error("Axfunnel has no sinkpads");

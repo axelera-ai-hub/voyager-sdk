@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 # Operators that convert YOLO-POSE-specific tensor output to
 # generalized metadata representation
 from __future__ import annotations
@@ -19,6 +19,8 @@ class DecodeYoloPose(AxOperator):
     """
     Decoding bounding boxes and add model info into Axelera metadata
 
+    Supports both YOLO8-POSE and YOLO26-POSE models.
+
     Input:
         predict: batched predictions
         kwargs: model info
@@ -32,12 +34,27 @@ class DecodeYoloPose(AxOperator):
     max_nms_boxes: int = 30000
     nms_iou_threshold: float = 0.65
     nms_top_k: int = 300
+    nms_free: bool = False
+    dfl_size: int = 16
 
     def _post_init(self):
         self._tmp_labels: Optional[Path] = None
         if self.box_format not in ["xyxy", "xywh", "ltwh"]:
             raise ValueError(f"Unknown box format {self.box_format}")
         self._nms_class_agnostic = True
+
+        # Set keypoint decoding parameters based on model type
+        if self.nms_free:
+            # YOLO26: (x + offset + 1.0*raw) instead of (x + 2.0*raw)
+            self._kpt_multiplier = 1.0
+            self._kpt_offset = 0.5
+            self._kpts_start_idx = 6  # Skip class_id at index 5
+        else:
+            # YOLO8
+            self._kpt_multiplier = 2.0
+            self._kpt_offset = 0.0
+            self._kpts_start_idx = 5
+
         super()._post_init()
 
     def __del__(self):
@@ -74,13 +91,22 @@ class DecodeYoloPose(AxOperator):
             paddings = '|'.join(
                 ','.join(str(num) for num in sublist) for sublist in self._n_padded_ch_outputs
             )
+        else:
+            raise ValueError(f"Missing n_padded_ch_outputs for {self.model_name}")
+
         scales = ','.join(str(s) for s in self._deq_scales)
         zeros = ','.join(str(s) for s in self._deq_zeropoints)
         kpt_shape = ','.join(str(s) for s in self._kpts_shape)
-        master_key = f'master_meta:{self._where};' if self._where else str()
-        association_key = f'association_meta:{self._association};' if self._association else str()
-        if gst.tiling:
-            master_key = f'master_meta:axelera-tiles-internal;'
+
+        tiling = gst_builder.TileInfo(self, gst)
+        master_key, association_key = tiling.get_decode_keys()
+
+        kpt_options = (
+            f'kpt_multiplier:{self._kpt_multiplier};kpt_offset:{self._kpt_offset};'
+            if self.nms_free
+            else ''
+        )
+
         gst.decode_muxer(
             name=f'decoder_task{self._taskn}{stream_idx}',
             lib='libdecode_yolov8.so',
@@ -94,25 +120,25 @@ class DecodeYoloPose(AxOperator):
             f'zero_points:{zeros};'
             f'classes:1;'
             f'kpts_shape:{kpt_shape};'
+            f'{kpt_options}'
+            f'dfl_size:{self.dfl_size};'
             f'model_width:{self.model_width};'
             f'model_height:{self.model_height};'
             f'scale_up:{int(self.scaled==types.ResizeMode.LETTERBOX_FIT)};'
             f'decoder_name:{self.meta_type_name};',
         )
-        if gst.tiling:
-            master_key = 'flatten_meta:1;master_meta:axelera-tiles-internal;'
-        gst.axinplace(
-            lib='libinplace_nms.so',
-            options=f'meta_key:{str(self.task_name)};'
-            f'{master_key}'
-            f'max_boxes:{self.nms_top_k};'
-            f'nms_threshold:{self.nms_iou_threshold};'
-            f'class_agnostic:{int(self._nms_class_agnostic)};'
-            f'location:CPU;',
-        )
-        if gst.tiling.size and not gst.tiling.show:
+
+        # NMS: skip for nms_free models unless tiling is enabled
+        if not self.nms_free or gst.tiling:
+            master_key = tiling.get_nms_keys()
             gst.axinplace(
-                lib='libinplace_hidemeta.so', options=f'meta_key:axelera-tiles-internal;'
+                lib='libinplace_nms.so',
+                options=f'meta_key:{str(self.task_name)};'
+                f'{master_key}'
+                f'max_boxes:{tiling.get_max_boxes(self.nms_top_k)};'
+                f'nms_threshold:{self.nms_iou_threshold};'
+                f'class_agnostic:{int(self._nms_class_agnostic)};'
+                f'location:CPU;',
             )
 
     def exec_torch(self, image, predict, meta):
@@ -125,9 +151,14 @@ class DecodeYoloPose(AxOperator):
             )
 
         bboxes = predict[0]
+
+        # YOLO26 output format: [batch, num_detections, 6+keypoints]
+        # where 6 = [x1, y1, x2, y2, confidence, class_id]
         if bboxes.shape[0] < bboxes.shape[1]:
             bboxes = bboxes.transpose()
-        kpts = bboxes[:, 5:]  # 51 = 17*3
+
+        # Extract keypoints starting from the correct index
+        kpts = bboxes[:, self._kpts_start_idx :]
         box_confidence = bboxes[:, 4]
         box_coordinates = bboxes[:, :4]
 
@@ -158,7 +189,9 @@ class DecodeYoloPose(AxOperator):
             self.normalized_coord,
             self.scaled,
             self.max_nms_boxes,
-            self.nms_iou_threshold,
+            nms_iou_threshold=(
+                0.0 if self.nms_free else self.nms_iou_threshold
+            ),  # Disable NMS for YOLO26
             nms_class_agnostic=self._nms_class_agnostic,  # for keypoint
             output_top_k=self.nms_top_k,
         )

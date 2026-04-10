@@ -12,7 +12,8 @@ class TestMetaKpts : public AxMetaKpts
 {
   public:
   TestMetaKpts(const std::vector<KptXyv> &kpts, int num_subframes = 1)
-      : AxMetaKpts(kpts), num_subframes_(num_subframes)
+      : AxMetaKpts(kpts),
+        num_subframes_(num_subframes)
   {
     std::cout << "TestMetaKpts created with " << kpts.size() << " keypoints" << std::endl;
   }
@@ -31,7 +32,8 @@ class TestMetaBbox : public AxMetaBbox
 {
   public:
   TestMetaBbox(const std::vector<box_xyxy> &boxes)
-      : AxMetaBbox(), boxes_(boxes) // Call the base class constructor properly
+      : AxMetaBbox(),
+        boxes_(boxes) // Call the base class constructor properly
   {
     std::cout << "TestMetaBbox created with " << boxes.size() << " boxes" << std::endl;
 
@@ -44,7 +46,8 @@ class TestMetaBbox : public AxMetaBbox
   // Version that takes a map of submetas by value and moves them
   TestMetaBbox(const std::vector<box_xyxy> &boxes,
       std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> submetas)
-      : AxMetaBbox(), boxes_(boxes) // Call the base class constructor properly
+      : AxMetaBbox(),
+        boxes_(boxes) // Call the base class constructor properly
   {
     std::cout << "TestMetaBbox created with " << boxes.size()
               << " boxes and submetas" << std::endl;
@@ -174,11 +177,6 @@ TEST(transform_facealign, self_normalizing_five_points)
     xform->transform(in_info, out_info, 0, 1, metadata);
 
     std::cout << "Transform completed" << std::endl;
-
-    // In self-normalizing mode, the eyes should be positioned at about 40% from
-    // the top and centered horizontally with a certain distance
-    float desired_eye_y = out_height * 0.4f;
-    float center_x = out_width / 2.0f;
 
     // Check that there are non-zero pixels in the output (transformation occurred)
     bool has_nonzero = false;

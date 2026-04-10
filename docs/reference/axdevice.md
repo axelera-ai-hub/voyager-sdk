@@ -140,7 +140,11 @@ The re-enumerated devices will be listed after running.
 The 'refresh' argument will run the PCIE rescan argument followed by the reload firmware argument.
 This may be useful if you are experiencing issues with the device(s). In particular on some hosts
 there are issues with PCIE enumeration after a boot that means it can take up to 3 calls of `--refresh`
-to get devices enumerated properly.  
+to get devices enumerated properly.
+
+_* Some early __4-Metis PCIe boards__ may fail to recover when cascaded with other PCIe devices on the same bus.
+In this case, disable the axelera-multi-device service to prevent interference with the recovery process:
+`sudo systemctl disable axelera-multi-device`_
 
 The re-enumerated devices will be listed after running.
 

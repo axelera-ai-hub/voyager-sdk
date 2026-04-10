@@ -9,19 +9,17 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(ENABLE_CUSTOMER_COMPONENTS ON CACHE BOOL "Enable customer-specific components")
-set(CMAKE_INSTALL_MESSAGE LAZY)
+set(CMAKE_INSTALL_MESSAGE NEVER)
 
 # Compiler-specific flags
 add_compile_options(
     -Wall
     -Werror
+    # This is a long term project, huge number of errors
     -Wno-sign-compare
-    -Wno-unused-variable
-    -Wimplicit-fallthrough
 )
 add_compile_options(
     $<$<COMPILE_LANGUAGE:CXX>:-Wno-deprecated-enum-enum-conversion>
-    $<$<COMPILE_LANGUAGE:CXX>:-Wno-deprecated-declarations>
     $<$<COMPILE_LANGUAGE:CXX>:-Wno-deprecated-anon-enum-enum-conversion>
     $<$<COMPILE_LANGUAGE:CXX>:-Wno-return-type-c-linkage>
     $<$<COMPILE_LANGUAGE:CXX>:-Wno-pessimizing-move>
@@ -45,6 +43,10 @@ if (libva_FOUND)
     add_compile_definitions(HAVE_LIBVA)
 endif()
 
+# Handle CUDA_AVAILABLE flag from Makefile
+if(CUDA_AVAILABLE)
+    add_compile_definitions(CUDA_AVAILABLE)
+endif()
 
 add_subdirectory(PillowResize)
 add_subdirectory(../trackers trackers)
@@ -70,6 +72,7 @@ install(TARGETS gstaxstreamer LIBRARY DESTINATION lib)
 
 # Libraries
 set(subplugin_prefix ${CMAKE_INSTALL_PREFIX})
+set(subplugin_bindir ${subplugin_prefix}/${CMAKE_INSTALL_BINDIR})
 set(subplugin_libdir ${subplugin_prefix}/${CMAKE_INSTALL_LIBDIR})
 set(shared_libs PillowResize tracker_factory axstreamer)
 
@@ -99,7 +102,15 @@ function(create_shared_library target sources)
         ${opencv4_LIBRARY_DIRS}
         ${CMAKE_SOURCE_DIR}/onnxruntime/onnxruntime/lib
         )
-
+    if (LINUX)
+      set_target_properties(
+        ${target}
+        PROPERTIES
+        INSTALL_RPATH_USE_LINK_PATH TRUE
+        INSTALL_RPATH
+        "$ORIGIN"
+      )
+    endif()
     if (APPLE)
         set_target_properties(
         ${target}
@@ -125,12 +136,7 @@ create_shared_library(decode_semantic_seg src/AxDecodeSemanticSeg.cpp)
 create_shared_library(decode_ssd2 src/AxDecodeSsd2.cpp)
 create_shared_library(decode_to_raw_tensor src/AxDecodeToRawTensor.cpp)
 create_shared_library(decode_yolo "src/AxDecodeYolo.cpp;src/AxOnnxRuntimeHelper.cpp")
-create_shared_library(decode_yolov5 src/AxDecodeYolo5.cpp)
-create_shared_library(decode_yolov8 src/AxDecodeYolo8.cpp)
-create_shared_library(decode_yolov_obb src/AxDecodeYoloOBB.cpp)
 create_shared_library(decode_yolov10_simple src/AxDecodeYolo10Simple.cpp)
-create_shared_library(decode_yolov8seg src/AxDecodeYolo8Seg.cpp)
-create_shared_library(decode_yolox src/AxDecodeYoloX.cpp)
 create_shared_library(inplace_addstreamid src/AxInPlaceAddStreamId.cpp)
 create_shared_library(inplace_addtiles src/AxInPlaceAddTiles.cpp)
 create_shared_library(inplace_draw src/AxInPlaceDraw.cpp)
@@ -142,11 +148,11 @@ create_shared_library(transform_colorconvert src/AxTransformColorConvert.cpp)
 create_shared_library(transform_contrastnormalize src/AxTransformContrastNormalize.cpp)
 create_shared_library(transform_cropresize src/AxTransformCropResize.cpp)
 create_shared_library(transform_dequantize src/AxTransformDequantize.cpp)
-create_shared_library(transform_facealign src/AxTransformFaceAlign.cpp)
+create_shared_library(transform_facealign "src/AxTransformFaceAlign.cpp;src/AxFaceAlignCommon.cpp")
 create_shared_library(transform_padding src/AxTransformPadding.cpp)
 create_shared_library(transform_paddingdequantize src/AxTransformPaddingDequantize.cpp)
 create_shared_library(transform_resize src/AxTransformResize.cpp)
-create_shared_library(transform_roicrop src/AxTransformRoiCrop.cpp)
+create_shared_library(transform_roicrop "src/AxTransformRoiCrop.cpp;src/AxRoiCropCommon.cpp")
 create_shared_library(transform_totensor src/AxTransformToTensor.cpp)
 create_shared_library(transform_postamble "src/AxTransformPostamble.cpp;src/AxOnnxRuntimeHelper.cpp")
 create_shared_library(transform_yolopreproc src/AxTransformYoloPreProc.cpp)
@@ -157,9 +163,11 @@ create_shared_library(transform_polar src/AxTransformPolar.cpp)
 if (OpenCL_FOUND)
     create_shared_library(transform_barrelcorrect_cl src/AxTransformBarrelCorrectCl.cpp)
     create_shared_library(transform_colorconvert_cl src/AxTransformColorConvertCl.cpp)
+    create_shared_library(transform_facealign_cl "src/AxTransformFaceAlignCl.cpp;src/AxFaceAlignCommon.cpp")
     create_shared_library(transform_normalize_cl src/AxTransformNormalizeCl.cpp)
     create_shared_library(transform_perspective_cl src/AxTransformPerspectiveCl.cpp)
     create_shared_library(transform_resize_cl src/AxTransformResizeCl.cpp)
+    create_shared_library(transform_roicrop_cl "src/AxTransformRoiCropCl.cpp;src/AxRoiCropCommon.cpp")
     create_shared_library(transform_polar_cl src/AxTransformPolarCl.cpp)
 endif()
 
@@ -167,6 +175,10 @@ add_compile_options(-march=native)
 create_shared_library(inplace_normalize src/AxInPlaceNormalize.cpp)
 create_shared_library(transform_resizeratiocropexcess src/AxTransformResizeRatioCropExcess.cpp)
 create_shared_library(inplace_tracker src/AxInPlaceTracker.cpp)
+create_shared_library(decode_yolov5 src/AxDecodeYolo5.cpp)
+create_shared_library(decode_yolov8 src/AxDecodeYolo8.cpp)
+create_shared_library(decode_yolox src/AxDecodeYoloX.cpp)
+
 
 
 
@@ -224,12 +236,11 @@ if (GMODULE_FOUND AND GLIB_FOUND AND GST_FOUND AND GST_VIDEO_FOUND AND hailo_tap
         ${gsthailometa_LIBRARY_DIRS}
         ${libva_LIBRARY_DIRS}
     )
+    set_target_properties(axmetatohailo PROPERTIES INSTALL_RPATH "$ORIGIN")
     install(TARGETS axmetatohailo DESTINATION ${subplugin_libdir})
 endif()
 
-set(subplugin_bindir ${subplugin_prefix}/${CMAKE_INSTALL_BINDIR})
 set(unittest_base_dir ${subplugin_bindir}/unittest-operators)
-set(subplugin_prefix ${CMAKE_INSTALL_PREFIX})
 set(path_ax_plugin_prefix ${CMAKE_BINARY_DIR})
 
 add_definitions(-DAX_SUBPLUGIN_PATH=${path_ax_plugin_prefix})
@@ -268,6 +279,7 @@ if (GMODULE_FOUND AND GLIB_FOUND AND GST_FOUND AND GST_VIDEO_FOUND AND GTEST_FOU
         tests/ax/unittest_transform_barrelcorrect_cl.cc
         tests/ax/unittest_transform_perspective_cl.cc
         tests/ax/unittest_transform_resize_cl.cc
+        tests/ax/unittest_transform_roicrop_cl.cc
         tests/ax/unittest_transform_polar_cl.cc
     )
     else()
@@ -315,7 +327,6 @@ if (GMODULE_FOUND AND GLIB_FOUND AND GST_FOUND AND GST_VIDEO_FOUND AND GTEST_FOU
     target_include_directories(unittest_ax
         PRIVATE
         ${GMODULE_INCLUDE_DIRS}
-        ${EIGEN3_INCLUDE_DIRS}
         ${nlohmann_json_INCLUDE_DIRS}
         ${GST_INCLUDE_DIRS}
         ${CMAKE_SOURCE_DIR}/onnxruntime/onnxruntime/include
@@ -335,6 +346,7 @@ if (GMODULE_FOUND AND GLIB_FOUND AND GST_FOUND AND GST_VIDEO_FOUND AND GTEST_FOU
         ${OpenCV_LIBS}
         ${OpenCL_LIBRARIES}
         ${GST_LIBRARIES}
+        Eigen3::Eigen
         axstreamer
         gstaxstreamer
         onnxruntime

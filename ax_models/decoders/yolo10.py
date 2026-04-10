@@ -36,6 +36,7 @@ class DecodeYolo10(AxOperator):
     conf_threshold: float = 0.25
     use_multi_label: bool = False
     top_k: int = 300
+    dfl_size: int = 16
 
     def _post_init(self):
         self.label_filter = utils.parse_labels_filter(self.label_filter)
@@ -94,14 +95,8 @@ class DecodeYolo10(AxOperator):
             self._tmp_labels = utils.create_tmp_labels(self.labels)
 
         sieve = utils.build_class_sieve(self.label_filter, self.labels)
-        master_key = str()
-        if self._where:
-            master_key = f'master_meta:{self._where};'
-        elif gst.tiling:
-            master_key = f'master_meta:axelera-tiles-internal;'
-        association_key = str()
-        if self._association:
-            association_key = f'association_meta:{self._association};'
+        tiling = gst_builder.TileInfo(self, gst)
+        master_key, association_key = tiling.get_decode_keys()
         if self._n_padded_ch_outputs:
             paddings = '|'.join(
                 ','.join(str(num) for num in sublist) for sublist in self._n_padded_ch_outputs
@@ -145,6 +140,7 @@ class DecodeYolo10(AxOperator):
                 f'zero_points:{zeros};'
                 f'topk:{self.top_k};'
                 f'multiclass:{int(self.use_multi_label)};'
+                f'dfl_size:{self.dfl_size};'
                 f'classlabels_file:{self._tmp_labels};'
                 f'model_width:{self.model_width};'
                 f'model_height:{self.model_height};'
@@ -153,14 +149,13 @@ class DecodeYolo10(AxOperator):
                 + (f';label_filter:{",".join(sieve)}' if sieve else ''),
             )
         if gst.tiling:
-            master_key = 'flatten_meta:1;master_meta:axelera-tiles-internal;'
+            master_key = tiling.get_nms_keys()
             gst.axinplace(
                 lib='libinplace_nms.so',
-                options=f'meta_key:{str(self.task_name)};' f'{master_key}' f'location:CPU',
-            )
-        if gst.tiling.size and not gst.tiling.show:
-            gst.axinplace(
-                lib='libinplace_hidemeta.so', options=f'meta_key:axelera-tiles-internal;'
+                options=f'meta_key:{str(self.task_name)};'
+                f'{master_key}'
+                f'location:CPU;'
+                f'max_boxes:{tiling.get_max_boxes(self.nms_top_k)}',
             )
 
     def exec_torch(self, image, predict, meta):

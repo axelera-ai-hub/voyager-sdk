@@ -75,7 +75,6 @@ decode_to_meta(const AxTensorsInterface &in_tensors,
   // Process each grid cell
   const int grid_cells = tensor.sizes[2];
   const int features = tensor.sizes[3];
-  const int num_classes = prop->num_classes;
 
   for (int cell = 0; cell < grid_cells; ++cell) {
     // Point to start of current grid cell's data
@@ -100,33 +99,19 @@ decode_to_meta(const AxTensorsInterface &in_tensors,
 
   // respect top_k
   if (prop->topk > 0) {
-    predictions = ax_utils::topk(predictions, prop->topk);
+    predictions = ax_utils::topk(std::move(predictions), prop->topk);
   }
 
 
-  AxMetaBbox *master_meta = nullptr;
-  std::vector<BboxXyxy> pixel_boxes;
-  if (prop->master_meta.empty()) {
-    pixel_boxes = ax_utils::scale_boxes(predictions.boxes,
-        std::get<AxVideoInterface>(video_interface), prop->model_width,
-        prop->model_height, prop->scale_up, prop->letterbox);
-
-  } else {
-    const auto &box_key = prop->association_meta.empty() ? prop->master_meta :
-                                                           prop->association_meta;
-    master_meta = ax_utils::get_meta<AxMetaBbox>(box_key, map, "yolov10_decode_simple");
-    auto master_box = master_meta->get_box_xyxy(subframe_index);
-    pixel_boxes = ax_utils::scale_shift_boxes(predictions.boxes, master_box,
-        prop->model_width, prop->model_height, prop->scale_up, prop->letterbox);
-  }
-
-  auto [boxes, scores, class_ids] = ax_utils::remove_empty_boxes(
-      pixel_boxes, predictions.scores, predictions.class_ids);
+  auto base_box = ax_utils::get_master_box(prop->master_meta, prop->association_meta,
+      video_interface, subframe_index, map, "yolov10_decode");
+  auto pixel_boxes = ax_utils::scale_shift_boxes(predictions.boxes, base_box,
+      prop->model_width, prop->model_height, true, prop->letterbox);
 
   ax_utils::insert_and_associate_meta<AxMetaObjDetection>(map, prop->meta_name,
-      prop->master_meta, subframe_index, number_of_subframes, prop->association_meta,
-      std::move(boxes), std::move(scores), std::move(class_ids));
-
+      prop->master_meta, subframe_index, number_of_subframes,
+      prop->association_meta, std::move(pixel_boxes),
+      std::move(predictions.scores), std::move(predictions.class_ids));
 
   auto end_time = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);

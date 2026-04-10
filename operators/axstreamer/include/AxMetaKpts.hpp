@@ -22,7 +22,8 @@ using KptXyvVector = std::vector<KptXyv>;
 class AxMetaKpts : public virtual AxMetaBase
 {
   public:
-  AxMetaKpts(KptXyvVector kpts) : kptsvec(std::move(kpts))
+  AxMetaKpts(KptXyvVector kpts)
+      : kptsvec(std::move(kpts))
   {
   }
 
@@ -82,6 +83,12 @@ class AxMetaKpts : public virtual AxMetaBase
   void extend(const AxMetaKpts &other)
   {
     kptsvec.insert(kptsvec.end(), other.kptsvec.begin(), other.kptsvec.end());
+  }
+
+  void extend(AxMetaKpts &&other)
+  {
+    kptsvec.insert(kptsvec.end(), std::make_move_iterator(other.kptsvec.begin()),
+        std::make_move_iterator(other.kptsvec.end()));
   }
 
 

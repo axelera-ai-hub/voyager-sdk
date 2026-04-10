@@ -22,8 +22,8 @@ from axelera.app.stream import create_inference_stream
 
 NETWORK = 'fruit-demo'
 
-LOGO1 = os.path.join(config.env.framework, "axelera/app/voyager-sdk-logo-white.png")
-LOGO2 = os.path.join(config.env.framework, "axelera/app/axelera-ai-logo.png")
+LOGO1 = os.path.join(config.env.framework, "axelera/app/render_assets/voyager-sdk-logo-white.png")
+LOGO2 = os.path.join(config.env.framework, "axelera/app/render_assets/axelera-ai-logo.png")
 
 
 def main(window, stream):

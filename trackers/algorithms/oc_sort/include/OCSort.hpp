@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #ifndef OC_SORT_CPP_OCSORT_HPP
 #define OC_SORT_CPP_OCSORT_HPP
 
@@ -20,7 +20,10 @@ struct Rect {
 
   Rect() = default;
   Rect(float x_, float y_, float width_, float height_)
-      : x(x_), y(y_), width(width_), height(height_)
+      : x(x_),
+        y(y_),
+        width(width_),
+        height(height_)
   {
   }
 
@@ -122,7 +125,7 @@ class OCSort
 
   public:
   float det_thresh; ///< Detection threshold.
-  int max_age; ///< Maximum number of frames a track can remain unmatched.
+  int max_age; ///< Maximum number of frames a track can remain unmatched before it is removed; should be >= recovery thresholds when enable_id_recovery is true.
   int min_hits; ///< Minimum number of consecutive matches for confirmation.
   float iou_threshold; ///< IOU threshold for association.
   int delta_t; ///< Time step for velocity estimation.
@@ -132,7 +135,8 @@ class OCSort
   bool aw_off; ///< Disable adaptive weighting for association.
   float aw_param; ///< Adaptive weighting parameter.
   bool cmc_off; ///< Disable camera motion compensation.
-  bool enable_id_recovery; ///< Enable memory bank for ID recovery.
+  bool enable_id_recovery; ///< Enable memory bank for ID recovery; requires max_age >= recovery thresholds.
+  // id recovering track memory bank parameters
   int rec_image_rect_margin; ///< Margin for image boundary checks.
   int rec_track_min_time_since_update_at_boundary; ///< Minimum time for boundary recovery.
   int rec_track_min_time_since_update_inside; ///< Minimum time for inside recovery.

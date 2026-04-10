@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 from pathlib import Path
 import platform
 from typing import Union
@@ -11,7 +11,7 @@ from . import custom_preprocessing, preprocessing
 from .. import config, gst_builder
 from .context import PipelineContext
 from .custom_preprocessing import get_output_format_spec
-from .utils import inspect_resize_status
+from .utils import inspect_resize_status, add_alpha_channel
 
 
 def _get_input_color_format(format: Union[str, types.ColorFormat]) -> str:
@@ -139,6 +139,49 @@ class OpenCLBarrelDistortionCorrectionResize(preprocessing.CompositePreprocess):
         )
 
 
+class OpenCLPolar(preprocessing.CompositePreprocess):
+    width: int = 2510
+    height: int = 800
+    size: int = 0
+    rotate180: bool = False
+    center_x: float = 0.5
+    center_y: float = 0.5
+    max_radius: int = 800
+    inverse: bool = False
+    linear_polar: bool = True
+    rotate180: bool = True
+    format: types.ColorFormat = None
+
+    def _post_init(self) -> None:
+        self._enforce_member_type('format')
+        self._set_operators(
+            [
+                custom_preprocessing.Polar(
+                    width=self.width,
+                    height=self.height,
+                    max_radius=self.max_radius,
+                    center_x=self.center_x,
+                    center_y=self.center_y,
+                    inverse=self.inverse,
+                    linear_polar=self.linear_polar,
+                    rotate180=self.rotate180,
+                    format=self.format,
+                ),
+                custom_preprocessing.ConvertColorInput(self.format),
+            ]
+        )
+        return super()._post_init()
+
+    def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
+        out = get_output_format_spec(self.format)
+        gst.axtransform(
+            lib='libtransform_polar_cl.so',
+            options=f'width:{self.width};height:{self.height};max_radius:{self.max_radius};'
+            f'center_x:{self.center_x};center_y:{self.center_y};inverse:{int(self.inverse)};'
+            f'linear_polar:{int(self.linear_polar)};rotate180:{int(self.rotate180)}{out}',
+        )
+
+
 class CroppedResizeWithExtraCrop(preprocessing.CompositePreprocess):
     width: int = 0
     height: int = 0
@@ -184,38 +227,6 @@ class CroppedResizeWithExtraCrop(preprocessing.CompositePreprocess):
             )
 
 
-class VAAPIResize(preprocessing.CompositePreprocess):
-    width: int = 0
-    height: int = 0
-    size: int = 0
-    input_color_format: str = 'rgb'
-
-    def _post_init(self) -> None:
-        self._w, self._h = (self.width, self.height) if self.size == 0 else (self.size, self.size)
-        self._set_operators(
-            [
-                preprocessing.Resize(
-                    width=self.width,
-                    height=self.height,
-                    size=self.size,
-                    input_color_format=self.input_color_format,
-                ),
-            ]
-        )
-        return super()._post_init()
-
-    def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
-        gst.vaapipostproc(
-            {
-                'width': self._w,
-                'height': self._h,
-                'format': f'{_get_input_color_format(self.input_color_format)}a',
-                'scale-method': 0,
-            }
-        )
-        gst.axinplace()
-
-
 class OpenCLResize(preprocessing.CompositePreprocess):
     width: int = 0
     height: int = 0
@@ -226,11 +237,11 @@ class OpenCLResize(preprocessing.CompositePreprocess):
         self._w, self._h = (self.width, self.height) if self.size == 0 else (self.size, self.size)
         self._set_operators(
             [
+                custom_preprocessing.ConvertColorInput(self.input_color_format),
                 preprocessing.Resize(
                     width=self.width,
                     height=self.height,
                     size=self.size,
-                    input_color_format=self.input_color_format,
                 ),
             ]
         )
@@ -238,8 +249,67 @@ class OpenCLResize(preprocessing.CompositePreprocess):
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
         options = f'size:{self.size}' if self.size else f'width:{self.width};height:{self.height}'
-        options += f';format:{self.input_color_format}'
+        options += f';format:{add_alpha_channel(self.input_color_format)}'
         gst.axtransform(lib="libtransform_resize_cl.so", options=options)
+
+
+class OpenCLFaceAlign(preprocessing.CompositePreprocess):
+    keypoints_key: str = None  # Only used for torch pipeline
+    width: int = 0
+    height: int = 0
+    padding: float = 0.0
+    template_keypoints_x: str = None
+    template_keypoints_y: str = None
+    use_self_normalizing: bool = False
+    save_aligned_images: bool = True  # for debugging purposes
+    format: str = 'rgb'
+
+    def _post_init(self) -> None:
+        self._set_operators(
+            [
+                custom_preprocessing.ConvertColorInput(self.format),
+                custom_preprocessing.FaceAlign(
+                    keypoints_key=self.keypoints_key,
+                    width=self.width,
+                    height=self.height,
+                    padding=self.padding,
+                    template_keypoints_x=self.template_keypoints_x,
+                    template_keypoints_y=self.template_keypoints_y,
+                    use_self_normalizing=self.use_self_normalizing,
+                    save_aligned_images=self.save_aligned_images,
+                ),
+            ]
+        )
+        return super()._post_init()
+
+    def configure_model_and_context_info(
+        self,
+        model_info: types.ModelInfo,
+        context: PipelineContext,
+        task_name: str,
+        taskn: int,
+        compiled_model_dir: Path | None,
+        task_graph,
+    ):
+        self._where = task_graph.get_master(task_name)
+        self._association = context.association or None
+
+    def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
+        master_key = f'master_meta:{self._where};' if self._where else str()
+        association_key = f'association_meta:{self._association};' if self._association else str()
+        fmt = add_alpha_channel(self.format)
+        gst.axtransform(
+            lib='libtransform_facealign_cl.so',
+            options=f'{master_key}'
+            f'{association_key}'
+            f'width:{self.width};'
+            f'height:{self.height};'
+            f'padding:{self.padding};'
+            f'template_keypoints_x:{",".join(map(str, self.template_keypoints_x))};'
+            f'template_keypoints_y:{",".join(map(str, self.template_keypoints_y))};'
+            f'use_self_normalizing:{int(self.use_self_normalizing)};'
+            f'format:{fmt}',
+        )
 
 
 class OpenCLCroppedResizeWithExtraCrop(preprocessing.CompositePreprocess):
@@ -326,6 +396,78 @@ class OpenCLCroppedResizeWithExtraCropWithColor(preprocessing.CompositePreproces
         )
 
 
+class OpenCLColorConvertCroppedResizeWithExtraCropAndNormalize(preprocessing.CompositePreprocess):
+    width: int = 0
+    height: int = 0
+    size: int = 0
+    hcrop: int = 0
+    vcrop: int = 0
+    mean: str = '0'
+    std: str = '1'
+    format: str = 'rgb'
+
+    def _post_init(self) -> None:
+        self._w, self._h = (self.width, self.height) if self.size == 0 else (self.size, self.size)
+        self._set_operators(
+            [
+                custom_preprocessing.ConvertColorInput(self.format),
+                preprocessing.Resize(width=self.width, height=self.height, size=self.size),
+                preprocessing.CenterCrop(self._w - self.hcrop, self._h - self.vcrop),
+                preprocessing.ToTensor(),
+                preprocessing.PermuteChannels(input_layout='NHWC', output_layout='NCHW'),
+                preprocessing.TypeCast(datatype='float32'),
+                preprocessing.Normalize(std='255.0'),
+                preprocessing.Normalize(mean=self.mean, std=self.std),
+            ]
+        )
+        self._norm = self._operators[-1]
+        return super()._post_init()
+
+    def configure_model_and_context_info(
+        self,
+        model_info: types.ModelInfo,
+        context: PipelineContext,
+        task_name: str,
+        taskn: int,
+        compiled_model_dir: Path | None,
+        task_graph,
+    ):
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
+        context.resize_status = types.ResizeMode.STRETCH
+
+    def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
+        cw = self._w - self.hcrop
+        ch = self._h - self.vcrop
+        sw = self._w
+        sh = self._h
+        if self.size:
+            ss = f'scalesize:{self.size};'
+        elif sw and sh:
+            ss = f'scale_width:{sw};scale_height:{sh};'
+        else:
+            ss = ''
+        _ensure_len = lambda seq, channels: list(seq) + [seq[0]] * (channels - len(seq))
+        mean = _ensure_len(self._effective_mean, self._out_shape[-1])
+        std = _ensure_len(self._effective_std, self._out_shape[-1])
+        scale = _ensure_len(self._scale, self._out_shape[-1])
+        zero = _ensure_len(self._zero, self._out_shape[-1])
+        m = [f'{float(x):.6f}'.rstrip('0') for x in mean]
+        s = [f'{float(x):.6f}'.rstrip('0') for x in std]
+        mean = ",".join(map(str, m))
+        std = ",".join(map(str, s))
+        gst.axtransform(
+            lib='libtransform_centrecropextra.so',
+            options=ss + f'crop_width:{cw};crop_height:{ch}',
+        )
+        fmt = add_alpha_channel(self.format)
+        gst.axtransform(
+            lib='libtransform_resize_cl.so',
+            options=f'width:{cw};height:{ch};to_tensor:1;mean:{mean};std:{std};quant_scale:{float(scale[0])};quant_zeropoint:{float(zero[0])};format:{fmt}',
+        )
+
+
 class OpenCLCroppedResizeWithExtraCropAndNormalize(preprocessing.CompositePreprocess):
     width: int = 0
     height: int = 0
@@ -349,7 +491,6 @@ class OpenCLCroppedResizeWithExtraCropAndNormalize(preprocessing.CompositePrepro
             ]
         )
         self._norm = self._operators[-1]
-        self._out_shape = []
         return super()._post_init()
 
     def configure_model_and_context_info(
@@ -361,14 +502,9 @@ class OpenCLCroppedResizeWithExtraCropAndNormalize(preprocessing.CompositePrepro
         compiled_model_dir: Path | None,
         task_graph,
     ):
-        self.task_name = task_name
-        if model_info.manifest and model_info.manifest.is_compiled():
-            q = model_info.manifest.quantize_params
-            if model_info.manifest.input_shapes:
-                self._out_shape = model_info.manifest.input_shapes[0]  # TODO multiple inputs
-            # TODO be a bit more helpful if the params are wrongly formatted
-            self._scale, self._zero = zip(*q)
-
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
         context.resize_status = types.ResizeMode.STRETCH
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
@@ -383,12 +519,12 @@ class OpenCLCroppedResizeWithExtraCropAndNormalize(preprocessing.CompositePrepro
         else:
             ss = ''
         _ensure_len = lambda seq, channels: list(seq) + [seq[0]] * (channels - len(seq))
-        mean = _ensure_len(self._norm.mean_values, self._out_shape[-1])
-        std = _ensure_len(self._norm.std_values, self._out_shape[-1])
+        mean = _ensure_len(self._effective_mean, self._out_shape[-1])
+        std = _ensure_len(self._effective_std, self._out_shape[-1])
         scale = _ensure_len(self._scale, self._out_shape[-1])
         zero = _ensure_len(self._zero, self._out_shape[-1])
-        m = [f"{float(x):0.3f}".rstrip('0') for x in mean]
-        s = [f"{float(x):0.3f}".rstrip('0') for x in std]
+        m = [f'{float(x):.6f}'.rstrip('0') for x in mean]
+        s = [f'{float(x):.6f}'.rstrip('0') for x in std]
         mean = ",".join(map(str, m))
         std = ",".join(map(str, s))
         gst.axtransform(
@@ -406,6 +542,7 @@ class OpenCLetterBoxColorConvert(preprocessing.CompositePreprocess):
     height: int = 0
     format: str = 'rgb'
     scaleup: bool = True
+    half_pixel_centers: bool = False
     pad_val: int = 114
 
     def _post_init(self) -> None:
@@ -416,6 +553,7 @@ class OpenCLetterBoxColorConvert(preprocessing.CompositePreprocess):
                     width=self.width,
                     height=self.height,
                     scaleup=self.scaleup,
+                    half_pixel_centers=self.half_pixel_centers,
                     pad_val=self.pad_val,
                 ),
             ]
@@ -432,29 +570,30 @@ class OpenCLetterBoxColorConvert(preprocessing.CompositePreprocess):
         )
 
 
-class OpenCLResizeToTensorAndNormalize(preprocessing.CompositePreprocess):
+class OpenCLResizeColorConverToTensorAndNormalize(preprocessing.CompositePreprocess):
     width: int = 0
     height: int = 0
     size: int = 0
     mean: str = '0'
     std: str = '1'
+    format: str = 'rgba'
     datatype: str = 'float32'
     scaleup: int = 0
 
     def _post_init(self) -> None:
-        self._set_operators(
-            [
-                preprocessing.Resize(width=self.width, height=self.height, size=self.size),
-                preprocessing.ToTensor(),
-                preprocessing.PermuteChannels(input_layout='NHWC', output_layout='NCHW'),
-                preprocessing.TypeCast(datatype='float32'),
-                preprocessing.Normalize(std='255.0'),
-                preprocessing.Normalize(mean=self.mean, std=self.std),
-            ]
-        )
+        ops = [
+            preprocessing.Resize(width=self.width, height=self.height, size=self.size),
+            preprocessing.ToTensor(),
+            preprocessing.PermuteChannels(input_layout='NHWC', output_layout='NCHW'),
+            preprocessing.TypeCast(datatype='float32'),
+            preprocessing.Normalize(std='255.0'),
+            preprocessing.Normalize(mean=self.mean, std=self.std),
+        ]
+        if self.format:
+            ops.insert(0, custom_preprocessing.ConvertColorInput(self.format))
+
+        self._set_operators(ops)
         self._norm = self._operators[-1]
-        self._scale, self._zero = [], []
-        self._out_shape = []
         return super()._post_init()
 
     def configure_model_and_context_info(
@@ -466,31 +605,32 @@ class OpenCLResizeToTensorAndNormalize(preprocessing.CompositePreprocess):
         compiled_model_dir: Path | None,
         task_graph,
     ):
-        self.task_name = task_name
-        if model_info.manifest and model_info.manifest.is_compiled():
-            q = model_info.manifest.quantize_params
-            if model_info.manifest.input_shapes:
-                self._out_shape = model_info.manifest.input_shapes[0]  # TODO multiple inputs
-            # TODO be a bit more helpful if the params are wrongly formatted
-            self._scale, self._zero = zip(*q)
-
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
         context.resize_status = types.ResizeMode.STRETCH
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
+
         _ensure_len3 = lambda seq: list(seq) + [seq[0]] * (3 - len(seq))
-        mean = _ensure_len3(self._norm.mean_values)
-        std = _ensure_len3(self._norm.std_values)
+        mean = _ensure_len3(self._effective_mean)
+
+        std = _ensure_len3(self._effective_std)
         scale = _ensure_len3(self._scale)
         zero = _ensure_len3(self._zero)
-        m = [f"{float(x):0.3f}".rstrip('0') for x in mean]
-        s = [f"{float(x):0.3f}".rstrip('0') for x in std]
+        m = [f'{float(x):.6f}'.rstrip('0') for x in mean]
+        s = [f'{float(x):.6f}'.rstrip('0') for x in std]
         mean = ",".join(map(str, m))
         std = ",".join(map(str, s))
+        out = ''
+        if self.format:
+            out = f';format:{add_alpha_channel(self.format)}'
         gst.axtransform(
             lib='libtransform_resize_cl.so',
             options=(
                 f'width:{self.width};height:{self.height};'
                 + f'to_tensor:1;mean:{mean};std:{std};quant_scale:{float(scale[0])};quant_zeropoint:{float(zero[0])}'
+                + out
             ),
         )
 
@@ -515,8 +655,6 @@ class OpenCLResizeToTensorAndLinearScaling(preprocessing.CompositePreprocess):
             ]
         )
         self._norm = self._operators[-1]
-        self._scale, self._zero = [], []
-        self._out_shape = []
         return super()._post_init()
 
     def configure_model_and_context_info(
@@ -528,23 +666,17 @@ class OpenCLResizeToTensorAndLinearScaling(preprocessing.CompositePreprocess):
         compiled_model_dir: Path | None,
         task_graph,
     ):
-        self.task_name = task_name
-        if model_info.manifest and model_info.manifest.is_compiled():
-            q = model_info.manifest.quantize_params
-            if model_info.manifest.input_shapes:
-                self._out_shape = model_info.manifest.input_shapes[0]  # TODO multiple inputs
-            # TODO be a bit more helpful if the params are wrongly formatted
-            self._scale, self._zero = zip(*q)
-
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
         context.resize_status = types.ResizeMode.STRETCH
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
         _ensure_len3 = lambda seq: list(seq) + [seq[0]] * (3 - len(seq))
-        mean = _ensure_len3(self._norm.mean_values)
-        shift = _ensure_len3(self._norm.shift_values)
-
-        s = [f"{float(x/255.0):0.6f}".rstrip('0') for x in mean]
-        m = [f"{-float(s * m /255.0):0.6f}".rstrip('0') for s, m in zip(mean, shift)]
+        mean = _ensure_len3(self._effective_mean)
+        std = _ensure_len3(self._effective_std)
+        s = [f'{float(x):.6f}'.rstrip('0') for x in std]
+        m = [f'{float(x):.6f}'.rstrip('0') for x in mean]
         quant = ''
         if (self._scale and self._scale[0] != 1) or (self._zero and self._zero[0] != 0):
             quant = f';quant_scale:{self._scale[0]};quant_zeropoint:{self._zero[0]}'
@@ -560,10 +692,140 @@ class OpenCLResizeToTensorAndLinearScaling(preprocessing.CompositePreprocess):
         )
 
 
+class OpenCLColorConvertResizeToTensorAndLinearScaling(preprocessing.CompositePreprocess):
+    width: int = 0
+    height: int = 0
+    size: int = 0
+    mean: str = '0'
+    shift: str = '1'
+    format: str = 'rgb'
+    datatype: str = 'float32'
+    scaleup: int = 0
+
+    def _post_init(self) -> None:
+        self._set_operators(
+            [
+                custom_preprocessing.ConvertColorInput(self.format),
+                preprocessing.Resize(width=self.width, height=self.height, size=self.size),
+                preprocessing.ToTensor(),
+                preprocessing.PermuteChannels(input_layout='NHWC', output_layout='NCHW'),
+                preprocessing.TypeCast(datatype='float32'),
+                preprocessing.LinearScaling(mean=self.mean, shift=self.shift),
+            ]
+        )
+        self._norm = self._operators[-1]
+        return super()._post_init()
+
+    def configure_model_and_context_info(
+        self,
+        model_info: types.ModelInfo,
+        context: PipelineContext,
+        task_name: str,
+        taskn: int,
+        compiled_model_dir: Path | None,
+        task_graph,
+    ):
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
+        context.resize_status = types.ResizeMode.STRETCH
+
+    def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
+        _ensure_len3 = lambda seq: list(seq) + [seq[0]] * (3 - len(seq))
+        mean = _ensure_len3(self._effective_mean)
+        std = _ensure_len3(self._effective_std)
+        s = [f'{float(x):.6f}'.rstrip('0') for x in std]
+        m = [f'{float(x):.6f}'.rstrip('0') for x in mean]
+        quant = ''
+        if (self._scale and self._scale[0] != 1) or (self._zero and self._zero[0] != 0):
+            quant = f';quant_scale:{self._scale[0]};quant_zeropoint:{self._zero[0]}'
+
+        mean = ",".join(map(str, m))
+        std = ",".join(map(str, s))
+        fmt = add_alpha_channel(self.format)
+        gst.axtransform(
+            lib='libtransform_resize_cl.so',
+            options=(
+                f'width:{self.width};height:{self.height};'
+                + f'to_tensor:1;mean:{mean};std:{std}{quant};format:{fmt}'
+            ),
+        )
+
+
+class OpenCLetterBoxColorConvertToTensorAndNormalize(preprocessing.CompositePreprocess):
+    width: int = 0
+    height: int = 0
+    scaleup: bool = True
+    half_pixel_centers: bool = False
+    pad_val: int = 114
+    mean: str = '0'
+    std: str = '1'
+    format: str = 'rgba'
+    datatype: str = 'float32'
+
+    def _post_init(self) -> None:
+        self._set_operators(
+            [
+                custom_preprocessing.ConvertColorInput(self.format),
+                custom_preprocessing.Letterbox(
+                    width=self.width,
+                    height=self.height,
+                    scaleup=self.scaleup,
+                    half_pixel_centers=self.half_pixel_centers,
+                    pad_val=self.pad_val,
+                ),
+                preprocessing.ToTensor(),
+                preprocessing.PermuteChannels(input_layout='NHWC', output_layout='NCHW'),
+                preprocessing.TypeCast(datatype='float32'),
+                preprocessing.Normalize(std='255.0'),
+                preprocessing.Normalize(mean=self.mean, std=self.std),
+            ]
+        )
+        self._norm = self._operators[-1]
+        return super()._post_init()
+
+    def configure_model_and_context_info(
+        self,
+        model_info: types.ModelInfo,
+        context: PipelineContext,
+        task_name: str,
+        taskn: int,
+        compiled_model_dir: Path | None,
+        task_graph,
+    ):
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
+        if self.scaleup:
+            context.resize_status = types.ResizeMode.LETTERBOX_FIT
+        else:
+            context.resize_status = types.ResizeMode.LETTERBOX_CONTAIN
+
+    def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
+        _ensure_len3 = lambda seq: list(seq) + [seq[0]] * (3 - len(seq))
+        mean = _ensure_len3(self._effective_mean)
+        std = _ensure_len3(self._effective_std)
+        scale = _ensure_len3(self._scale)
+        zero = _ensure_len3(self._zero)
+        m = [f'{float(x):.6f}'.rstrip('0') for x in mean]
+        s = [f'{float(x):.6f}'.rstrip('0') for x in std]
+        mean = ",".join(map(str, m))
+        std = ",".join(map(str, s))
+        fmt = add_alpha_channel(self.format)
+        gst.axtransform(
+            lib='libtransform_resize_cl.so',
+            options=(
+                f'width:{self.width};height:{self.height};padding:{self.pad_val};letterbox:1;scale_up:{int(self.scaleup)};'
+                + f'to_tensor:1;mean:{mean};std:{std};quant_scale:{float(scale[0])};quant_zeropoint:{float(zero[0])};format:{fmt}'
+            ),
+        )
+
+
 class OpenCLetterBoxToTensorAndNormalize(preprocessing.CompositePreprocess):
     width: int = 0
     height: int = 0
     scaleup: bool = True
+    half_pixel_centers: bool = False
     pad_val: int = 114
     mean: str = '0'
     std: str = '1'
@@ -576,6 +838,7 @@ class OpenCLetterBoxToTensorAndNormalize(preprocessing.CompositePreprocess):
                     width=self.width,
                     height=self.height,
                     scaleup=self.scaleup,
+                    half_pixel_centers=self.half_pixel_centers,
                     pad_val=self.pad_val,
                 ),
                 preprocessing.ToTensor(),
@@ -586,8 +849,6 @@ class OpenCLetterBoxToTensorAndNormalize(preprocessing.CompositePreprocess):
             ]
         )
         self._norm = self._operators[-1]
-        self._scale, self._zero = [], []
-        self._out_shape = []
         return super()._post_init()
 
     def configure_model_and_context_info(
@@ -599,14 +860,9 @@ class OpenCLetterBoxToTensorAndNormalize(preprocessing.CompositePreprocess):
         compiled_model_dir: Path | None,
         task_graph,
     ):
-        self.task_name = task_name
-        if model_info.manifest and model_info.manifest.is_compiled():
-            q = model_info.manifest.quantize_params
-            if model_info.manifest.input_shapes:
-                self._out_shape = model_info.manifest.input_shapes[0]  # TODO multiple inputs
-            # TODO be a bit more helpful if the params are wrongly formatted
-            self._scale, self._zero = zip(*q)
-
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
         if self.scaleup:
             context.resize_status = types.ResizeMode.LETTERBOX_FIT
         else:
@@ -614,12 +870,12 @@ class OpenCLetterBoxToTensorAndNormalize(preprocessing.CompositePreprocess):
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
         _ensure_len3 = lambda seq: list(seq) + [seq[0]] * (3 - len(seq))
-        mean = _ensure_len3(self._norm.mean_values)
-        std = _ensure_len3(self._norm.std_values)
+        mean = _ensure_len3(self._effective_mean)
+        std = _ensure_len3(self._effective_std)
         scale = _ensure_len3(self._scale)
         zero = _ensure_len3(self._zero)
-        m = [f"{float(x):0.3f}".rstrip('0') for x in mean]
-        s = [f"{float(x):0.3f}".rstrip('0') for x in std]
+        m = [f'{float(x):.6f}'.rstrip('0') for x in mean]
+        s = [f'{float(x):.6f}'.rstrip('0') for x in std]
         mean = ",".join(map(str, m))
         std = ",".join(map(str, s))
         gst.axtransform(
@@ -631,32 +887,36 @@ class OpenCLetterBoxToTensorAndNormalize(preprocessing.CompositePreprocess):
         )
 
 
-class OpenCLetterBoxToTensorAndLinearScaling(preprocessing.CompositePreprocess):
+class OpenCLetterBoxColorConvertToTensorAndLinearScaling(preprocessing.CompositePreprocess):
     width: int = 0
     height: int = 0
     scaleup: bool = True
+    half_pixel_centers: bool = False
     pad_val: int = 114
     mean: str = '0'
     shift: str = '1'
+    format: str = 'rgba'
     datatype: str = 'float32'
 
     def _post_init(self) -> None:
-        self._set_operators(
-            [
-                custom_preprocessing.Letterbox(
-                    width=self.width,
-                    height=self.height,
-                    scaleup=self.scaleup,
-                    pad_val=self.pad_val,
-                ),
-                preprocessing.ToTensor(),
-                preprocessing.PermuteChannels(input_layout='NHWC', output_layout='NCHW'),
-                preprocessing.TypeCast(datatype='float32'),
-                preprocessing.LinearScaling(mean=self.mean, shift=self.shift),
-            ]
-        )
+        ops = [
+            custom_preprocessing.Letterbox(
+                width=self.width,
+                height=self.height,
+                scaleup=self.scaleup,
+                half_pixel_centers=self.half_pixel_centers,
+                pad_val=self.pad_val,
+            ),
+            preprocessing.ToTensor(),
+            preprocessing.PermuteChannels(input_layout='NHWC', output_layout='NCHW'),
+            preprocessing.TypeCast(datatype='float32'),
+            preprocessing.LinearScaling(mean=self.mean, shift=self.shift),
+        ]
+        if format:
+            ops.insert(0, custom_preprocessing.ConvertColorInput(self.format))
+
+        self._set_operators(ops)
         self._norm = self._operators[-1]
-        self._out_shape = []
         # These values are defaults, I do not believe they will change but or be passed
         # in as args, but I am leaving them here for now
         self._scale = [1.0 / 255]
@@ -672,14 +932,9 @@ class OpenCLetterBoxToTensorAndLinearScaling(preprocessing.CompositePreprocess):
         compiled_model_dir: Path | None,
         task_graph,
     ):
-        self.task_name = task_name
-        if model_info.manifest and model_info.manifest.is_compiled():
-            q = model_info.manifest.quantize_params
-            if model_info.manifest.input_shapes:
-                self._out_shape = model_info.manifest.input_shapes[0]  # TODO multiple inputs
-            # TODO be a bit more helpful if the params are wrongly formatted
-            self._scale, self._zero = zip(*q)
-
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
         if self.scaleup:
             context.resize_status = types.ResizeMode.LETTERBOX_FIT
         else:
@@ -687,20 +942,94 @@ class OpenCLetterBoxToTensorAndLinearScaling(preprocessing.CompositePreprocess):
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
         _ensure_len3 = lambda seq: list(seq) + [seq[0]] * (3 - len(seq))
-        mean = _ensure_len3(self._norm.mean_values)
-        shift = _ensure_len3(self._norm.shift_values)
-
-        s = [f"{float(x/255.0):0.6f}".rstrip('0') for x in mean]
-        m = [f"{-float(s * m /255.0):0.6f}".rstrip('0') for s, m in zip(mean, shift)]
+        mean = _ensure_len3(self._effective_mean)
+        shift = _ensure_len3(self._effective_std)
+        s = [f'{float(x):.6f}'.rstrip('0') for x in shift]
+        m = [f'{float(x):.6f}'.rstrip('0') for x in mean]
         quant = ''
         if (self._scale and self._scale[0] != 1) or (self._zero and self._zero[0] != 0):
             quant = f';quant_scale:{self._scale[0]};quant_zeropoint:{self._zero[0]}'
 
+        out = ''
+        if self.format:
+            out = f';format:{add_alpha_channel(self.format)}'
         gst.axtransform(
             lib='libtransform_resize_cl.so',
             options=(
                 f'width:{self.width};height:{self.height};padding:{self.pad_val};letterbox:1;scale_up:{int(self.scaleup)};'
                 + f'to_tensor:1;mean:{",".join(m)};std:{",".join(s)}{quant}'
+                + out
+            ),
+        )
+
+
+class OpenCLetterBoxColorConvertToTensor(preprocessing.CompositePreprocess):
+    width: int = 0
+    height: int = 0
+    scaleup: bool = True
+    half_pixel_centers: bool = False
+    pad_val: int = 114
+    mean: str = '0'
+    std: str = '255'
+    format: str = 'rgba'
+    datatype: str = 'float32'
+
+    def _post_init(self) -> None:
+        ops = [
+            custom_preprocessing.Letterbox(
+                width=self.width,
+                height=self.height,
+                scaleup=self.scaleup,
+                half_pixel_centers=self.half_pixel_centers,
+                pad_val=self.pad_val,
+            ),
+            preprocessing.ToTensor(),
+            preprocessing.PermuteChannels(input_layout='NHWC', output_layout='NCHW'),
+            preprocessing.TypeCast(datatype='float32'),
+        ]
+
+        if self.format:
+            ops.insert(0, custom_preprocessing.ConvertColorInput(self.format))
+
+        self._set_operators(ops)
+        self._norm = preprocessing.Normalize(mean=[0.0], std=[1.0 / 255.0])
+        return super()._post_init()
+
+    def configure_model_and_context_info(
+        self,
+        model_info: types.ModelInfo,
+        context: PipelineContext,
+        task_name: str,
+        taskn: int,
+        compiled_model_dir: Path | None,
+        task_graph,
+    ):
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
+        if self.scaleup:
+            context.resize_status = types.ResizeMode.LETTERBOX_FIT
+        else:
+            context.resize_status = types.ResizeMode.LETTERBOX_CONTAIN
+
+    def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
+        _ensure_len3 = lambda seq: list(seq) + [seq[0]] * (3 - len(seq))
+        scale = _ensure_len3(self._scale)
+        zero = _ensure_len3(self._zero)
+        m = [f'{float(x):.6f}'.rstrip('0') for x in _ensure_len3(self._effective_mean)]
+        s = [f'{float(x):.6f}'.rstrip('0') for x in _ensure_len3(self._effective_std)]
+        mean = ",".join(map(str, m))
+        std = ",".join(map(str, s))
+        out = ''
+        if self.format:
+            fmt = add_alpha_channel(self.format)
+            out = f';format:{fmt}'
+        gst.axtransform(
+            lib='libtransform_resize_cl.so',
+            options=(
+                f'width:{self.width};height:{self.height};padding:{self.pad_val};letterbox:1;scale_up:{int(self.scaleup)};'
+                + f'to_tensor:1;mean:{mean};std:{std};quant_scale:{float(scale[0])};quant_zeropoint:{float(zero[0])};format:{fmt}'
+                + out
             ),
         )
 
@@ -769,7 +1098,6 @@ class ToTensorAndLinearScaling(preprocessing.CompositePreprocess):
             ]
         )
         self._norm = self._operators[-1]
-        self._out_shape = []
         # These values are defaults, I do not believe they will change but or be passed
         # in as args, but I am leaving them here for now
         self._scale = [1.0 / 255]
@@ -784,19 +1112,14 @@ class ToTensorAndLinearScaling(preprocessing.CompositePreprocess):
         compiled_model_dir: Path | None,
         task_graph,
     ):
-        self.task_name = task_name
-        if model_info.manifest and model_info.manifest.is_compiled():
-            q = model_info.manifest.quantize_params
-            if model_info.manifest.input_shapes:
-                self._out_shape = model_info.manifest.input_shapes[0]  # TODO multiple inputs
-            self._scale, self._zero = zip(*q)
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
+        if not self._scale:
+            self._scale = [1.0 / 255]
+            self._zero = [0]
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
-        s = [f"{float(x/255.0):0.6f}".rstrip('0') for x in self._norm.mean_values]
-        m = [
-            f"{-float(s * m /255.0):0.6f}".rstrip('0')
-            for s, m in zip(self._norm.shift_values, self._norm.mean_values)
-        ]
         quant = ''
         if (self._scale and self._scale[0] != 1) or (self._zero and self._zero[0] != 0):
             quant = f';quant_scale:{self._scale[0]};quant_zeropoint:{self._zero[0]}'
@@ -805,6 +1128,62 @@ class ToTensorAndLinearScaling(preprocessing.CompositePreprocess):
             lib='libtransform_totensor.so',
             options='type:int8',
         )
+        m = [f'{float(x):.6f}'.rstrip('0') for x in self._effective_mean]
+        s = [f'{float(x):.6f}'.rstrip('0') for x in self._effective_std]
+        gst.axinplace(
+            lib='libinplace_normalize.so',
+            mode='write',
+            options=f'mean:{",".join(m)};std:{",".join(s)};simd:{which_simd()}{quant}',
+        )
+
+
+class ToTensorAndNoNormalise(preprocessing.CompositePreprocess):
+    mean: str = '0'
+    std: str = '1'
+    datatype: str = 'float32'
+
+    def _post_init(self):
+        self._set_operators(
+            [
+                preprocessing.ToTensor(),
+                preprocessing.PermuteChannels(input_layout='NHWC', output_layout='NCHW'),
+                preprocessing.TypeCast(
+                    datatype='float32'
+                ),  # ignore datatype here, as this is quant datatype
+            ]
+        )
+        self._norm = preprocessing.Normalize(mean=[0.0], std=[1.0 / 255.0])
+
+    def configure_model_and_context_info(
+        self,
+        model_info: types.ModelInfo,
+        context: PipelineContext,
+        task_name: str,
+        taskn: int,
+        compiled_model_dir: Path | None,
+        task_graph,
+    ):
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
+        if (self._scale and any(x != self._scale[0] for x in self._scale[1:])) or (
+            self._zero and any(x != self._zero[0] for x in self._zero[1:])
+        ):
+            raise ValueError("axinplace_normalize.write only supports uniform quantization params")
+
+    def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
+        _ensure_len3 = lambda seq: list(seq) + [seq[0]] * (3 - len(seq))
+        quant = ''
+        if (self._scale and self._scale[0] != 1) or (self._zero and self._zero[0] != 0):
+            quant = f';quant_scale:{self._scale[0]};quant_zeropoint:{self._zero[0]}'
+
+        gst.axtransform(
+            lib='libtransform_totensor.so',
+            options='type:int8',
+        )
+
+        m = [f'{float(x):.6f}'.rstrip('0') for x in _ensure_len3(self._effective_mean)]
+        s = [f'{float(x):.6f}'.rstrip('0') for x in _ensure_len3(self._effective_std)]
         gst.axinplace(
             lib='libinplace_normalize.so',
             mode='write',
@@ -830,8 +1209,6 @@ class ToTensorAndNormalise(preprocessing.CompositePreprocess):
             ]
         )
         self._norm = self._operators[-1]
-        self._scale, self._zero = [], []
-        self._out_shape = []
 
     def configure_model_and_context_info(
         self,
@@ -842,23 +1219,15 @@ class ToTensorAndNormalise(preprocessing.CompositePreprocess):
         compiled_model_dir: Path | None,
         task_graph,
     ):
-        self.task_name = task_name
-        if model_info.manifest and model_info.manifest.is_compiled():
-            q = model_info.manifest.quantize_params
-            if model_info.manifest.input_shapes:
-                self._out_shape = model_info.manifest.input_shapes[0]  # TODO multiple inputs
-            # TODO be a bit more helpful if the params are wrongly formatted
-            self._scale, self._zero = zip(*q)
-            if (self._scale and any(x != self._scale[0] for x in self._scale[1:])) or (
-                self._zero and any(x != self._zero[0] for x in self._zero[1:])
-            ):
-                raise ValueError(
-                    "axinplace_normalize.write only supports uniform quantization params"
-                )
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
+        if (self._scale and any(x != self._scale[0] for x in self._scale[1:])) or (
+            self._zero and any(x != self._zero[0] for x in self._zero[1:])
+        ):
+            raise ValueError("axinplace_normalize.write only supports uniform quantization params")
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
-        m = [f"{float(x):0.3f}".rstrip('0') for x in self._norm.mean_values]
-        s = [f"{float(x):0.3f}".rstrip('0') for x in self._norm.std_values]
         quant = ''
         if (self._scale and self._scale[0] != 1) or (self._zero and self._zero[0] != 0):
             quant = f';quant_scale:{self._scale[0]};quant_zeropoint:{self._zero[0]}'
@@ -867,6 +1236,8 @@ class ToTensorAndNormalise(preprocessing.CompositePreprocess):
             lib='libtransform_totensor.so',
             options='type:int8',
         )
+        m = [f'{float(x):.6f}'.rstrip('0') for x in self._effective_mean]
+        s = [f'{float(x):.6f}'.rstrip('0') for x in self._effective_std]
         gst.axinplace(
             lib='libinplace_normalize.so',
             mode='write',
@@ -881,11 +1252,17 @@ class LetterboxToTensorAndNormalise(preprocessing.CompositePreprocess):
     std: str = '1'
     datatype: str = 'float32'
     scaleup: bool = True
+    half_pixel_centers: bool = False
 
     def _post_init(self):
         self._set_operators(
             [
-                custom_preprocessing.Letterbox(height=self.height, width=self.width),
+                custom_preprocessing.Letterbox(
+                    height=self.height,
+                    width=self.width,
+                    scaleup=self.scaleup,
+                    half_pixel_centers=self.half_pixel_centers,
+                ),
                 preprocessing.ToTensor(),
                 preprocessing.PermuteChannels(input_layout='NHWC', output_layout='NCHW'),
                 preprocessing.TypeCast(
@@ -896,8 +1273,6 @@ class LetterboxToTensorAndNormalise(preprocessing.CompositePreprocess):
             ]
         )
         self._norm = self._operators[-1]
-        self._scale, self._zero = [], []
-        self._out_shape = []
 
     def configure_model_and_context_info(
         self,
@@ -908,19 +1283,13 @@ class LetterboxToTensorAndNormalise(preprocessing.CompositePreprocess):
         compiled_model_dir: Path | None,
         task_graph,
     ):
-        self.task_name = task_name
-        if model_info.manifest and model_info.manifest.is_compiled():
-            q = model_info.manifest.quantize_params
-            if model_info.manifest.input_shapes:
-                self._out_shape = model_info.manifest.input_shapes[0]  # TODO multiple inputs
-            # TODO be a bit more helpful if the params are wrongly formatted
-            self._scale, self._zero = zip(*q)
-            if (self._scale and any(x != self._scale[0] for x in self._scale[1:])) or (
-                self._zero and any(x != self._zero[0] for x in self._zero[1:])
-            ):
-                raise ValueError(
-                    "axinplace_normalize.write only supports uniform quantization params"
-                )
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
+        if (self._scale and any(x != self._scale[0] for x in self._scale[1:])) or (
+            self._zero and any(x != self._zero[0] for x in self._zero[1:])
+        ):
+            raise ValueError("axinplace_normalize.write only supports uniform quantization params")
 
         inspect_resize_status(context)
         if self.scaleup:
@@ -929,8 +1298,6 @@ class LetterboxToTensorAndNormalise(preprocessing.CompositePreprocess):
             context.resize_status = types.ResizeMode.LETTERBOX_CONTAIN
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
-        m = [f"{float(x):0.3f}".rstrip('0') for x in self._norm.mean_values]
-        s = [f"{float(x):0.3f}".rstrip('0') for x in self._norm.std_values]
         quant = ''
         if (self._scale and self._scale[0] != 1) or (self._zero and self._zero[0] != 0):
             quant = f';quant_scale:{self._scale[0]};quant_zeropoint:{self._zero[0]}'
@@ -939,6 +1306,8 @@ class LetterboxToTensorAndNormalise(preprocessing.CompositePreprocess):
             lib='libtransform_resize.so',
             options=f'width:{self.width};height:{self.height};padding:114;to_tensor:1;letterbox:1;scale_up:{int(self.scaleup)}',
         )
+        m = [f'{float(x):.6f}'.rstrip('0') for x in self._effective_mean]
+        s = [f'{float(x):.6f}'.rstrip('0') for x in self._effective_std]
         gst.axinplace(
             lib='libinplace_normalize.so',
             mode='write',
@@ -961,7 +1330,6 @@ class OpenCLToTensorAndNormalize(preprocessing.CompositePreprocess):
             ]
         )
         self._norm = self._operators[-1]
-        self._out_shape = []
 
     def configure_model_and_context_info(
         self,
@@ -972,22 +1340,18 @@ class OpenCLToTensorAndNormalize(preprocessing.CompositePreprocess):
         compiled_model_dir: Path | None,
         task_graph,
     ):
-        self.task_name = task_name
-        if model_info.manifest and model_info.manifest.is_compiled():
-            q = model_info.manifest.quantize_params
-            if model_info.manifest.input_shapes:
-                self._out_shape = model_info.manifest.input_shapes[0]  # TODO multiple inputs
-            # TODO be a bit more helpful if the params are wrongly formatted
-            self._scale, self._zero = zip(*q)
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
         _ensure_len3 = lambda seq: list(seq) + [seq[0]] * (3 - len(seq))
-        mean = _ensure_len3(self._norm.mean_values)
-        std = _ensure_len3(self._norm.std_values)
+        mean = _ensure_len3(self._effective_mean)
+        std = _ensure_len3(self._effective_std)
         scale = _ensure_len3(self._scale)
         zero = _ensure_len3(self._zero)
-        m = [f"{float(x):0.3f}".rstrip('0') for x in mean]
-        s = [f"{float(x):0.3f}".rstrip('0') for x in std]
+        m = [f'{float(x):.6f}'.rstrip('0') for x in mean]
+        s = [f'{float(x):.6f}'.rstrip('0') for x in std]
         mean = ",".join(map(str, m))
         std = ",".join(map(str, s))
         gst.axtransform(
@@ -1010,7 +1374,8 @@ class OpenCLVideoFlipAndColorConvert(preprocessing.CompositePreprocess):
         )
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
+        fmt = add_alpha_channel(self.format)
         gst.axtransform(
             lib="libtransform_colorconvert_cl.so",
-            options=f"format:{self.format};flip_method:{self.method.name.replace('_', '-')}",
+            options=f"format:{add_alpha_channel(fmt)};flip_method:{self.method.name.replace('_', '-')}",
         )

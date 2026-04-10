@@ -1,0 +1,99 @@
+- pipeline:
+  - instance: filesrc
+    name: filesrc0
+    location: {{input_video0}}
+  - instance: decodebin
+    name: decodebin0
+    force-sw-decoders: {{force_sw_decoders}}
+    caps: video/x-raw(ANY)
+    expose-all-streams: false
+    connections:
+      src_%u: decodebin-link0.sink
+  - instance: axinplace
+    name: decodebin-link0
+    lib: libinplace_addstreamid.so
+    mode: meta
+    options: stream_id:0
+  - instance: axtransform
+    name: axtransform-colorconvert0
+    lib: libtransform_colorconvert.so
+    options: format:bgra
+  - instance: queue
+    name: queue0
+    connections:
+      src: inference-task0.sink_%u
+    max-size-buffers: 4
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinferencenet
+    name: inference-task0
+    model: {{model_lib0}}
+    devices: metis-0:1:0
+    double_buffer: true
+    dmabuf_inputs: true
+    dmabuf_outputs: true
+    num_children: 0
+    preprocess0_lib: libtransform_resize.so
+    preprocess0_options: width:840;height:840;padding:114;letterbox:1;scale_up:1
+    preprocess1_lib: libtransform_totensor.so
+    preprocess1_options: type:int8
+    preprocess2_lib: libinplace_normalize.so
+    preprocess2_options: mean:0.407843,0.458824,0.482353;std:0.003922,0.003922,0.003922;simd:avx2;quant_scale:0.01863;quant_zeropoint:-14
+    preprocess2_mode: write
+    preprocess3_lib: libtransform_padding.so
+    preprocess3_options: padding:0,0,3,3,3,5,0,0;fill:-14
+    postprocess0_lib: libdecode_retinaface.so
+    postprocess0_options: meta_key:detections;width:840;height:840;padding:0,0,0,0,0,0,0,56|0,0,0,0,0,0,0,56|0,0,0,0,0,0,0,56|0,0,0,0,0,0,0,60|0,0,0,0,0,0,0,60|0,0,0,0,0,0,0,60|0,0,0,0,0,0,0,44|0,0,0,0,0,0,0,44|0,0,0,0,0,0,0,44;scales:0.9,0.9,0.9,0.9,0.9,0.9,0.9,0.9;zero_points:0,0,0,0,0,0,0,0;transpose:1;confidence_threshold:0.4;steps:8,16,32;min_sizes:16,32|64,128|256,512;variances:0.1,0.2;clip:0;scale_up:1;decoder_name:FaceLandmarkLocalizationMeta;
+    postprocess0_mode: read
+    postprocess1_lib: libinplace_nms.so
+    postprocess1_options: meta_key:detections;max_boxes:200;nms_threshold:0.4;class_agnostic:1;location:CPU
+  - instance: axinplace
+    name: axinplace-filterdetections0
+    lib: libinplace_filterdetections.so
+    options: input_meta_key:detections;output_meta_key:detections_adapted_as_input_for_tracking;hide_output_meta:1;min_width:40;min_height:40
+  - instance: axinplace
+    name: axinplace-tracker0
+    lib: libinplace_tracker.so
+    mode: ''
+    options: tracker_meta_key:tracking;input_meta_key:detections_adapted_as_input_for_tracking;output_meta_key:boxes_created_by_tracker_task_tracking;history_length:20;algorithm:oc-sort;algo_params_json:/path/to/sometempfile.txt;
+  - instance: axinplace
+    name: axinplace-filterdetections1
+    lib: libinplace_filterdetections.so
+    options: input_meta_key:boxes_created_by_tracker_task_tracking;output_meta_key:tracking_adapted_as_input_for_recognitions;hide_output_meta:1;which:AREA;top_k:3;min_width:40;min_height:40
+  - instance: axtransform
+    name: axtransform-colorconvert1
+    lib: libtransform_colorconvert.so
+    options: format:rgba
+  - instance: axinferencenet
+    name: inference-task2
+    model: {{model_lib2}}
+    devices: metis-0:1:0
+    double_buffer: true
+    dmabuf_inputs: true
+    dmabuf_outputs: true
+    num_children: 3
+    meta: tracking_adapted_as_input_for_recognitions
+    preprocess0_lib: libtransform_roicrop.so
+    preprocess0_options: meta_key:tracking_adapted_as_input_for_recognitions
+    preprocess1_lib: libtransform_facealign.so
+    preprocess1_options: master_meta:tracking;association_meta:tracking_adapted_as_input_for_recognitions;width:192;height:192;padding:0.0;template_keypoints_x:;template_keypoints_y:;use_self_normalizing:0;save_aligned_images:0
+    preprocess2_lib: libtransform_centrecropextra.so
+    preprocess2_options: scale_width:192;scale_height:192;crop_width:160;crop_height:160
+    preprocess3_lib: libtransform_resize.so
+    preprocess3_options: width:160;height:160
+    preprocess4_lib: libtransform_totensor.so
+    preprocess4_options: type:int8
+    preprocess5_lib: libinplace_normalize.so
+    preprocess5_options: mean:0.5;std:0.501961;simd:avx2;quant_scale:0.00787353515625;quant_zeropoint:-1
+    preprocess5_mode: write
+    preprocess6_lib: libtransform_padding.so
+    preprocess6_options: padding:0,0,0,0,0,0,0,0;fill:-1
+    postprocess0_lib: libtransform_paddingdequantize.so
+    postprocess0_options: padding:0,0,0,0,0,0,0,0;dequant_scale:0.01970456913113594;dequant_zeropoint:3;transpose:1;dequant_lut:1
+    postprocess1_lib: libdecode_facenet.so
+    postprocess1_options: meta_key:recognitions;decoder_name:ClassificationMeta;master_meta:tracking;association_meta:tracking_adapted_as_input_for_recognitions;embeddings_file:{{embeddings_file}};distance_threshold:0.4;metric_type:cosine_similarity;pair_validation:0;top_k:1;update_embeddings:0;
+  - instance: appsink
+    name: appsink0
+    max-buffers: 4
+    drop: false
+    sync: false

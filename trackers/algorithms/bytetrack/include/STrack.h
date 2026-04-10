@@ -1,6 +1,7 @@
+// Copyright Axelera AI, 2024
 #pragma once
 
-#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
 
 #include "kalmanFilter.h"
 
@@ -46,6 +47,7 @@ class STrack
   KAL_COVA covariance;
   float score;
   int label;
+  int latest_det_id = -1;
 
   private:
   byte_kalman::KalmanFilter kalman_filter;

@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #include "GstAxDataUtils.hpp"
 #include "AxLog.hpp"
 #include "AxStreamerUtils.hpp"
@@ -46,6 +46,8 @@ gst_format_to_string(GstVideoFormat fmt)
       return "YUY2";
     case GST_VIDEO_FORMAT_NV12:
       return "NV12";
+    case GST_VIDEO_FORMAT_NV16:
+      return "NV16";
     default:
       return "<unknown " + std::to_string(fmt) + ">";
   }
@@ -197,12 +199,34 @@ interface_from_caps_and_meta(GstCaps *caps, GstBuffer *buffer)
   return interface;
 }
 
+static int
+plane_height(AxVideoFormat format, int plane, int height)
+{
+  switch (format) {
+    case AxVideoFormat::NV12:
+    case AxVideoFormat::I420:
+      return plane == 0 ? height : height / 2;
+    case AxVideoFormat::NV16:
+      return height;
+    default:
+      return height;
+  }
+}
+
 size_t
 size_from_interface(const AxDataInterface &interface)
 {
   if (std::holds_alternative<AxVideoInterface>(interface)) {
-    const auto &video_info = std::get<AxVideoInterface>(interface).info;
-    return video_info.stride * video_info.height;
+    const auto &video = std::get<AxVideoInterface>(interface);
+    const auto &info = video.info;
+    if (video.strides.size() <= 1) {
+      return info.stride * info.height;
+    }
+    size_t total = 0;
+    for (int i = 0; i < (int) video.strides.size(); ++i) {
+      total += video.strides[i] * plane_height(info.format, i, info.height);
+    }
+    return total;
   } else if (std::holds_alternative<AxTensorsInterface>(interface)) {
     const auto &tensors_interface = std::get<AxTensorsInterface>(interface);
     if (tensors_interface.size() > 1) {

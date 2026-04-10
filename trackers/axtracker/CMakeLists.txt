@@ -15,5 +15,12 @@ file(GLOB AXTRACKER_SOURCES "src/*.cpp")
 # Add axtracker library
 add_library(axtracker SHARED ${AXTRACKER_SOURCES})
 
+# Set RPATH to $ORIGIN so library can find co-located dependencies
+set_target_properties(axtracker PROPERTIES
+  INSTALL_RPATH "$ORIGIN"
+  BUILD_RPATH "$ORIGIN"
+)
+
 # Link libraries
 target_link_libraries(axtracker ${OpenCV_LIBS})
+target_link_options(axtracker PRIVATE -Wl,--exclude-libs,ALL)

@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2026
+// Copyright Axelera AI, 2025
 #pragma once
 
 #define CL_TARGET_OPENCL_VERSION 210
@@ -22,6 +22,7 @@
 
 #include <memory>
 #include <span>
+#include <string>
 #include <utility>
 #include <variant>
 
@@ -73,7 +74,8 @@ retain_clobject(cl_event obj)
 template <typename T> class cl_object
 {
   public:
-  explicit cl_object(T obj) : object(obj)
+  explicit cl_object(T obj)
+      : object(obj)
   {
   }
 
@@ -127,12 +129,9 @@ template <typename T> class cl_object
 
 
 extern "C" {
-#if defined(__aarch64__)
 using clImportMemoryARM_fn = cl_mem (*)(cl_context context, cl_mem_flags flags,
     const cl_import_properties_arm *properties, void *memory, size_t size,
     cl_int *errorcode_ret);
-
-#elif defined(__x86_64__)
 #if defined(HAS_VAAPI_MEDIA_SHARING)
 using clGetDeviceIDsFromVA_APIMediaINTEL_fn
     = cl_int (*)(cl_platform_id, cl_va_api_device_source_intel, void *,
@@ -149,31 +148,20 @@ using clEnqueueReleaseVA_fn = cl_int (*)(cl_command_queue command_queue,
     cl_uint num_objects, const cl_mem *mem_objects, cl_uint num_events_in_wait_list,
     const cl_event *event_wait_list, cl_event *event);
 #endif
-#endif
 }
 
-#if defined(__aarch64__)
 struct cl_extensions {
-  clImportMemoryARM_fn clImportMemoryARM_host;
-  clImportMemoryARM_fn clImportMemoryARM_dmabuf;
-  bool unified_memory{ false };
-};
-#elif defined(__x86_64__)
-struct cl_extensions {
-#ifdef HAS_VAAPI_MEDIA_SHARING
-  VADisplay display;
+  clImportMemoryARM_fn clImportMemoryARM_host{};
+  clImportMemoryARM_fn clImportMemoryARM_dmabuf{};
+  void *display{};
+#if defined(HAS_VAAPI_MEDIA_SHARING)
   clGetDeviceIDsFromVA_APIMediaINTEL_fn clGetDeviceIDsFromVA{};
   clCreateFromVA_fn clCreateFromVA{};
   clEnqueueAcquireVA_fn clEnqueueAcquireVA{};
   clEnqueueReleaseVA_fn clEnqueueReleaseVA{};
-#else
-  void *display;
 #endif
   bool unified_memory{ false };
 };
-#elif
-#error "Unsupported architecture"
-#endif
 
 cl_extensions init_extensions(cl_platform_id platform, void *display);
 
@@ -189,8 +177,8 @@ bool can_import_dmabuf(const cl_extensions &extensions);
 
 bool can_import_va(const cl_extensions &extensions);
 
-int get_device_id(cl_platform_id platform, cl_device_id *device_id,
-    cl_uint *num_devices, const cl_extensions &extensions);
+int get_device_id(cl_platform_id platform, cl_device_id *device_id, cl_uint *num_devices,
+    const cl_extensions &extensions, const std::string &which_cl);
 
 cl_int acquire_va(cl_command_queue commands, const cl_extensions &extensions,
     std::span<cl_mem> buffers);

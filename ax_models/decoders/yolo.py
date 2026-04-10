@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Operators that convert YOLO-specific tensor output to
 # generalized metadata representation
 
@@ -24,6 +24,9 @@ class YoloFamily(enum.Enum):
     YOLOv8 = enum.auto()  # all anchor-free using yolov8 like head
     YOLOX = enum.auto()  # anchor-free using yolox like head
     YOLO_OBB = enum.auto()  # oriented bounding box
+    YOLO_NAS = (
+        enum.auto()
+    )  # anchor-free, same grid structure as YOLOv8 but different DFL bin count
     # we don't know which family the model belongs to according to the output shape
     Unknown = enum.auto()
 
@@ -46,6 +49,24 @@ def _filter_samples(scores, class_confidences, box_coordinates, threshold):
         class_confidences[valid_indices],
         box_coordinates[valid_indices],
     )
+
+
+def _merge_dual_tensor_predictions(predict, num_classes):
+    """Merge two separate prediction tensors (e.g. YOLO-NAS) into one [boxes, classes] tensor.
+
+    Some models output boxes and class scores as separate tensors in either order.
+    Identifies which tensor is boxes (4 channels) vs classes (num_classes channels)
+    and concatenates them in [boxes, classes] order for downstream decoding.
+    """
+    if len(predict) > 2:
+        raise ValueError(f"Unexpected number of predictions ({len(predict)}) encountered.")
+    # The channel dimension is whichever of dims[1],dims[2] is smaller
+    info_at_dim = 1 if predict[0].shape[1] < predict[0].shape[2] else 2
+    if predict[0].shape[info_at_dim] == 4 and predict[1].shape[info_at_dim] == num_classes:
+        return np.concatenate(predict, axis=info_at_dim)
+    if predict[0].shape[info_at_dim] == num_classes and predict[1].shape[info_at_dim] == 4:
+        return np.concatenate([predict[1], predict[0]], axis=info_at_dim)
+    raise ValueError(f"Unexpected output shapes, {predict[0].shape} and {predict[1].shape}")
 
 
 def _decode_yolo_grid_boxes(boxes, model_width, model_height, strides=[8, 16, 32]):
@@ -127,6 +148,7 @@ class DecodeYolo(AxOperator):
     nms_class_agnostic: bool = False
     nms_top_k: int = 300
     generic_gst_decoder: bool = False
+    nms_free: bool = False  # Currently only used for YOLO26-OBB without focal loss
 
     def _post_init(self):
         self.label_filter = utils.parse_labels_filter(self.label_filter)
@@ -137,6 +159,7 @@ class DecodeYolo(AxOperator):
             raise ValueError(f"Unknown box format {self.box_format}")
 
         self.model_type = YoloFamily.Unknown
+        self._dfl_bins = None
         if self.box_format == "xyxyxyxy":
             self.x_indexes = [0, 2, 4, 6]
             self.y_indexes = [1, 3, 5, 7]
@@ -192,9 +215,10 @@ class DecodeYolo(AxOperator):
 
             model_type_explanation = "Determined from box format"
             if self.model_type == YoloFamily.Unknown:
-                self.model_type, model_type_explanation = _guess_yolo_model(
+                self.model_type, model_type_explanation, extra = _guess_yolo_model(
                     output_shapes, model_info.num_classes
                 )
+                self._dfl_bins = extra.get('dfl_bins')
 
             if self.model_type == YoloFamily.Unknown:
                 LOG.warning(f"Unknown model type for {model_info.name}, using generic GST decoder")
@@ -229,14 +253,8 @@ class DecodeYolo(AxOperator):
         scales = ','.join(str(s) for s in self._deq_scales)
         zeros = ','.join(str(s) for s in self._deq_zeropoints)
         sieve = utils.build_class_sieve(self.label_filter, self.labels)
-        master_key = str()
-        if self._where:
-            master_key = f'master_meta:{self._where};'
-        elif gst.tiling:
-            master_key = f'master_meta:axelera-tiles-internal;'
-        association_key = str()
-        if self._association:
-            association_key = f'association_meta:{self._association};'
+        tiling = gst_builder.TileInfo(self, gst)
+        master_key, association_key = tiling.get_decode_keys()
         if self._n_padded_ch_outputs:
             paddings = '|'.join(
                 ','.join(str(num) for num in sublist) for sublist in self._n_padded_ch_outputs
@@ -262,6 +280,29 @@ class DecodeYolo(AxOperator):
                 f'classlabels_file:{self._tmp_labels};'
                 f'model_width:{self.model_width};'
                 f'model_height:{self.model_height};'
+                f'scale_up:{int(self.scaled==types.ResizeMode.LETTERBOX_FIT)};'
+                f'letterbox:{int(self.scaled in [types.ResizeMode.LETTERBOX_FIT, types.ResizeMode.LETTERBOX_CONTAIN])}'
+                + (f';label_filter:{",".join(sieve)}' if sieve else ''),
+            )
+        elif self.model_type == YoloFamily.YOLO_NAS:
+            gst.decode_muxer(
+                name=f'decoder_task{self._taskn}{stream_idx}',
+                lib='libdecode_yolov8.so',
+                mode='read',
+                options=f'meta_key:{str(self.task_name)};'
+                f'{master_key}'
+                f'{association_key}'
+                f'classes:{self.num_classes};'
+                f'confidence_threshold:{self.conf_threshold};'
+                f'scales:{scales};'
+                f'padding:{paddings};'
+                f'zero_points:{zeros};'
+                f'topk:{self.max_nms_boxes};'
+                f'multiclass:{int(self.use_multi_label)};'
+                f'classlabels_file:{self._tmp_labels};'
+                f'model_width:{self.model_width};'
+                f'model_height:{self.model_height};'
+                f'dfl_size:{self._dfl_bins};'
                 f'scale_up:{int(self.scaled==types.ResizeMode.LETTERBOX_FIT)};'
                 f'letterbox:{int(self.scaled in [types.ResizeMode.LETTERBOX_FIT, types.ResizeMode.LETTERBOX_CONTAIN])}'
                 + (f';label_filter:{",".join(sieve)}' if sieve else ''),
@@ -316,7 +357,7 @@ class DecodeYolo(AxOperator):
         elif self.model_type == YoloFamily.YOLO_OBB:
             gst.decode_muxer(
                 name=f'decoder_task{self._taskn}{stream_idx}',
-                lib='libdecode_yolov_obb.so',
+                lib='libdecode_yolov8.so',
                 mode='read',
                 options=f'meta_key:{str(self.task_name)};'
                 f'{master_key}'
@@ -328,7 +369,9 @@ class DecodeYolo(AxOperator):
                 f'zero_points:{zeros};'
                 f'topk:{self.max_nms_boxes};'
                 f'multiclass:{int(self.use_multi_label)};'
-                f'classlabels_file:{self._tmp_labels};'
+                f'has_angle:1;'
+                + (f'raw_radians:1;dfl_size:1;' if self.nms_free else '')
+                + f'classlabels_file:{self._tmp_labels};'
                 f'model_width:{self.model_width};'
                 f'model_height:{self.model_height};'
                 f'scale_up:{int(self.scaled==types.ResizeMode.LETTERBOX_FIT)};'
@@ -364,20 +407,17 @@ class DecodeYolo(AxOperator):
                 f"Unsupported model type {self.model_type}. Please try to enable generic_gst_decoder in YAML config."
             )
 
-        if gst.tiling:
-            master_key = 'flatten_meta:1;master_meta:axelera-tiles-internal;'
-        gst.axinplace(
-            lib='libinplace_nms.so',
-            options=f'meta_key:{str(self.task_name)};'
-            f'{master_key}'
-            f'max_boxes:{self.nms_top_k};'
-            f'nms_threshold:{self.nms_iou_threshold};'
-            f'class_agnostic:{int(self.nms_class_agnostic)};'
-            f'location:CPU',
-        )
-        if gst.tiling.size and not gst.tiling.show:
+        # NMS: skip for nms_free models unless tiling is enabled
+        if not self.nms_free or gst.tiling:
+            master_key = tiling.get_nms_keys()
             gst.axinplace(
-                lib='libinplace_hidemeta.so', options=f'meta_key:axelera-tiles-internal;'
+                lib='libinplace_nms.so',
+                options=f'meta_key:{str(self.task_name)};'
+                f'{master_key}'
+                f'max_boxes:{tiling.get_max_boxes(self.nms_top_k)};'
+                f'nms_threshold:{self.nms_iou_threshold};'
+                f'class_agnostic:{int(self.nms_class_agnostic)};'
+                f'location:CPU',
             )
 
     def exec_torch(self, image, predict, meta):
@@ -394,6 +434,7 @@ class DecodeYolo(AxOperator):
                 self.max_nms_boxes,
                 self.nms_class_agnostic,
                 self.use_multi_label,
+                self.nms_free,
             )
         else:
             # Standard YOLO detection path
@@ -406,24 +447,8 @@ class DecodeYolo(AxOperator):
                 raise ValueError(
                     f"Batch size >1 not supported for torch and torch-aipu pipelines, output tensor={predict[0].shape}"
                 )
-            elif len(predict) > 1:  # Handling multiple predictions, possibly yolo-nas
-                # Determine the dimension with consistent size across predictions
-                info_at_dim = 1 if predict[0].shape[1] < predict[0].shape[2] else 2
-                # Validate if the dimension sizes match to ensure compatibility
-                if len(predict) > 2:
-                    raise ValueError(
-                        f"Unexpected number of predictions ({len(predict)}) encountered."
-                    )
-                elif (
-                    predict[0].shape[info_at_dim] == 4
-                    and predict[1].shape[info_at_dim] == self.num_classes
-                ):
-                    # Merge predictions if exactly two are present
-                    predict = np.concatenate(predict, axis=2)
-                else:
-                    raise ValueError(
-                        f"Unexpected output shapes, {predict[0].shape} and {predict[1].shape}"
-                    )
+            elif len(predict) > 1:
+                predict = _merge_dual_tensor_predictions(predict, self.num_classes)
 
             bboxes = predict[0]
             # Ensure bboxes are transposed to format (number of samples, info per sample) if needed
@@ -570,7 +595,8 @@ def _guess_yolo_model(depadded_shapes, num_classes):
         num_classes: Number of classes the model was trained on
 
     Returns:
-        tuple: (YoloFamily enum, str explanation)
+        tuple: (YoloFamily enum, str explanation, dict extra)
+            extra may contain 'dfl_bins' for YOLO-NAS models
     """
 
     num_outputs = len(depadded_shapes)
@@ -616,6 +642,30 @@ def _guess_yolo_model(depadded_shapes, num_classes):
 
         return all(c == 64 for c in reg_channels) and all(c == num_classes for c in cls_channels)
 
+    def analyze_yolonas():
+        """Detect YOLO-NAS: 6 tensors at 3 scales, paired cls/box per scale.
+        Box channels are divisible by 4 (DFL bins * 4) but != 64 (that's YOLOv8).
+        Works for any num_classes as long as num_classes != box_channels."""
+        if len(channels) != 6:
+            return False, 0
+        cls_channels = []
+        box_channels = []
+        for c in channels:
+            if c == num_classes:
+                cls_channels.append(c)
+            elif c % 4 == 0 and c // 4 > 1 and c != 64:
+                box_channels.append(c)
+            else:
+                return False, 0
+        if len(cls_channels) != 3 or len(box_channels) != 3:
+            return False, 0
+        if len(set(box_channels)) != 1:
+            return False, 0
+        if box_channels[0] % 4 != 0:
+            return False, 0
+        dfl_bins = box_channels[0] // 4
+        return True, dfl_bins
+
     if num_outputs == 3 and analyze_yolov5():
         explanation = (
             "YOLOv5 pattern:\n"
@@ -625,7 +675,7 @@ def _guess_yolo_model(depadded_shapes, num_classes):
             f"  = 3 × ({4} + {1} + {num_classes}) = {3 * (4 + 1 + num_classes)}\n"
             f"- Shapes: {[list(shape) for shape in depadded_shapes]}"
         )
-        return YoloFamily.YOLOv5, explanation
+        return YoloFamily.YOLOv5, explanation, {}
 
     elif num_outputs == 9 and analyze_yolox():
         explanation = (
@@ -638,7 +688,7 @@ def _guess_yolo_model(depadded_shapes, num_classes):
             f"- Channel pattern: {channels}\n"
             f"- Shapes: {[list(shape) for shape in depadded_shapes]}"
         )
-        return YoloFamily.YOLOX, explanation
+        return YoloFamily.YOLOX, explanation, {}
 
     elif num_outputs == 6 and analyze_yolov8():
         explanation = (
@@ -649,16 +699,37 @@ def _guess_yolo_model(depadded_shapes, num_classes):
             f"- Channel pattern: {channels}\n"
             f"- Shapes: {[list(shape) for shape in depadded_shapes]}"
         )
-        return YoloFamily.YOLOv8, explanation
+        return YoloFamily.YOLOv8, explanation, {}
 
     else:
+        is_nas, dfl_bins = analyze_yolonas()
+        if is_nas:
+            explanation = (
+                "YOLO-NAS pattern:\n"
+                "- 6 output tensors (anchor-free, same grid structure as YOLOv8)\n"
+                f"- 3 classification branches ({num_classes} channels)\n"
+                f"- 3 regression branches ({dfl_bins * 4} channels = {dfl_bins} DFL bins x 4)\n"
+                f"- Channel pattern: {channels}\n"
+                f"- Shapes: {[list(shape) for shape in depadded_shapes]}"
+            )
+            return YoloFamily.YOLO_NAS, explanation, {'dfl_bins': dfl_bins}
+
+        if num_outputs == 6 and num_classes % 4 == 0 and num_classes // 4 > 1:
+            LOG.error(
+                f"Cannot distinguish YOLO-NAS class tensors from box tensors: "
+                f"num_classes={num_classes} is divisible by 4, which collides with "
+                f"the DFL box channel count. All 6 tensors appear identical. "
+                f"Falling back to generic decoder (slower). "
+                f"Channel pattern: {channels}"
+            )
+
         explanation = (
             "Unknown pattern:\n"
             f"- {num_outputs} output tensors\n"
             f"- Channel dimensions: {channels}\n"
             f"- Shapes: {[list(shape) for shape in depadded_shapes]}"
         )
-        return YoloFamily.Unknown, explanation
+        return YoloFamily.Unknown, explanation, {}
 
 
 def nms_obb(boxes_xywhr, scores, classes=None, iou_thr=0.5, max_det=300, agnostic=False):
@@ -715,9 +786,21 @@ def decode_raw_obb(
     max_nms=30000,
     agnostic=False,
     multi_label=True,
+    nms_free=False,
 ):
     """
     Pure NumPy decode for YOLO OBB raw outputs.
+
+    Args:
+        raw_tensor: Model output tensor
+        conf_thres: Confidence threshold for filtering
+        iou_thres: IoU threshold for NMS (ignored if nms_free=True)
+        max_det: Maximum detections after NMS
+        max_nms: Maximum boxes before NMS
+        agnostic: Class-agnostic NMS (ignored if nms_free=True)
+        multi_label: Multi-label detection (ignored if nms_free=True)
+        nms_free: If True, expects YOLO26/YOLO10 format [batch, num_det, 7] with built-in NMS
+                  If False, expects YOLO8 format [batch, num_anchors, 4+nc+1] requiring NMS
     """
     # Unwrap single output
     if isinstance(raw_tensor, (tuple, list)):
@@ -736,6 +819,31 @@ def decode_raw_obb(
     if arr.ndim != 3:
         raise RuntimeError(f"Unexpected RAW ndim: {arr.ndim}, shape={arr.shape}")
 
+    # Handle NMS-free models (YOLO26/YOLO10)
+    if nms_free:
+        # Format: [batch, num_detections, 7] where 7 = [x, y, w, h, conf, class_id, angle]
+        bboxes = arr[0]  # Take first batch
+
+        # Transpose if needed (smaller dim should be features)
+        if bboxes.shape[0] < bboxes.shape[1]:
+            bboxes = bboxes.transpose()
+
+        # Filter by confidence threshold
+        mask = bboxes[:, 4] >= conf_thres
+        bboxes = bboxes[mask]
+
+        # Extract components
+        box_xywh = bboxes[:, :4]
+        scores = bboxes[:, 4].astype(np.float32)
+        classes = bboxes[:, 5].astype(np.int64)
+        box_angles = bboxes[:, 6:7]
+
+        # Combine to xywhr format
+        boxes = np.column_stack([box_xywh, box_angles]).astype(np.float32)
+
+        return boxes, scores, classes
+
+    # Standard YOLO8 OBB path requiring NMS
     pred = np.transpose(arr, (0, 2, 1)).copy()
 
     # Split fields according to Ultralytics rotated layout: [xywh | nc class probs | angle]

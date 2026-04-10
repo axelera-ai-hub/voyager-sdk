@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Metadata for semantic segmentation task and instance segmentation task
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import struct
 from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
 import numpy as np
+import os
 
 from .. import logging_utils
 from ..eval_interfaces import InstSegEvalSample, InstSegGroundTruthSample
@@ -28,14 +29,14 @@ SegmentationMask = tuple[int, int, int, int, int, int, int, int, np.ndarray]
 def _translate_image_space_rect(bbox: XyXy, input_roi: XyXy, mask_size=(160, 160)) -> XyXy:
     x0, y0, x1, y1 = bbox
     input_w, input_h = input_roi[2] - input_roi[0], input_roi[3] - input_roi[1]
-    longest_edge = max(input_w, input_h)
-    scale_factor = longest_edge / mask_size[0]
-    xoffset = int((longest_edge - input_w) / 2)
-    yoffset = int((longest_edge - input_h) / 2)
-    x0 = int(x0 * scale_factor - xoffset + input_roi[0])
-    y0 = int(y0 * scale_factor - yoffset + input_roi[1])
-    x1 = int(x1 * scale_factor - xoffset + input_roi[0])
-    y1 = int(y1 * scale_factor - yoffset + input_roi[1])
+    scale = max(input_w / mask_size[0], input_h / mask_size[1])
+    xoffset = (scale * mask_size[0] - input_w) / 2
+    yoffset = (scale * mask_size[1] - input_h) / 2
+    x0 = int(x0 * scale - xoffset + input_roi[0])
+    y0 = int(y0 * scale - yoffset + input_roi[1])
+    x1 = int(x1 * scale - xoffset + input_roi[0])
+    y1 = int(y1 * scale - yoffset + input_roi[1])
+
     return x0, y0, x1, y1
 
 
@@ -62,7 +63,7 @@ class SemanticSegmentationMeta(AxTaskMeta):
         raise NotImplementedError("Haven't implemented in-house evaluator yet")
 
     def draw(self, draw: display.Draw):
-        if not self.task_render_config.show_annotations:
+        if not self.task_render_config.show_annotations or draw.options.show_segmentation is False:
             return
         # TODO only class_map drawing is supported for now
         draw.class_map_mask(self.class_map, get_rgba_cmap(colormap, 125, True))
@@ -252,15 +253,29 @@ class InstanceSegmentationMeta(AxTaskMeta):
         if len(self.masks) == 0 or not self.task_render_config.show_annotations:
             return
 
-        draw_bounding_boxes(
-            self,
-            draw,
-            self.task_render_config.show_labels,
-            self.task_render_config.show_annotations,
-        )
+        if draw.options.show_bounding_boxes:
+            draw_bounding_boxes(
+                self,
+                draw,
+                self.task_render_config.show_labels,
+                self.task_render_config.show_annotations,
+            )
+        colors = int(os.environ.get('AXELERA_RATIO_SEGMENT_COLORS', 0))
+        use_ratio = colors != 0
+        if not draw.options.show_segmentation:
+            return
+
         for i, cls in enumerate(self.class_ids):
-            color = class_as_color(self, draw, int(cls), alpha=125)
-            draw.segmentation_mask(self.get_mask(i), color)
+            mask = self.get_mask(i)
+
+            if use_ratio:
+                h, w = mask[8].shape
+                class_id = int(max(0, min(colors, 0.101 * colors * (w / h - 0.1))))
+            else:
+                class_id = int(cls)
+
+            color = class_as_color(self, draw, class_id, alpha=125)
+            draw.segmentation_mask(mask, color)
 
     @classmethod
     def decode(cls, data: Dict[str, Union[bytes, bytearray]]) -> InstanceSegmentationMeta:
@@ -278,19 +293,18 @@ class InstanceSegmentationMeta(AxTaskMeta):
         else:
             classes = np.zeros(boxes.shape[0], dtype=np.int32)
 
-        if 'base_box' in data:
-            masks_base_box = (
-                np.frombuffer(data.get('base_box'), dtype=np.int32).reshape(-1, 4).squeeze()
-            )
-        else:
-            masks_base_box = None
-        if 'segment_maps' in data and 'segment_bboxs' in data:
+        if 'segment_maps' in data and 'segment_bboxs' in data and 'base_boxes' in data:
             segment_maps = data.get('segment_maps')
             segment_bboxs = data.get('segment_bboxs')
-
+            segment_base_boxes = data.get('base_boxes')
             offset = 0
             segments = []
-            for idx, bbox in enumerate(struct.iter_unpack('4i', segment_bboxs)):
+            for idx, (bbox, base_box) in enumerate(
+                zip(
+                    struct.iter_unpack('4i', segment_bboxs),
+                    struct.iter_unpack('4i', segment_base_boxes),
+                )
+            ):
                 if idx == segment_count:
                     break
 
@@ -298,8 +312,7 @@ class InstanceSegmentationMeta(AxTaskMeta):
                 width = x1 - x0
                 height = y1 - y0
                 size = width * height
-
-                image_coords = _translate_image_space_rect(bbox, masks_base_box, segment_shape)
+                image_coords = _translate_image_space_rect(bbox, base_box, segment_shape)
 
                 segments.append(
                     (

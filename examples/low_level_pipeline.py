@@ -3,10 +3,16 @@
 # Show how to pass a low level yaml file to the framework, and modify it
 # to use a specific device.
 import argparse
+import os
 from pathlib import Path
 import re
+import sys
 
 from axelera.runtime import Context
+
+if __name__ == '__main__':
+    # Application Framework is not a package, so add it to the path to import it
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from axelera.app import config, display, inf_tracers, logging_utils
 from axelera.app.stream import create_inference_stream
@@ -32,7 +38,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     hwcaps = config.HardwareCaps.from_parsed_args(args)
     framework = config.env.framework
-    low_level = Path('examples/low-level-fruit-demo.yaml').read_text()
+    examples_dir = os.path.dirname(__file__)
+    low_level = Path(f'{examples_dir}/low-level-fruit-demo.yaml').read_text()
     low_level = re.sub(r'^(\s+devices:\s+).*$', f'\\1{first_device_name()}', low_level, flags=re.M)
 
     stream = create_inference_stream(
@@ -43,11 +50,7 @@ if __name__ == "__main__":
         ax_precompiled_gst=low_level,
     )
 
-    with display.App(
-        renderer=args.display,
-        opengl=stream.hardware_caps.opengl,
-        buffering=not stream.is_single_image(),
-    ) as app:
+    with display.App(renderer=args.display, opengl=stream.hardware_caps.opengl) as app:
         wnd = app.create_window("Low level pipeline demo", args.window_size)
         app.start_thread(main, (wnd, stream), name='InferenceThread')
         app.run()

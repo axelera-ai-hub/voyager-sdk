@@ -46,7 +46,6 @@ pipeline:
             conf_threshold: 0.25
             nms_iou_threshold: 0.45
             nms_top_k: 300
-            unpad: True
   - object_detections:
       model_name: yolov8s-fruit
       input:

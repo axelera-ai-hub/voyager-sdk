@@ -48,6 +48,7 @@ enum class AxVideoFormat {
   BGRx,
   GRAY8,
   NV12,
+  NV16,
   I420,
   YUY2,
 };

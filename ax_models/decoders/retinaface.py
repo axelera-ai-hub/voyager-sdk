@@ -182,6 +182,7 @@ class DecodeRetinaface(AxOperator):
         self.model_width = model_info.input_width
         self.model_height = model_info.input_height
         self.cfg = model_info.extra_kwargs['RetinaFace']['cfg']
+        self._association = context.association or None
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
         scales = ','.join(str(s) for s in self._deq_scales)
@@ -195,12 +196,25 @@ class DecodeRetinaface(AxOperator):
         )
         variances = ','.join(str(s) for s in self.cfg['variance'])
         clip = int(self.cfg['clip'])
+        master_key = str()
+        if self._where:
+            master_key = f'master_meta:{self._where};'
+        elif gst.tiling:
+            master_key = f'master_meta:axelera-tiles-internal;'
+        association_key = str()
+        if self._association:
+            association_key = f'association_meta:{self._association};'
+
+        tiling = gst_builder.TileInfo(self, gst)
+        master_key, association_key = tiling.get_decode_keys()
 
         gst.decode_muxer(
             name=f'decoder_task{self._taskn}{stream_idx}',
             lib='libdecode_retinaface.so',
             mode='read',
             options=f'meta_key:{str(self.task_name)};'
+            f'{master_key}'
+            f'{association_key}'
             f'width:{self.model_width};'
             f'height:{self.model_height};'
             f'padding:{padding};'
@@ -215,10 +229,12 @@ class DecodeRetinaface(AxOperator):
             f'scale_up:{int(self.scaled==types.ResizeMode.LETTERBOX_FIT)};'
             f'decoder_name:FaceLandmarkLocalizationMeta;',
         )
+        master_key = tiling.get_nms_keys()
         gst.axinplace(
             lib='libinplace_nms.so',
             options=f'meta_key:{str(self.task_name)};'
-            f'max_boxes:{self.nms_top_k};'
+            f'{master_key}'
+            f'max_boxes:{tiling.get_max_boxes(self.nms_top_k)};'
             f'nms_threshold:{self.nms_iou_threshold};'
             f'class_agnostic:{int(self.nms_class_agnostic)};'
             f'location:CPU',

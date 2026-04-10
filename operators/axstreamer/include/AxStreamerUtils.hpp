@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 // collection of utils taken from axstreamer
 #pragma once
 #include <algorithm>
@@ -73,13 +73,18 @@ clear_queue(std::queue<T> &q)
 
 struct DmaBufHandle {
   explicit DmaBufHandle(int fd, size_t size, void *p)
-      : fd(fd), mapped(p), size(size), should_close(true)
+      : fd(fd),
+        mapped(p),
+        size(size),
+        should_close(true)
   {
     //  Size should always be non-zero if we own the fd
     assert(size != 0);
   }
   explicit DmaBufHandle(int fd, size_t size)
-      : fd(fd), size(size), should_close(false)
+      : fd(fd),
+        size(size),
+        should_close(false)
   {
     //  We should only close if we own the fd
     assert(should_close != (size == 0));
@@ -154,7 +159,9 @@ join(const Range &range, const std::string &delim)
 template <typename Iterator> class Enumerator
 {
   public:
-  Enumerator(Iterator iter, std::size_t index) : iter_(iter), index_(index)
+  Enumerator(Iterator iter, std::size_t index)
+      : iter_(iter),
+        index_(index)
   {
   }
 
@@ -183,7 +190,8 @@ template <typename Iterator> class Enumerator
 template <typename T> class IntegerIterator
 {
   public:
-  explicit IntegerIterator(T value) : value_(value)
+  explicit IntegerIterator(T value)
+      : value_(value)
   {
   }
 
@@ -211,7 +219,8 @@ template <typename Iterator> class IteratorRange
 {
   public:
   explicit IteratorRange(Iterator begin, Iterator end)
-      : begin_(begin), end_(end)
+      : begin_(begin),
+        end_(end)
   {
   }
 
@@ -271,7 +280,8 @@ std::unordered_map<std::string, std::string> parse_and_validate_plugin_options(
 class ManagedDataInterface
 {
   public:
-  ManagedDataInterface(const AxDataInterface &data) : data_(data)
+  ManagedDataInterface(const AxDataInterface &data)
+      : data_(data)
   {
   }
   ManagedDataInterface(const ManagedDataInterface &data) = delete;
@@ -429,7 +439,8 @@ class SharedBatchBufferView
   public:
   SharedBatchBufferView() = default;
   SharedBatchBufferView(std::shared_ptr<BatchedBuffer> self, AxDataInterface *view)
-      : self_(self), view_(view)
+      : self_(self),
+        view_(view)
   {
   }
 
@@ -558,8 +569,11 @@ class BatchedBufferPool
   public:
   BatchedBufferPool(int batch_size, const AxDataInterface &iface,
       DataInterfaceAllocator &allocator)
-      : batch_size_(batch_size), iface_(iface), allocator_(allocator),
-        mutex_(std::make_shared<std::mutex>()), free_(std::make_shared<FreeList>())
+      : batch_size_(batch_size),
+        iface_(iface),
+        allocator_(allocator),
+        mutex_(std::make_shared<std::mutex>()),
+        free_(std::make_shared<FreeList>())
   {
   }
 
@@ -582,30 +596,33 @@ class BatchedBufferPool
 
   std::shared_ptr<BatchedBuffer> new_batched_buffer(const AxDataInterface &new_iface)
   {
-    std::lock_guard<std::mutex> lock(*mutex_);
-    if (!are_equivalent(iface_, new_iface)) {
-      iface_ = new_iface;
-      free_ = std::make_shared<FreeList>();
+    {
+      std::lock_guard<std::mutex> lock(*mutex_);
+      if (!are_equivalent(iface_, new_iface)) {
+        iface_ = new_iface;
+        free_ = std::make_shared<FreeList>();
+      }
     }
 
     std::unique_ptr<BatchedBuffer> buffer;
-    auto &free = *free_;
-    if (free.empty()) {
-      buffer.reset(new BatchedBuffer(batch_size_, iface_, allocator_));
-    } else {
-      buffer = std::move(free.back());
-      free.pop_back();
+    auto free = free_;
+    if (!free->empty()) {
+      std::lock_guard<std::mutex> lock(*mutex_);
+      buffer = std::move(free->back());
+      free->pop_back();
       //  Ensure we have the correct caps
       buffer->update_iface(iface_, batch_size_);
+    } else {
+      buffer.reset(new BatchedBuffer(batch_size_, iface_, allocator_));
     }
     //  The destructor captures the free list so that even if the member free_
     //  is destroyed the buffer will still be returned to the free list which
     //  will be finally destroyed once the last buffer that belongs to that free
     //  list is returned (Python-like garbage collection)
     return std::shared_ptr<BatchedBuffer>(buffer.release(),
-        [this, free = free_, mutex = mutex_](BatchedBuffer *buffer) {
-          std::lock_guard<std::mutex> lock(*mutex);
+        [this, free = std::move(free), mutex = mutex_](BatchedBuffer *buffer) {
           buffer->release();
+          std::lock_guard<std::mutex> lock(*mutex);
           free->emplace_back(buffer);
         });
   }
@@ -625,24 +642,36 @@ class BatchedBufferPool
   std::shared_ptr<FreeList> free_;
 };
 
-template <typename T, int queue_size = 1> struct BlockingQueue {
-  void push(T &&t)
+template <typename T> struct BlockingQueue {
+  explicit BlockingQueue(size_t queue_depth = 1)
+      : queue_depth(queue_depth)
+  {
+  }
+
+  void push_locked(T &&t)
   {
     std::unique_lock<std::mutex> lock(mutex);
     full_condition.wait(
         lock, [this] { return queue.size() < queue_depth || !running; });
     queue.push(std::move(t));
+  }
+
+  void push(T &&t)
+  {
+    push_locked(std::move(t));
     empty_condition.notify_one();
+  }
+
+  T wait_one_locked()
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    empty_condition.wait(lock, [this] { return !queue.empty() || !running; });
+    return running ? pop_queue(queue) : T{};
   }
 
   T wait_one()
   {
-    std::unique_lock<std::mutex> lock(mutex);
-    empty_condition.wait(lock, [this] { return !queue.empty() || !running; });
-    if (!running) {
-      return {};
-    }
-    auto t = pop_queue(queue);
+    auto t = wait_one_locked();
     full_condition.notify_one();
     return t;
   }
@@ -662,7 +691,7 @@ template <typename T, int queue_size = 1> struct BlockingQueue {
   std::mutex mutex;
   std::queue<T> queue;
   bool running = { true };
-  size_t queue_depth = queue_size;
+  size_t queue_depth{ 1 };
 };
 
 inline std::string
@@ -685,8 +714,10 @@ class SharedLib
   SharedLib &operator=(SharedLib &&) = delete;
 
   SharedLib(Ax::Logger &logger, const std::string &libname, bool close_on_destruct = false)
-      : logger_(logger), module_(dlopen(libname.c_str(), RTLD_NOLOAD | RTLD_NOW)),
-        libname_(libname), close_on_destruct_(close_on_destruct)
+      : logger_(logger),
+        module_(dlopen(libname.c_str(), RTLD_NOLOAD | RTLD_NOW)),
+        libname_(libname),
+        close_on_destruct_(close_on_destruct)
   {
 
     if (!module_) {
@@ -766,7 +797,7 @@ AxVideoInterface create_roi(
     const AxVideoInterface &original, int x, int y, int width, int height);
 
 void validate_output_format(AxVideoFormat format, std::string_view prop_fmt,
-    std::string_view label, std::span<AxVideoFormat> valid_formats);
+    std::string_view label, std::span<const AxVideoFormat> valid_formats);
 
 template <typename PluginType, typename PluginBase>
 class LoadedPlugin : public PluginBase
@@ -893,4 +924,6 @@ class LoadedDecode : public LoadedPlugin<Ax::V1Plugin::Decode, Decode>
         number_of_subframes, map, video, logger);
   }
 };
+
+
 } // namespace Ax

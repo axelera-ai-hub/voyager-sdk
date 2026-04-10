@@ -1,0 +1,45 @@
+- pipeline:
+  - instance: filesrc
+    name: filesrc0
+    location: {{input_video0}}
+  - instance: decodebin
+    name: decodebin0
+    force-sw-decoders: {{force_sw_decoders}}
+    caps: video/x-raw(ANY)
+    expose-all-streams: false
+    connections:
+      src_%u: decodebin-link0.sink
+  - instance: axinplace
+    name: decodebin-link0
+    lib: libinplace_addstreamid.so
+    mode: meta
+    options: stream_id:0
+  - instance: queue
+    name: queue0
+    connections:
+      src: inference-task0.sink_%u
+    max-size-buffers: 4
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinferencenet
+    name: inference-task0
+    model: {{model_lib0}}
+    devices: metis-0:1:0
+    double_buffer: true
+    dmabuf_inputs: true
+    dmabuf_outputs: true
+    num_children: 0
+    preprocess0_lib: libtransform_resize_cl.so
+    preprocess0_options: width:840;height:840;padding:114;letterbox:1;scale_up:1;to_tensor:1;mean:0.407843,0.458824,0.482353;std:0.003922,0.003922,0.003922;quant_scale:0.01863;quant_zeropoint:-14;format:bgra
+    preprocess1_lib: libtransform_padding.so
+    preprocess1_options: padding:0,0,3,3,3,5,0,0;fill:-14
+    postprocess0_lib: libdecode_retinaface.so
+    postprocess0_options: meta_key:detections;width:840;height:840;padding:0,0,0,0,0,0,0,56|0,0,0,0,0,0,0,56|0,0,0,0,0,0,0,56|0,0,0,0,0,0,0,60|0,0,0,0,0,0,0,60|0,0,0,0,0,0,0,60|0,0,0,0,0,0,0,44|0,0,0,0,0,0,0,44|0,0,0,0,0,0,0,44;scales:0.9,0.9,0.9,0.9,0.9,0.9,0.9,0.9;zero_points:0,0,0,0,0,0,0,0;transpose:1;confidence_threshold:0.2;steps:8,16,32;min_sizes:16,32|64,128|256,512;variances:0.1,0.2;clip:0;scale_up:1;decoder_name:FaceLandmarkLocalizationMeta;
+    postprocess0_mode: read
+    postprocess1_lib: libinplace_nms.so
+    postprocess1_options: meta_key:detections;max_boxes:200;nms_threshold:0.4;class_agnostic:1;location:CPU
+  - instance: appsink
+    name: appsink0
+    max-buffers: 4
+    drop: false
+    sync: false

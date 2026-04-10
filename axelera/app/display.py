@@ -1,10 +1,11 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 from __future__ import annotations
 
 import abc
 from collections import OrderedDict
 from dataclasses import asdict, dataclass, field
 import enum
+import importlib
 import logging
 import math
 import os
@@ -34,7 +35,9 @@ if TYPE_CHECKING:
 LOG = logging_utils.getLogger(__name__)
 
 FULL_SCREEN = (-1, -1)
-ICONS = {sz: f'{os.path.dirname(__file__)}/axelera-{sz}x{sz}.png' for sz in [32, 128, 192]}
+ICONS = {
+    sz: f'{os.path.dirname(__file__)}/render_assets/axelera-{sz}x{sz}.png' for sz in [32, 128, 192]
+}
 
 
 def _parse_coord(coord: str, format: str) -> tuple[float | int, str]:
@@ -305,6 +308,12 @@ class Coords:
         return x, y
 
 
+class FrameStyle(enum.Enum):
+    NORMAL = 'normal'
+    GRID = 'grid'
+    SIDE_BY_SIDE = 'side_by_side'
+
+
 class _Message:
     pass
 
@@ -327,6 +336,11 @@ class _OpenSource(_StreamMessage):
 @dataclass
 class _SetOptions(_StreamMessage):
     options: dict[str, Any]
+
+
+@dataclass
+class _ClearState(_StreamMessage):
+    pass
 
 
 @dataclass
@@ -400,6 +414,12 @@ class _Text(_Layer):
 class _Image(_Layer):
     path: str
     scale: float | None
+
+
+@dataclass
+class _Rectangle(_Layer):
+    bottom_right: Coords
+    color: Color
 
 
 class LayerHandle:
@@ -776,6 +796,21 @@ class Options:
     real-time metric responses. (default on)
     '''
 
+    show_tiles: bool = False
+    '''Internal only: Show tile boundaries when rendering tiled streams.'''
+
+    show_bounding_boxes: bool = True
+    '''Show bounding boxes on detected objects.'''
+
+    show_keypoints: bool = True
+    '''Show keypoints on detected objects.'''
+
+    show_segmentation: bool = True
+    '''Show segmentation masks on detected objects.'''
+
+    show_trajectory: bool = True
+    '''Show trajectory lines for tracked objects.'''
+
     def update(self, **options: dict[str, Any]) -> None:
         '''Update the options with the given dictionary.
 
@@ -955,6 +990,7 @@ class Surface:
         self._queue = q
         self._frame_sink = frame_sink
         self._warned_full = False
+        self._warned_full_at = 0.0
         self._self_proc = psutil.Process(os.getpid())
         self._last_print = time.time() - 2
         if size == FULL_SCREEN:
@@ -1195,6 +1231,55 @@ class Surface:
             stream_id=stream_id,
         )
 
+    def rectangle(
+        self,
+        position: str | tuple[str, str] | Coords,
+        bottom_right: str | tuple[str, str] | Coords,
+        fadeout_from: Optional[float] = default_fadeout_from,
+        fadeout_for: Optional[float] = default_fadeout_for,
+        fadein_by: Optional[float] = default_fadein_by,
+        fadein_for: Optional[float] = default_fadein_for,
+        color: Optional[Color] = (255, 0, 0, 255),  # Red
+        existing: Optional[LayerHandle] = None,
+        stream_id: int = -1,
+    ) -> LayerHandle:
+        '''
+        Rectangle is a layer which displays a rectangle on the Window. The rectangle is defined
+        by the top-left position and bottom-right position.
+
+        The following args are in addition to the common args described in `layer`.
+        Args:
+            bottom_right:   The bottom-right position of the rectangle. This can either be a
+                            `Coords` object, or a string/tuple in a format parseable by the
+                            `Coords` constructor. See `Coords` for more details.
+
+        Optional Args:
+            color:      The color of the rectangle. This is a tuple representing an RGBA color.
+                        Defaults to red.
+
+        Returns:
+            LayerHandle: A handle to the layer. This can be used to update the layer later.
+        '''
+        if not isinstance(bottom_right, Coords):
+            if isinstance(bottom_right, str):
+                bottom_right = Coords(bottom_right)
+            else:
+                bottom_right = Coords(*bottom_right)
+        return self.layer(
+            _Rectangle,
+            position,
+            default_anchor_x,
+            default_anchor_y,
+            fadeout_from,
+            fadeout_for,
+            fadein_by,
+            fadein_for,
+            bottom_right,
+            color,
+            existing=existing,
+            stream_id=stream_id,
+        )
+
     def close_source(self, source_id: int, reopen: bool = False):
         '''
         Close (stop rendering) the given source, without closing the surface.
@@ -1227,6 +1312,20 @@ class Surface:
             self._queue.put(_OpenSource(source_id))
         else:
             LOG.warning(f"Cannot open source {source_id}, surface message queue not set.")
+
+    def clear_state(self, source_id: int):
+        '''
+        Clear any rendering state which persists between frames for the given source.
+
+        Args:
+            source_id:  The id of the source to clear the state of.
+        '''
+        if self._queue is not None:
+            self._queue.put(_ClearState(source_id))
+        else:
+            LOG.warning(
+                f"Cannot clear state for source {source_id}, surface message queue not set."
+            )
 
     def _check_running(self):
         if self.__check_running is not None and not self._checked_running:
@@ -1319,7 +1418,11 @@ class Surface:
                     LOG.trace("Display queue is no longer full")
                 self._warned_full = False
             except queue.Full:
-                level = LOG.warning if not self._warned_full else LOG.trace
+                now = time.time()
+                level = LOG.trace
+                if now - (self._warned_full_at) > 10:
+                    level = LOG.warning
+                    self._warned_full_at = now
                 level("Display queue is full, dropping frame(s)")
                 self._warned_full = True
                 return
@@ -1392,6 +1495,21 @@ class Window(Surface):
             time.sleep(0.1)
 
 
+def _safe_gl_import(package, app, display_env, error_on_fail=True):
+    try:
+        module = importlib.import_module(package, package="axelera.app")
+        return getattr(module, app)
+    except Exception as e:
+        if display_env:
+            msg = f"DISPLAY environment variable={display_env}"
+        else:
+            msg = "Please try exporting the environment variable DISPLAY=:0.0"
+        msg = f"Failed to initialize OpenGL: {e!r}\n{msg}"
+        if error_on_fail:
+            raise RuntimeError(msg)
+        LOG.warning(msg)
+
+
 def _find_display_class(display: str | bool, opengl: config.HardwareEnable):
     from . import display_console, display_cv
 
@@ -1408,20 +1526,9 @@ def _find_display_class(display: str | bool, opengl: config.HardwareEnable):
                 else config.HardwareEnable.disable
             )
         if display != 'auto' or opengl == config.HardwareEnable.enable:
-            try:
-                from . import display_gl
-
-                return display_gl.GLApp
-            except Exception as e:
-                if display_env:
-                    msg = f"DISPLAY environment variable={display_env}"
-                else:
-                    msg = "Please try exporting the environment variable DISPLAY=:0.0"
-                msg = f"Failed to initialize OpenGL: {e!r}\n{msg}"
-                if display == 'opengl':
-                    # if user explicilty requested opengl, we should not fallback to anything
-                    raise RuntimeError(msg)
-                LOG.warning(msg)
+            # if user explicilty requested opengl, we should not fallback to anything
+            if gl_app := _safe_gl_import('.display_gl', 'GLApp', display_env, display == 'opengl'):
+                return gl_app
         if display_env:
             return display_cv.CVApp
         if os.environ.get('LC_TERMINAL') == 'iTerm2':  # prefer iTerm2 if available
@@ -1433,6 +1540,8 @@ def _find_display_class(display: str | bool, opengl: config.HardwareEnable):
         return display_console.ConsoleApp
     elif display == 'iterm2':
         return display_console.iTerm2App
+    elif display == 'wx':  # Internal only - requires OpenGL
+        return _safe_gl_import('._display_wx', 'WxApp', display_env)
     elif display != 'none':
         expect = "'auto', 'opengl', 'opencv', 'console', 'iterm2', 'none' or False"
         raise ValueError(f"Invalid display option: {display}, expect one of {expect}")
@@ -1506,7 +1615,7 @@ class App:
             The created surface.
         '''
         # note that surfaces must be created in UI thread, so push to create Q
-        self._queues.append(q := queue.Queue(maxsize=100))
+        self._queues.append(q := queue.Queue(maxsize=200))
         frame_sink = _FrameSink()
         self._create_queue.put_nowait((q, frame_sink, '', size))
         cls = type(self)
@@ -1535,7 +1644,7 @@ class App:
                 "Cannot create native Voyager windows when display is running in background."
             )
         self._native_windows = True
-        self._queues.append(q := queue.Queue(maxsize=100))
+        self._queues.append(q := queue.Queue(maxsize=200))
         frame_sink = _FrameSink() if expose_surface else None
         self._create_queue.put_nowait((q, frame_sink, title, size))
         cls = type(self)

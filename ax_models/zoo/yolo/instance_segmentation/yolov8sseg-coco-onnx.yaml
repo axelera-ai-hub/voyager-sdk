@@ -28,12 +28,10 @@ pipeline:
             nms_iou_threshold: 0.45
             nms_top_k: 300
             normalized_coord: false
-            unpad: true
             use_multi_label: false
             eval:
               conf_threshold: 0.001
               nms_iou_threshold: 0.7
-              unpad: false
               use_multi_label: true
 
 models:
@@ -53,9 +51,7 @@ models:
       m2:
         mvm_limitation: 57
       max_compiler_cores: 4
-      compilation_config:
-        split_buffer_promotion: true
-        tiling_depth: 6
+      compiler_config_file: yolov8s.toml
 
 datasets:
   CocoDataset-Segment-COCO2017:

@@ -6,7 +6,8 @@
 class AxLicensePlateMeta : public AxMetaBase
 {
   public:
-  AxLicensePlateMeta(std::string label) : label_(std::move(label))
+  AxLicensePlateMeta(std::string label)
+      : label_(std::move(label))
   {
   }
 

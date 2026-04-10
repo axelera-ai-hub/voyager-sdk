@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2023
+// Copyright Axelera AI, 2025
 #include <gtest/gtest.h>
 #include <algorithm>
 #include "AxMetaObjectDetection.hpp"
@@ -224,8 +224,9 @@ TEST(scale_boxes, test_scale_boxes)
   const auto model_width = 640;
   const auto model_height = 480;
   const auto scale_up = true;
-  const auto result = ax_utils::scale_boxes(
-      boxes, video_info, model_width, model_height, scale_up, true);
+  auto v_info = BboxXyxy{ 0, 0, video_info.info.width - 1, video_info.info.height - 1 };
+  const auto result = ax_utils::scale_shift_boxes(
+      boxes, v_info, model_width, model_height, scale_up, true);
   const auto expected = std::vector<box_xyxy>{
     { 0, 0, 1279, 959 },
   };
@@ -248,8 +249,9 @@ TEST(scale_boxes, test_scale_portrait_boxes)
   const auto model_width = 640;
   const auto model_height = 480;
   const auto scale_up = true;
-  const auto result = ax_utils::scale_boxes(
-      boxes, video_info, model_width, model_height, scale_up, true);
+  auto v_info = BboxXyxy{ 0, 0, video_info.info.width - 1, video_info.info.height - 1 };
+  const auto result = ax_utils::scale_shift_boxes(
+      boxes, v_info, model_width, model_height, scale_up, true);
   const auto expected = std::vector<box_xyxy>{
     { 0, 0, 959, 1279 },
   };
@@ -271,8 +273,9 @@ TEST(scale_boxes, test_scale_portrait_boxes_central)
   const auto model_width = 640;
   const auto model_height = 480;
   const auto scale_up = true;
-  const auto result = ax_utils::scale_boxes(
-      boxes, video_info, model_width, model_height, scale_up, true);
+  auto v_info = BboxXyxy{ 0, 0, video_info.info.width - 1, video_info.info.height - 1 };
+  const auto result = ax_utils::scale_shift_boxes(
+      boxes, v_info, model_width, model_height, scale_up, true);
   const auto expected = std::vector<box_xyxy>{
     { 0, 213, 959, 1067 },
   };

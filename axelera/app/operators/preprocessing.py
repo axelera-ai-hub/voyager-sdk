@@ -1,24 +1,25 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Pre-processing operators following TorchVision
 # TODO: Add all of https://pytorch.org/vision/stable/transforms.html
 from __future__ import annotations
 
 import enum
 from fractions import Fraction
+from pathlib import Path
 from typing import TYPE_CHECKING, List, Union
 
 import cv2
 
 from axelera import types
-
-from .. import gst_builder
+import numpy as np
+from .. import gst_builder, logging_utils
 from ..torch_utils import torch
 from .base import PreprocessOperator, builtin
 from .custom_preprocessing import PermuteChannels
 
-if TYPE_CHECKING:
-    from pathlib import Path
+LOG = logging_utils.getLogger(__name__)
 
+if TYPE_CHECKING:
     from .. import gst_builder
     from ..pipe import graph
     from .context import PipelineContext
@@ -88,6 +89,19 @@ class CenterCrop(PreprocessOperator):
         return types.Image.frompil(i, image.color_format)
 
 
+def _compose_normalizations(mean1, std1, mean2, std2):
+    """Compose two normalizations: z = (y - m2)/s2 where y = (x - m1)/s1.
+
+    Result: z = (x - (m1 + m2*s1)) / (s1*s2).
+    Returns (combined_mean, combined_std) as plain Python lists.
+    """
+    m1 = np.atleast_1d(np.array(mean1, dtype=np.float64))
+    s1 = np.atleast_1d(np.array(std1, dtype=np.float64))
+    m2 = np.atleast_1d(np.array(mean2, dtype=np.float64))
+    s2 = np.atleast_1d(np.array(std2, dtype=np.float64))
+    return (m1 + m2 * s1).tolist(), (s1 * s2).tolist()
+
+
 @builtin
 class Normalize(PreprocessOperator):
     mean: Union[List[float], str] = '0'
@@ -115,6 +129,17 @@ class Normalize(PreprocessOperator):
         If the std values are the same for all channels, the list is length 1.
         '''
         return self._std
+
+    def combine_normalizations(self, mean, std):
+        '''Combine this normalization with another normalization specified by mean and std.
+
+        The resulting normalization is equivalent to applying this normalization followed by
+        the other normalization. If y = (x - mean1) / std1 and z = (y - mean2) / std2, then
+        z = (x - (mean1 + mean2 * std1)) / (std1 * std2)
+        '''
+        self._mean, self._std = _compose_normalizations(
+            self.mean_values, self.std_values, mean, std
+        )
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
         add, div = [-x for x in self._mean], self._std
@@ -370,8 +395,7 @@ class TypeCast(PreprocessOperator):
             )
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
-        if self.datatype == 'float32':
-            raise NotImplementedError('float32 is not supported in gst')
+        pass
 
     def exec_torch(self, t: torch.Tensor) -> torch.Tensor:
         if not isinstance(t, torch.Tensor) or t.dtype != torch.uint8:
@@ -400,7 +424,66 @@ class ToTensor(PreprocessOperator):
         return torch.from_numpy(image.asarray().copy())
 
 
+def _resolve_effective_normalization(norm, preamble_path):
+    """Compute effective (mean, std) float lists, folding preamble constants if present.
+
+    Dispatches on norm type to extract base mean/std, then folds preamble constants
+    via the composition formula: combined = (x - (m1 + m2*s1)) / (s1*s2).
+
+    Args:
+        norm: A Normalize, LinearScaling, or other operator (uses 0/1/255 defaults).
+        preamble_path: Path to preamble ONNX file, or None.
+
+    Returns:
+        Tuple of (mean, std) as plain float lists.
+    """
+    if isinstance(norm, Normalize):
+        base_mean = [float(x) for x in norm.mean_values]
+        base_std = [float(x) for x in norm.std_values]
+    elif isinstance(norm, LinearScaling):
+        # LinearScaling formula: y = x/div + shift (operating on raw [0,255] uint8 pixels).
+        # Rearranging to the (x - mean)/std form expected by the GStreamer plugin:
+        #   y = (x - (-shift*div)) / div
+        # With /255 to convert from [0,255] to [0,1] range:
+        #   std  = div / 255
+        #   mean = -shift * div / 255
+        # _parse_multichannel_values collapses equal values to 1 element, so we broadcast
+        # single-element lists to match the other's channel count before combining.
+        divs = norm.mean_values
+        shifts = norm.shift_values
+        n = max(len(divs), len(shifts))
+        divs = divs * n if len(divs) == 1 else divs
+        shifts = shifts * n if len(shifts) == 1 else shifts
+        base_std = [float(x / 255.0) for x in divs]
+        base_mean = [-float(s * m / 255.0) for s, m in zip(shifts, divs)]
+    else:
+        LOG.warning(
+            "Unknown normalization operator type %s, using default mean=0 std=1/255",
+            type(norm).__name__,
+        )
+        base_mean = [0.0]
+        base_std = [1.0 / 255.0]
+
+    if preamble_path:
+        try:
+            from ax_models.onnx_optimizations import get_preamble_normalization
+
+            onnx_norm = get_preamble_normalization(str(preamble_path))
+            if onnx_norm is not None:
+                base_mean, base_std = _compose_normalizations(
+                    base_mean, base_std, onnx_norm[0], onnx_norm[1]
+                )
+        except ImportError:
+            LOG.debug("onnx not available, skipping preamble normalization from %s", preamble_path)
+        except NotImplementedError as e:
+            LOG.warning("Preamble normalization skipped for %s: %s", preamble_path, e)
+
+    return base_mean, base_std
+
+
 class CompositePreprocess(PreprocessOperator):
+    _norm = None
+
     def _set_operators(self, operators):
         self._operators = operators
 
@@ -417,9 +500,26 @@ class CompositePreprocess(PreprocessOperator):
         task_graph: graph.DependencyGraph,
     ):
         self.task_name = task_name
+        self._scale = []
+        self._zero = []
+        self._out_shape = []
+        self._effective_mean = None
+        self._effective_std = None
         for op in self._operators:
             op.configure_model_and_context_info(
                 model_info, context, task_name, taskn, compiled_model_dir, task_graph
+            )
+        preamble_path = None
+        if model_info and model_info.manifest and model_info.manifest.is_compiled():
+            q = model_info.manifest.quantize_params
+            if model_info.manifest.input_shapes:
+                self._out_shape = model_info.manifest.input_shapes[0]
+            self._scale, self._zero = zip(*q)
+            if model_info.manifest.preprocess_graph and compiled_model_dir:
+                preamble_path = Path(compiled_model_dir) / model_info.manifest.preprocess_graph
+        if self._norm is not None:
+            self._effective_mean, self._effective_std = _resolve_effective_normalization(
+                self._norm, preamble_path
             )
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):

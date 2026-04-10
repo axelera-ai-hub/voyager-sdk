@@ -1,19 +1,20 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2023
 #pragma once
 
 #include <array>
 #include <cstdint>
 #include <eigen3/unsupported/Eigen/CXX11/Tensor>
+#include <fstream>
 #include <future>
+#include <nlohmann/json.hpp>
+#include <string>
+#include <unordered_map>
 #include <vector>
 #include "AxDataInterface.h"
 #include "AxLog.hpp"
 #include "AxMetaBBox.hpp"
 #include "AxMetaKpts.hpp"
 #include "AxMetaTracker.hpp"
-
-#include <fstream>
-#include <nlohmann/json.hpp>
 
 #define CL_TARGET_OPENCL_VERSION 210
 #define CL_USE_DEPRECATED_OPENCL_1_2_APIS
@@ -33,18 +34,21 @@ enum DistanceMetric {
   COSINE_SIMILARITY
 };
 
+int parse_metric_type(const std::unordered_map<std::string, std::string> &input,
+    int default_value, const std::string &error_type);
+
 // Only declarations in header
-std::vector<float> embeddings_cosine_similarity(
-    const std::vector<float> &desc, const Eigen::MatrixXf &embeddings);
+std::vector<float> embeddings_cosine_similarity(const std::vector<float> &desc,
+    const Eigen::MatrixXf &embeddings, bool normalise = true);
 
-std::vector<float> embeddings_euclidean_distance(
-    const std::vector<float> &desc, const Eigen::MatrixXf &embeddings);
+std::vector<float> embeddings_euclidean_distance(const std::vector<float> &desc,
+    const Eigen::MatrixXf &embeddings, bool normalise = false);
 
-std::vector<float> embeddings_squared_euclidean_distance(
-    const std::vector<float> &desc, const Eigen::MatrixXf &embeddings);
+std::vector<float> embeddings_squared_euclidean_distance(const std::vector<float> &desc,
+    const Eigen::MatrixXf &embeddings, bool normalise = false);
 
-std::vector<float> embeddings_cosine_distance(
-    const std::vector<float> &desc, const Eigen::MatrixXf &embeddings);
+std::vector<float> embeddings_cosine_distance(const std::vector<float> &desc,
+    const Eigen::MatrixXf &embeddings, bool normalise = true);
 
 void add_vec_to_matrix(const std::vector<float> &vec, Eigen::MatrixXf &matrix);
 
@@ -96,6 +100,8 @@ int determine_size(const buffer_details &info, int which_channel);
 
 int determine_buffer_size(const buffer_details &info);
 
+void remove_cropinfo(AxDataInterface &out);
+
 using lookups = std::array<float, 256>;
 using sin_cos_lookups = std::array<float, 512>;
 
@@ -124,43 +130,81 @@ struct fkpt {
 };
 
 struct segment {
+  int base_box_x1;
+  int base_box_y1;
+  int base_box_x2;
+  int base_box_y2;
   int x1;
   int y1;
   int x2;
   int y2;
-  std::vector<float> map;
+  std::vector<uint8_t> map;
 };
 
-using segment_func
-    = std::function<ax_utils::segment(const std::vector<float> &, size_t, size_t)>;
+struct segment_details {
+  float x1;
+  float y1;
+  float x2;
+  float y2;
+  float scale;
+  float zero;
+  std::vector<int8_t> mask_data;
+};
+
+struct prototype_details {
+  int width;
+  int height;
+  int depth;
+  float scale;
+  float zero;
+  std::unique_ptr<uint8_t[]> coefs;
+  size_t coefs_size;
+};
+
 struct inferences {
   std::vector<fbox> boxes;
   std::vector<fobox> obb;
   std::vector<fkpt> kpts;
   std::vector<segment> segments;
-  std::vector<segment_func> seg_funcs;
+  std::vector<segment_details> seg_info;
   std::vector<float> scores;
   std::vector<int> class_ids;
   std::vector<int> kpts_shape;
 
-  int prototype_width;
-  int prototype_height;
-  int prototype_depth;
-  std::vector<float> prototype_coefs;
-  void set_prototype_dims(int width, int height, int depth)
+  prototype_details prototype;
+
+  void set_prototype(prototype_details proto)
   {
-    prototype_width = width;
-    prototype_height = height;
-    prototype_depth = depth;
+    prototype = std::move(proto);
   }
 
   inferences(int amount, int amount_kpts = 0)
   {
     boxes.reserve(amount);
-    scores.reserve(amount);
     obb.reserve(amount);
-    class_ids.reserve(amount);
     kpts.reserve(amount_kpts);
+    segments.reserve(amount);
+    seg_info.reserve(amount);
+    scores.reserve(amount);
+    class_ids.reserve(amount);
+  }
+
+  void extend(inferences other)
+  {
+    boxes.insert(boxes.end(), std::make_move_iterator(other.boxes.begin()),
+        std::make_move_iterator(other.boxes.end()));
+    obb.insert(obb.end(), std::make_move_iterator(other.obb.begin()),
+        std::make_move_iterator(other.obb.end()));
+    scores.insert(scores.end(), std::make_move_iterator(other.scores.begin()),
+        std::make_move_iterator(other.scores.end()));
+    class_ids.insert(class_ids.end(), std::make_move_iterator(other.class_ids.begin()),
+        std::make_move_iterator(other.class_ids.end()));
+    seg_info.insert(seg_info.end(), std::make_move_iterator(other.seg_info.begin()),
+        std::make_move_iterator(other.seg_info.end()));
+    segments.insert(segments.end(), std::make_move_iterator(other.segments.begin()),
+        std::make_move_iterator(other.segments.end()));
+    kpts.insert(kpts.end(), std::make_move_iterator(other.kpts.begin()),
+        std::make_move_iterator(other.kpts.end()));
   }
 };
 
@@ -169,7 +213,7 @@ std::vector<int> indices_for_topk_area(const std::vector<box_xyxy> &boxes, int t
 std::vector<int> indices_for_topk_center(
     const std::vector<box_xyxy> &boxes, int topk, int width, int height);
 
-inferences topk(const inferences &predictions, int topk);
+inferences topk(inferences predictions, int topk);
 
 template <typename F = std::identity>
 std::vector<lookups>
@@ -206,8 +250,12 @@ std::vector<lookups> build_exponential_tables_with_zero_point(
 std::vector<lookups> build_dequantization_tables(
     const std::vector<float> &zero_points, const std::vector<float> &scales);
 
-std::vector<sin_cos_lookups> build_trigonometric_tables(const std::vector<float> &zero_points,
-    const std::vector<float> &scales, float add, float mul);
+std::vector<sin_cos_lookups> build_trigonometric_tables(
+    const std::vector<float> &zero_points, const std::vector<float> &scales);
+
+std::vector<sin_cos_lookups> build_sigmoid_trigonometric_tables(
+    const std::vector<float> &zero_points, const std::vector<float> &scales,
+    float add, float mul);
 
 struct tensor_dims {
   int width;
@@ -217,8 +265,7 @@ struct tensor_dims {
 
 tensor_dims get_dims(const AxTensorsInterface &tensors, int level, bool transpose);
 
-void softmax(const int8_t *input, int num_elems, size_t stride,
-    const float *lookups, float *output);
+void softmax(const int8_t *input, int num_elems, const float *lookups, float *output);
 
 template <typename T> class stride_iterator
 {
@@ -230,7 +277,8 @@ template <typename T> class stride_iterator
   using iterator_category = std::random_access_iterator_tag;
 
   stride_iterator(T *start, int offset, size_t step)
-      : ptr(start + step * offset), step(step)
+      : ptr(start + step * offset),
+        step(step)
   {
   }
 
@@ -348,6 +396,140 @@ sigmoid(float value, const float * /*unused*/)
   return ax_utils::to_sigmoid(value);
 }
 
+#if defined(__AVX2__)
+#define USE_AVX2
+#include <immintrin.h>
+
+///
+/// AVX2-optimized function to find maximum score with filter for int8_t
+/// @param data - pointer to int8_t scores
+/// @param filter - byte array where 0xff means keep, 0x00 means skip
+/// @param size - number of elements
+/// @return pair of (max_value, max_index) or (-128, -1) if no valid element
+///
+inline std::pair<int8_t, int>
+find_max_filtered_avx2(const int8_t *data, const uint8_t *filter, int size)
+{
+  constexpr int8_t MIN_VAL = std::numeric_limits<int8_t>::min();
+  __m256i max_vec = _mm256_set1_epi8(MIN_VAL);
+  __m256i idx_vec = _mm256_setr_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31);
+  __m256i max_idx_vec = _mm256_set1_epi8(-1);
+  __m256i increment = _mm256_set1_epi8(32);
+
+  int i = 0;
+  // Process 32 elements at a time
+  for (; i + 31 < size; i += 32) {
+    __m256i data_vec = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(data + i));
+    __m256i filter_vec
+        = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(filter + i));
+
+    // Apply filter: set filtered-out values to MIN_VAL
+    __m256i mask
+        = _mm256_cmpeq_epi8(filter_vec, _mm256_set1_epi8(static_cast<int8_t>(0xff)));
+    __m256i filtered_data = _mm256_blendv_epi8(_mm256_set1_epi8(MIN_VAL), data_vec, mask);
+
+    // Update max values and indices
+    __m256i cmp = _mm256_cmpgt_epi8(filtered_data, max_vec);
+    max_vec = _mm256_max_epi8(max_vec, filtered_data);
+    max_idx_vec = _mm256_blendv_epi8(max_idx_vec, idx_vec, cmp);
+
+    idx_vec = _mm256_add_epi8(idx_vec, increment);
+  }
+
+  // Horizontal reduction to find the maximum
+  alignas(32) int8_t max_arr[32];
+  alignas(32) int8_t idx_arr[32];
+  _mm256_store_si256(reinterpret_cast<__m256i *>(max_arr), max_vec);
+  _mm256_store_si256(reinterpret_cast<__m256i *>(idx_arr), max_idx_vec);
+
+  int8_t max_val = MIN_VAL;
+  int max_idx = -1;
+  for (int j = 0; j < 32; ++j) {
+    if (max_arr[j] > max_val) {
+      max_val = max_arr[j];
+      max_idx = idx_arr[j];
+    }
+  }
+
+  // Handle remaining elements
+  for (; i < size; ++i) {
+    if (filter[i] && data[i] > max_val) {
+      max_val = data[i];
+      max_idx = i;
+    }
+  }
+
+  return { max_val, max_idx };
+}
+
+///
+/// AVX2-optimized function to find maximum score with filter for float
+/// @param data - pointer to float scores
+/// @param filter - byte array where non-zero means keep, 0x00 means skip
+/// @param size - number of elements
+/// @return pair of (max_value, max_index) or (-inf, -1) if no valid element
+///
+inline std::pair<float, int>
+find_max_filtered_avx2(const float *data, const uint8_t *filter, int size)
+{
+  const float MIN_VAL = -std::numeric_limits<float>::infinity();
+  __m256 max_vec = _mm256_set1_ps(MIN_VAL);
+  __m256i idx_vec = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+  __m256i max_idx_vec = _mm256_set1_epi32(-1);
+  __m256i increment = _mm256_set1_epi32(8);
+
+  int i = 0;
+  // Process 8 elements at a time
+  for (; i + 7 < size; i += 8) {
+    __m256 data_vec = _mm256_loadu_ps(data + i);
+
+    // Load filter as bytes, convert to 32-bit mask
+    __m128i filter_bytes
+        = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(filter + i));
+    __m256i filter_32 = _mm256_cvtepu8_epi32(filter_bytes);
+    __m256i mask_i = _mm256_cmpgt_epi32(filter_32, _mm256_setzero_si256());
+    __m256 mask = _mm256_castsi256_ps(mask_i);
+
+    // Apply filter: set filtered-out values to MIN_VAL
+    __m256 filtered_data = _mm256_blendv_ps(_mm256_set1_ps(MIN_VAL), data_vec, mask);
+
+    // Update max values and indices
+    __m256 cmp = _mm256_cmp_ps(filtered_data, max_vec, _CMP_GT_OQ);
+    max_vec = _mm256_max_ps(max_vec, filtered_data);
+    max_idx_vec = _mm256_castps_si256(_mm256_blendv_ps(
+        _mm256_castsi256_ps(max_idx_vec), _mm256_castsi256_ps(idx_vec), cmp));
+
+    idx_vec = _mm256_add_epi32(idx_vec, increment);
+  }
+
+  // Horizontal reduction to find the maximum
+  alignas(32) float max_arr[8];
+  alignas(32) int32_t idx_arr[8];
+  _mm256_store_ps(max_arr, max_vec);
+  _mm256_store_si256(reinterpret_cast<__m256i *>(idx_arr), max_idx_vec);
+
+  float max_val = MIN_VAL;
+  int max_idx = -1;
+  for (int j = 0; j < 8; ++j) {
+    if (max_arr[j] > max_val) {
+      max_val = max_arr[j];
+      max_idx = idx_arr[j];
+    }
+  }
+
+  // Handle remaining elements
+  for (; i < size; ++i) {
+    if (filter[i] && data[i] > max_val) {
+      max_val = data[i];
+      max_idx = i;
+    }
+  }
+
+  return { max_val, max_idx };
+}
+#endif // __AVX2__
+
 ///
 /// Dequantize, decode and filter classes according to score
 /// confidence.
@@ -361,29 +543,38 @@ sigmoid(float value, const float * /*unused*/)
 ///
 template <bool multiclass, typename input_type>
 int
-decode_scores(const input_type *first, const float *sigmoids, int z_stride,
-    const std::vector<int> &filter, float confidence, float object_score,
-    inferences &outputs, float objectness_score = 1.0F)
+decode_scores(const input_type *first, const float *sigmoids,
+    const std::vector<uint8_t> &filter, float confidence, float object_score,
+    inferences &outputs)
 {
   const auto initial_size = outputs.scores.size();
   if (multiclass) {
-    for (auto i : filter) {
-      auto score = sigmoid(first[i * z_stride], sigmoids) * object_score * objectness_score;
-      if (confidence <= score) {
-        outputs.scores.push_back(score);
-        outputs.class_ids.push_back(i);
+    for (int i = 0; i != static_cast<int>(filter.size()); ++i) {
+      if (filter[i] != 0) {
+        auto score = sigmoid(first[i], sigmoids) * object_score;
+        if (confidence <= score) {
+          outputs.scores.push_back(score);
+          outputs.class_ids.push_back(i);
+        }
       }
     }
   } else {
-    auto highest_class = filter.front();
-    auto highest_score = first[highest_class * z_stride];
-    for (auto i : filter) {
-      if (first[i * z_stride] > highest_score) {
-        highest_score = first[i * z_stride];
+#if defined(USE_AVX2)
+    // Use AVX2-optimized path when available
+    auto [highest_score, highest_class] = find_max_filtered_avx2(
+        first, filter.data(), static_cast<int>(filter.size()));
+#else
+    // Scalar fallback
+    auto highest_score = std::numeric_limits<input_type>::min();
+    auto highest_class = -1;
+    for (int i = 0; i != static_cast<int>(filter.size()); ++i) {
+      if (filter[i] && first[i] > highest_score) {
+        highest_score = first[i];
         highest_class = i;
       }
     }
-    auto score = sigmoid(highest_score, sigmoids) * object_score * objectness_score;
+#endif
+    auto score = sigmoid(highest_score, sigmoids) * object_score;
     if (confidence <= score) {
       outputs.scores.push_back(score);
       outputs.class_ids.push_back(highest_class);
@@ -395,42 +586,21 @@ decode_scores(const input_type *first, const float *sigmoids, int z_stride,
 
 template <typename input_type>
 int
-decode_scores(const input_type *data, const float *lookups, int z_stride,
-    const std::vector<int> &filter, float confidence, bool multiclass,
+decode_scores(const input_type *data, const float *lookups,
+    const std::vector<uint8_t> &filter, float confidence, bool multiclass,
     inferences &outputs, float objectness_score = 1.0F)
 {
-  return multiclass ? decode_scores<true>(data, lookups, z_stride, filter,
-             confidence, 1.0F, outputs, objectness_score) :
-                      decode_scores<false>(data, lookups, z_stride, filter,
-                          confidence, 1.0F, outputs, objectness_score);
+  return multiclass ? decode_scores<true>(data, lookups, filter, confidence,
+                          objectness_score, outputs) :
+                      decode_scores<false>(data, lookups, filter, confidence,
+                          objectness_score, outputs);
 }
-
-std::vector<BboxXyxy> scale_boxes(const std::vector<fbox> &norm_boxes, int video_width,
-    int video_height, int tensor_width, int tensor_height, bool scale_up, bool letterbox);
-
-std::vector<BboxXyxy> scale_boxes(const std::vector<ax_utils::fbox> &norm_boxes,
-    const AxVideoInterface &vinfo, int model_width, int model_height,
-    bool scale_up, bool letterbox);
-std::vector<BboxXywhr> scale_boxes(const std::vector<ax_utils::fobox> &norm_boxes,
-    int video_width, int video_height, int tensor_width, int tensor_height,
-    bool scale_up, bool letterbox);
-
-std::vector<BboxXywhr> scale_boxes(const std::vector<ax_utils::fobox> &norm_boxes,
-    const AxVideoInterface &vinfo, int model_width, int model_height,
-    bool scale_up, bool letterbox);
 
 std::vector<BboxXyxy> scale_shift_boxes(const std::vector<ax_utils::fbox> &norm_boxes,
     BboxXyxy master_box, int tensor_width, int tensor_height, bool scale_up, bool letterbox);
 
 std::vector<BboxXywhr> scale_shift_boxes(const std::vector<ax_utils::fobox> &norm_boxes,
     BboxXyxy master_box, int tensor_width, int tensor_height, bool scale_up, bool letterbox);
-
-std::vector<BboxXywhr> scale_boxes(const std::vector<fobox> &norm_boxes,
-    const AxVideoInterface &vinfo, int model_width, int model_height,
-    bool scale_up, bool letterbox);
-
-std::vector<KptXyv> scale_kpts(const std::vector<fkpt> &norm_kpts, int video_width,
-    int video_height, int tensor_width, int tensor_height, bool scale_up, bool letterbox);
 
 std::vector<KptXyv> scale_shift_kpts(const std::vector<ax_utils::fkpt> &norm_kpts,
     BboxXyxy master_box, int tensor_width, int tensor_height, bool scale_up, bool letterbox);
@@ -443,41 +613,10 @@ void validate_classes(const std::vector<std::string> &class_labels,
 
 std::string_view trim(std::string_view s);
 
-template <typename T, typename U>
-std::tuple<std::vector<BboxXyxy>, std::vector<T>, std::vector<U>>
-remove_empty_boxes(std::vector<BboxXyxy> in_boxes, std::vector<T> in_T,
-    std::vector<U> in_U, int stride_T = 1, int stride_U = 1)
-{
-  auto size = in_boxes.size();
-  if (size * stride_T != in_T.size()) {
-    throw std::runtime_error("remove_empty_boxes : in_boxes and in_T size mismatch");
-  }
-  if (size * stride_U != in_U.size()) {
-    throw std::runtime_error("remove_empty_boxes : in_boxes and in_U size mismatch");
-  }
-  auto out_boxes = std::vector<BboxXyxy>{};
-  auto out_T = std::vector<T>{};
-  auto out_U = std::vector<U>{};
-
-  for (int i = 0; i < size; ++i) {
-    auto &box = in_boxes[i];
-    if (box.x1 != box.x2 && box.y1 != box.y2) {
-      out_boxes.push_back(box);
-      for (int j = 0; j < stride_T; ++j) {
-        out_T.push_back(in_T[i * stride_T + j]);
-      }
-      for (int j = 0; j < stride_U; ++j) {
-        out_U.push_back(in_U[i * stride_U + j]);
-      }
-    }
-  }
-  return { std::move(out_boxes), std::move(out_T), std::move(out_U) };
-}
-
 template <typename T>
 T *
 get_meta(const std::string &meta_name,
-    std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> &meta_map,
+    const std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> &meta_map,
     const std::string &src = "")
 {
   if (meta_name.empty()) {
@@ -583,5 +722,12 @@ insert_and_associate_meta(std::unordered_map<std::string, std::unique_ptr<AxMeta
       unfiltered_number_of_subframes, std::move(submeta));
   return submeta_ptr;
 }
+
+std::vector<uint8_t> build_filter(const std::vector<int> &input_filter, int num_classes);
+
+BboxXyxy get_master_box(std::string master, std::string associated,
+    const AxDataInterface &video_interface, unsigned int subframe_index,
+    const std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> &map,
+    const std::string &decoder);
 
 } // namespace ax_utils

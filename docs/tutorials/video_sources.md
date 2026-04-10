@@ -144,5 +144,7 @@ Note that the Voyager SDK comes with a number of example videos in the directory
 - [application_extended.py](../../examples/application_extended.py) - Shows hardware caps for camera configuration
 
 ## Further support
-- For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
-- For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).
+
+For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
+
+For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).

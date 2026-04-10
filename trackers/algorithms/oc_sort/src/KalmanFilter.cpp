@@ -3,7 +3,7 @@
 #include <iostream>
 namespace ocsort
 {
-KalmanFilterNew::KalmanFilterNew(){};
+KalmanFilterNew::KalmanFilterNew() {};
 KalmanFilterNew::KalmanFilterNew(int dim_x_, int dim_z_)
 {
   dim_x = dim_x_;

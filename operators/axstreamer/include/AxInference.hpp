@@ -44,8 +44,11 @@ struct InferenceParams {
       const std::vector<Ax::SharedFD> &input_fds,
       const std::vector<std::shared_ptr<void>> &output_ptrs,
       const std::vector<Ax::SharedFD> &output_fds, uint64_t frame_id)
-      : input_ptrs(input_ptrs), input_fds(input_fds), output_ptrs(output_ptrs),
-        output_fds(output_fds), frame_id(frame_id)
+      : input_ptrs(input_ptrs),
+        input_fds(input_fds),
+        output_ptrs(output_ptrs),
+        output_fds(output_fds),
+        frame_id(frame_id)
   {
   }
   InferenceParams(InferenceParams &&) = default;

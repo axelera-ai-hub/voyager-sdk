@@ -76,5 +76,7 @@ A confirmation prompt will appear. Click "Yes" to confirm the BitLocker deactiva
 - [Windows Getting Started](windows_getting_started.md) - Complete Windows setup guide
 
 ## Further support
-- For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
-- For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).
+
+For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
+
+For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).

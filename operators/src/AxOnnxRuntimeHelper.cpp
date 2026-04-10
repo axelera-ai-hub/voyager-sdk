@@ -1,3 +1,5 @@
+// Copyright Axelera AI, 2024
+
 #include "AxOnnxRuntimeHelper.hpp"
 #include <filesystem>
 #include <iostream>
@@ -25,7 +27,10 @@ print_shape(const std::vector<std::int64_t> &v)
 
 OnnxRuntimeInference::OnnxRuntimeInference(const std::string &model_path,
     Ax::Logger &logger, int intra_op_num_threads, int inter_op_num_threads)
-    : env(nullptr), session(nullptr), first_call(true), logger_(logger)
+    : env(nullptr),
+      session(nullptr),
+      first_call(true),
+      logger_(logger)
 {
   logger_(AX_INFO) << "Initializing ONNX Runtime for model: " << model_path << std::endl;
   std::string env_name = std::filesystem::path(model_path).extension().string() + "_onnxruntime";
@@ -41,6 +46,14 @@ OnnxRuntimeInference::OnnxRuntimeInference(const std::string &model_path,
   logger_(AX_INFO) << "ONNX Runtime configured with " << intra_op_num_threads
                    << " intra-op threads and " << inter_op_num_threads
                    << " inter-op threads" << std::endl;
+
+#ifdef CUDA_AVAILABLE
+  // Append CUDA execution provider
+  OrtCUDAProviderOptions cuda_options;
+  session_options.AppendExecutionProvider_CUDA(cuda_options);
+
+  logger_(AX_INFO) << "CUDA execution provider enabled" << std::endl;
+#endif
 
   // TODO: Add configuration for Execution Providers here
 

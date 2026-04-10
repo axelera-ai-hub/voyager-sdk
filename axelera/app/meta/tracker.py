@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Metadata for tracker
 from __future__ import annotations
 
@@ -32,6 +32,25 @@ class TrackedObject(MetaObject):
     @property
     def class_id(self):
         return self._meta.class_ids[self._index]
+
+    def get_object_meta(
+        self, task_name: str, include_frame_meta: bool = True
+    ) -> AxTaskMeta | None:
+        """Return tracker-level object metadata for this task if available."""
+        meta = self._meta
+        containers = []
+        if isinstance(getattr(meta, 'object_meta', None), dict):
+            containers.append(meta.object_meta)
+        if include_frame_meta and isinstance(getattr(meta, 'frame_object_meta', None), dict):
+            containers.append(meta.frame_object_meta)
+
+        for container in containers:
+            per_task = container.get(task_name)
+            if not isinstance(per_task, dict):
+                continue
+            if self.track_id in per_task:
+                return per_task[self.track_id]
+        return None
 
 
 _red = (255, 0, 0, 255)
@@ -106,11 +125,19 @@ class TrackerMeta(AxTaskMeta):
             bbox = bboxes[-1]
             if np.all(bbox == 0):
                 continue
-            if self.task_render_config.show_annotations:
+            if self.task_render_config.show_annotations and draw.options.show_bounding_boxes:
+                # Show box with label at left-top
                 draw.labelled_box((bbox[0], bbox[1]), (bbox[2], bbox[3]), tag, color)
-                draw.trajectory(bboxes, color)
-            elif tag:
+            elif tag and draw.options.show_bounding_boxes:
+                # Label only at left-top (zero-sized box)
                 draw.labelled_box((bbox[0], bbox[1]), (bbox[0], bbox[1]), tag, color)
+            elif tag and draw.options.tracker_label_format:
+                # No box shown but tracking enabled: show ID at center-top (floating label)
+                mid_x = (bbox[0] + bbox[2]) // 2
+                draw.labelled_box((mid_x, bbox[1]), (mid_x, bbox[1]), tag, color)
+            # Draw trajectory independently of bounding boxes
+            if draw.options.show_trajectory:
+                draw.trajectory(bboxes, color)
 
         for submeta_key, values in self.frame_object_meta.items():
             for track_id, value in values.items():

@@ -48,9 +48,7 @@ models:
     num_classes: 80
     dataset: CocoDataset-COCO2017
     extra_kwargs:
-      compilation_config:
-        pipeline_channel_tiles: false
-        quantization_scheme: per_tensor_min_max
+      compiler_config_file: yolo11x.toml
 
 datasets:
   CocoDataset-COCO2017:

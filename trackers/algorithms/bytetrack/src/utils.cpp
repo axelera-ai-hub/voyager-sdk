@@ -1,5 +1,9 @@
+// Copyright Axelera AI, 2024
 #include "BYTETracker.h"
 #include "lapjv.h"
+
+#include <iostream>
+#include <map>
 
 vector<STrack *>
 BYTETracker::joint_stracks(vector<STrack *> &tlista, vector<STrack> &tlistb)
@@ -118,7 +122,7 @@ BYTETracker::linear_assignment(vector<vector<float>> &cost_matrix,
 
   vector<int> rowsol;
   vector<int> colsol;
-  float c = lapjv(cost_matrix, rowsol, colsol, true, thresh);
+  lapjv(cost_matrix, rowsol, colsol, true, thresh, false);
   for (int i = 0; i < rowsol.size(); i++) {
     if (rowsol[i] >= 0) {
       vector<int> match;

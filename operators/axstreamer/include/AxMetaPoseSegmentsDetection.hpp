@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2024
+// Copyright Axelera AI, 2025
 #pragma once
 
 #include <vector>
@@ -19,21 +19,26 @@ class AxMetaPoseSegmentsDetection : public AxMetaBbox, public AxMetaKpts, public
       : AxMetaBbox(std::move(boxes), std::move(scores), std::move(classes), std::move(ids)),
         AxMetaKpts(std::move(kpts)),
         AxMetaSegments(segment_shape.width, segment_shape.height, std::move(segments)),
-        kpts_shape(_kpts_shape), base_box(std::move(mbox)), decoder_name(decoder_name_)
+        kpts_shape(_kpts_shape),
+        base_box(std::move(mbox)),
+        decoder_name(decoder_name_)
   {
   }
 
   AxMetaPoseSegmentsDetection(std::vector<box_xyxy> boxes, KptXyvVector kpts,
-      std::vector<segment_func> segments_funcs, std::vector<float> scores,
+      std::vector<segment_details> segments_info, std::vector<float> scores,
       std::vector<int> classes, std::vector<int> ids, const SegmentShape &segment_shape,
-      std::vector<float> prototype_tensor, std::vector<int> _kpts_shape,
+      ax_utils::prototype_details prototype_tensor, std::vector<int> _kpts_shape,
       box_xyxy mbox, const std::string &decoder_name_ = "")
       : AxMetaBbox(std::move(boxes), std::move(scores), std::move(classes), std::move(ids)),
         AxMetaKpts(std::move(kpts)),
-        AxMetaSegments(segment_shape.width, segment_shape.height, std::move(segments_funcs)),
-        kpts_shape(_kpts_shape), base_box(std::move(mbox)), decoder_name(decoder_name_)
+        AxMetaSegments(segment_shape.width, segment_shape.height, mbox,
+            std::move(segments_info)),
+        kpts_shape(_kpts_shape),
+        base_box(std::move(mbox)),
+        decoder_name(decoder_name_)
   {
-    set_prototype_tensor(std::move(prototype_tensor));
+    set_prototype(std::move(prototype_tensor));
   }
 
   void draw(const AxVideoInterface &video,

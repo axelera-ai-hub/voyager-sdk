@@ -65,6 +65,7 @@ ARG_docker=false
 ARG_docker_system=false
 ARG_no_docker_system=false
 ARG_gen_dockerfile=false
+ARG_use_dockerfile=false
 ARG_print_container=false
 ARG_yes=false
 ARG_YES=false
@@ -573,18 +574,26 @@ apt_install_with_dep_check() {
   orig_cmd=$cmd
   $ARG_verbose || cmd="$cmd -qqq"
   if [[ "$pkg" != "$2" ]]; then
-    # check version specifier
-    IFS=" " read -r -a pkg_args <<< "$2"
-    if [[ "${#pkg_args[@]}" == 3 ]] && [[ "${pkg_args[1]}" == "==" ]] ; then
-      # if exact version is specified, use it
-      pkg="${pkg_args[0]}=${pkg_args[2]}"
+    if $ARG_repair_pin; then
+      # check version specifier
+      IFS=" " read -r -a pkg_args <<< "$2"
+      if [[ "${#pkg_args[@]}" == 3 ]] && [[ "${pkg_args[1]}" == "==" ]] ; then
+        # if exact version is specified, use it
+        pkg="${pkg_args[0]}=${pkg_args[2]}"
+      else
+        echo "Warning: \"$2\" cannot be handled by apt-get, which only handles <pkg>=<version>."
+        echo "We will uninstall the current version (since it does not match the request) and install the version from the repository."
+      fi
     else
-      echo "Warning: \"$2\" cannot be handled by apt-get, which only handles <pkg>=<version>."
-      echo "We will uninstall the current version (since it does not match the request) and install the version from the repository."
+      pkg="$2"
     fi
   fi
   if ! cmd "$cmd $pkg"; then
-    pkgs=$(python3 installer_support.py --check-depends "$orig_cmd $pkg")
+    if $ARG_repair_3rd_party; then
+      pkgs=$(python3 installer_support.py --check-depends "$orig_cmd $pkg")
+    else
+      pkgs=""
+    fi
     if [ ! -z "$pkgs" ]; then
       if response_is_yes "Installing $pkg failed due to held/conflicting dependencies - attempt to resolve by also updating the dependencies: $pkgs"; then
         cmd "$orig_cmd --allow-change-held-packages $pkgs" || error "Failed to install $pkgs"
@@ -607,6 +616,9 @@ is_ubuntu_2404() {
 }
 
 check_installer_requirements_met() {
+  if ! $ARG_repair_hardwired; then
+    return
+  fi
   local ok=true
   # use system pip at this stage as not in virtual env here
   local pip_install="python3 -m pip install"
@@ -1404,7 +1416,7 @@ determine_python_requirements() {
 }
 
 write_to_dockerfile() {
-  if ! $ARG_dry_run; then
+  if ! $ARG_dry_run && ! $ARG_use_dockerfile; then
     echo "$*" >> Dockerfile
   fi
 }
@@ -1845,7 +1857,7 @@ install_system_package_with_apt() {
     (echo "$pkg" install | sudo dpkg --set-selections) || error "Failed to update package '$pkg' state to 'install'"
   else
     progress_info "Install $pkg"
-    if [[ "$pkg" =~ "axelera-pcie-driver" ]] || [[ "$pkg" =~ "metis-dkms" ]]; then
+    if $ARG_repair_driver && ([[ "$pkg" =~ "axelera-pcie-driver" ]] || [[ "$pkg" =~ "metis-dkms" ]]); then
       cmd='dpkg -l | grep "axelera-pcie-driver" | awk "{ print \$2 }" | xargs -r sudo dpkg -P'
       cmd "$cmd" || error "Failed to remove previous axelera-pcie-driver"
       cmd='dpkg -l | grep "metis-dkms" | awk "{ print \$2 }" | xargs -r sudo dpkg -P'
@@ -1859,7 +1871,7 @@ install_system_package_with_apt() {
       cmd="sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends"
       apt_install_with_dep_check "$cmd" "$1" # pass $1 instead of $pkg in case it includes a version specifier
     fi
-    if [[ "$pkg" =~ "axelera-pcie-driver" ]] || [[ "$pkg" =~ "metis-dkms" ]]; then
+    if $ARG_repair_driver && ([[ "$pkg" =~ "axelera-pcie-driver" ]] || [[ "$pkg" =~ "metis-dkms" ]]); then
       if ! in_container; then
         cmd='(sudo /lib/systemd/systemd-udevd --daemon && sudo udevadm control --reload && sudo udevadm trigger && sudo udevadm settle)'
         cmd "$cmd" || echo "Warning: failed to reload udev rules"
@@ -1883,11 +1895,14 @@ install_docker_packages() {
 
 install_system_packages_with_apt() {
   local name=$1
+  local accept_all=${2:-true}
   local list=$(list "$1")
   local status=
   for var in $list; do
-    status=${var//AX/STATUS}
-    needed "${!status}" && install_system_package_with_apt "${!var}"
+    if $accept_all || [[ "${!var}" =~ ^(axelera-|metis-) ]]; then
+      status=${var//AX/STATUS}
+      needed "${!status}" && install_system_package_with_apt "${!var}"
+    fi
   done
 }
 
@@ -2219,14 +2234,9 @@ install_penv_system() {
       VAR_pyenv_set_local=true
     fi
     progress_info "Create Python $AX_penv_python virtual environment"
-    cmd mkdir -p "${AX_HOME}/venvs" || error "Failed to create virtual environment directory"
     cmd pip install pyYAML || error "Failed to install pyYAML"
-    local env_tag=$(get_env_tag)
-    local versioned_env="${AX_HOME}/venvs/${env_tag}"
-    cmd rm -rf "$versioned_env" || error "Failed to remove old virtual environment (try first deleting $versioned_env)"
-    cmd python3 -m venv "$versioned_env" || error "Failed to create virtual environment (try first deleting $PYENV_ROOT)"
-    cmd rm -rf "$VENV" || error "Failed to remove symlink to old virtual environment"
-    cmd ln -s ${versioned_env} "$VENV" || error "Failed to create symbolic link to virtual environment"
+    cmd_rm "$VENV" || error "Failed to remove existing virtual environment at $VENV"
+    cmd python3 -m venv "$VENV" || error "Failed to create virtual environment (try first deleting $PYENV_ROOT)"
     progress_info "Activate ${ACTIVATE}"
     if $ARG_dry_run; then
       echo "source ${ACTIVATE}"
@@ -2242,7 +2252,7 @@ install_penv_system() {
     install_pip_extra "wheel"
     complete_task
     install_requested_python_libs
-    patch_activation_script ${env_tag}
+    patch_activation_script
   fi
 }
 
@@ -2272,7 +2282,9 @@ install_python_environment() {
   # Install the python environment and supporting packages
   if ! for_docker; then
     install_pyenv_and_pipenv
-    install_system_packages_with_apt "AX_installer_dependencies"
+    if $ARG_repair_hardwired; then
+      install_system_packages_with_apt "AX_installer_dependencies"
+    fi
     install_penv_system
   else
     local list=$(list "AX_penv_python_dependencies")
@@ -2306,8 +2318,8 @@ install_component() {
     install_docker_packages "$1_dependencies"
     install_docker_packages "$1_libs"
   else
-    install_system_packages_with_apt "$1_dependencies"
-    install_system_packages_with_apt "$1_libs"
+    install_system_packages_with_apt "$1_dependencies" "$ARG_repair_hardwired"
+    install_system_packages_with_apt "$1_libs" "$ARG_repair_hardwired"
   fi
 }
 
@@ -2559,7 +2571,14 @@ gen_pipfile() {
     echo "./$_self --gen-pipfile"
     return
   fi
-  local libs="$(list "AX_penv_.\+_libs")"
+  local libs=
+  if $ARG_repair_3rd_party; then
+    libs="$(list "AX_penv_.\+_libs")"
+  elif $ARG_repair_torch; then
+    libs="$(list_multi "AX_penv_axelera_.\+_libs" "AX_penv_torch_libs")"
+  else
+    libs="$(list "AX_penv_axelera_.\+_libs")"
+  fi
   local repo=$(list_of_dict "AX_penv_repositories")
   local var=
   local name=
@@ -2599,13 +2618,25 @@ gen_pipfile() {
     elif streq "${!var}" "*"; then
       echo "$requirement = \"${!var}\"" >> "Pipfile"
     elif [[ "${!var}" == $'{'*$'}' ]]; then
-      echo "$requirement = ${!var}" >> "Pipfile"
-    else
+      if $ARG_repair_pin; then
+        echo "$requirement = ${!var}" >> "Pipfile"
+      elif [[ "${!var}" =~ ^\{.*index\ =\ \"([^\"]*)\".*\}$ ]]; then
+        echo "$requirement = {index = \"${BASH_REMATCH[1]}\"}" >> "Pipfile"
+      else
+        echo "$requirement = \"*\"" >> "Pipfile"
+      fi
+    elif $ARG_repair_pin; then
       echo "$requirement = \"==${!var}\"" >> "Pipfile"
+    else
+      echo "$requirement = \"*\"" >> "Pipfile"
     fi
   done
   if [ ! -z "${AX_penv_setuptools}" ]; then
-    echo "setuptools = \"$(sanitize_version "$AX_penv_setuptools")\"" >> "Pipfile"
+    if $ARG_repair_pin; then
+      echo "setuptools = \"$(sanitize_version "$AX_penv_setuptools")\"" >> "Pipfile"
+    else
+      echo "setuptools = \"*\"" >> "Pipfile"
+    fi
   fi
   {
     echo
@@ -2630,19 +2661,23 @@ pipfile_to_requirements() {
   if $ARG_dry_run; then
     echo "python3 -m pipenv --bare --rm"
     echo "rm -f Pipfile.lock"
-    echo "python3 -m pipenv --bare lock"
-    echo "PIP_IGNORE_INSTALLED=1 python3 -m pipenv --bare sync"
-    echo "python3 -m pipenv run pip freeze > \"$AX_penv_requirements\""
+    echo "python3 -m pipenv --bare lock --clear"
+    echo "python3 -m pipenv requirements --exclude-markers | grep -v -e '^-' -e '^argparse==' > $AX_penv_requirements"
     return
+  fi
+  if $ARG_verbose; then
+    verbosity="--verbose"
+  else
+    verbosity="--bare"
   fi
   progress_info "Generate Pipfile.lock"
   if python3 -m pipenv --venv &> /dev/null; then
-    python3 -m pipenv --bare --rm || error "Failed to remove existing environment"
+    python3 -m pipenv $verbosity --rm || error "Failed to remove existing environment"
   fi
   cmd_rm Pipfile.lock || error "Failed to remove Pipfile.lock"
-  if ! python3 -m pipenv --bare lock --clear 2>&1; then
+  if ! python3 -m pipenv $verbosity lock --clear 2>&1; then
     #https://github.com/pypa/virtualenv/issues/1875
-    out=$(python3 -m pipenv --bare lock 2>&1)
+    out=$(python3 -m pipenv $verbosity lock 2>&1)
     if [[ "$out" == *"pipenv.exceptions.VirtualenvCreationException"* ]]; then
       echo
       echo "First try: "
@@ -2673,7 +2708,7 @@ pipfile_to_requirements() {
   # remove unhelpful torch filename specified by qtools
   sed -i '/"file".*torch/d' Pipfile.lock
   # get requirements from Pipfile.lock, removing any index specifiers and argparse, which is already included in Python 3
-  if ! python3 -m pipenv requirements --exclude-markers | grep -v -e '^-' -e '^argparse==' > "$AX_penv_requirements"; then
+  if ! python3 -m pipenv $verbosity requirements --exclude-markers | grep -v -e '^-' -e '^argparse==' > "$AX_penv_requirements"; then
     rm -f "$AX_penv_requirements"
     error "Failed to generate $AX_penv_requirements"
   fi
@@ -2739,9 +2774,6 @@ patch_activation_script() {
   else
     AX_envs=$(print_envs_to_source AX_runtime_envs)
     prefix="${prefix/_AX_envs=/declare -a _AX_envs=(${AX_envs})}"
-    if is_set "$1"; then
-      script="${script//($1)/(venv)}"
-    fi
     shopt -u patsub_replacement 2> /dev/null || true
     script="${script//unset -f deactivate/$destruct}"
     shopt -s patsub_replacement 2> /dev/null || true
@@ -2890,6 +2922,66 @@ resolve_pyenv() {
   fi
 }
 
+decode_repair() {
+  if [[ "$1" == "all" ]]; then
+    ARG_repair_3rd_party=true
+    ARG_repair_arm=true
+    ARG_repair_driver=true
+    ARG_repair_groups=true
+    ARG_repair_operators=true
+    ARG_repair_pin=true
+    ARG_repair_hardwired=true
+    ARG_repair_refresh=true
+    ARG_repair_torch=true
+  else
+    ARG_repair_3rd_party=false
+    ARG_repair_arm=false
+    ARG_repair_driver=false
+    ARG_repair_groups=false
+    ARG_repair_operators=false
+    ARG_repair_pin=false
+    ARG_repair_hardwired=false
+    ARG_repair_refresh=false
+    ARG_repair_torch=false
+    if [[ "$1" != "none" ]]; then
+      for (( i=0; i<${#1}; i++ )); do
+        case "${1:$i:1}" in
+          3)
+            ARG_repair_3rd_party=true
+            ;;
+          a)
+            ARG_repair_arm=true
+            ;;
+          d)
+            ARG_repair_driver=true
+            ;;
+          g)
+            ARG_repair_groups=true
+            ;;
+          o)
+            ARG_repair_operators=true
+            ;;
+          p)
+            ARG_repair_pin=true
+            ;;
+          P)
+            ARG_repair_hardwired=true
+            ;;
+          r)
+            ARG_repair_refresh=true
+            ;;
+          t)
+            ARG_repair_torch=true
+            ;;
+          *)
+            error "Invalid repair option: ${1:$i:1}"
+            ;;
+        esac
+      done
+    fi
+  fi
+}
+
 # ******************************** MAIN ********************************
 
 if ! which sudo &> /dev/null || ! sudo -vn &> /dev/null; then
@@ -2901,6 +2993,8 @@ if ! which dpkg-query &> /dev/null; then
   echo "First run 'sudo apt-get install dpkg'"
   exit 1
 fi
+
+decode_repair "all"
 
 VAR_HELP_EXIT_CODE=0
 
@@ -2922,6 +3016,7 @@ for arg in "$@"; do
     "--dry-run")           set -- "$@" "-n" ;;
     "--docker")            set -- "$@" "-k" ;;
     "--gen-dockerfile")    set -- "$@" "-K" ;;
+    "--use-dockerfile")    set -- "$@" "-U" ;;
     "--print-container")   set -- "$@" "-c" ;;
     "--yes")               set -- "$@" "-y" ;;
     "--YES")               set -- "$@" "-Y" ;;
@@ -2934,6 +3029,8 @@ for arg in "$@"; do
     "--allow-as-sudo")     set -- "$@" "-S" ;;
     "--optional")          set -- "$@" "-o" ;;
     "--debug")             set -- "$@" "-V" ;;
+    "--repair")            set -- "$@" "-x" ;;
+    "--no-repair")         set -- "$@" "-X" ;;
     "--help")              set -- "$@" "-h" ;;
     --*)                   error_print Invalid option: $arg
                            error_print
@@ -2946,7 +3043,7 @@ for arg in "$@"; do
 done
 
 # Parse command-line options
-while getopts ":adDrRpPginkKcyYsefmqvVShu:t:o" opt; do
+while getopts ":adDrRpPginkKcyYsefmqvVShx:XUu:t:o" opt; do
   case $opt in
     a )
       ARG_all=true
@@ -3015,6 +3112,11 @@ while getopts ":adDrRpPginkKcyYsefmqvVShu:t:o" opt; do
       check_no_docker "gen-dockerfile"
       check_no_sudo "gen-dockerfile"
       ;;
+    U )
+      ARG_use_dockerfile=true
+      check_no_filegen_arg "use-dockerfile"
+      check_no_sudo "use-dockerfile"
+      ;;
     c )
       ARG_print_container=true
       ;;
@@ -3057,6 +3159,12 @@ while getopts ":adDrRpPginkKcyYsefmqvVShu:t:o" opt; do
     S )
       ARG_allow_as_sudo=true
       ;;
+    x )
+      decode_repair "$OPTARG"
+      ;;
+    X )
+      decode_repair "none"
+      ;;
     h )
       echo "Usage:"
       echo "  $_self [options]"
@@ -3073,7 +3181,8 @@ while getopts ":adDrRpPginkKcyYsefmqvVShu:t:o" opt; do
       echo "     --media            download local media needed for tests/demos"
       echo "     --dry-run          print installation commands instead of executing"
       echo "     --docker           install into a Docker container"
-      echo "     --gen-dockerfile   generate Dockerfile"
+      echo "     --gen-dockerfile   generate Dockerfile and then stop, allowing inspection and modification"
+      echo "     --use-dockerfile   use existing Dockerfile, possibly after modification. Use with --docker to override default Dockerfile generation"
       echo "     --gen-pipfile      generate Pipfile from YAML"
       echo "     --gen-requirements generate Python requirements from YAML"
       echo "     --print-container  print container name/tag and exit"
@@ -3083,6 +3192,20 @@ while getopts ":adDrRpPginkKcyYsefmqvVShu:t:o" opt; do
       echo "     --verbose          display more output"
       echo "     --allow-as-sudo    allow installer to be run as sudo - not recommended"
       echo "     --optional         install optional components"
+      if $ARG_verbose; then
+      echo "  -x --repair <flags>   run in repair mode, attempting to mitigate system and package issues (-X --no-repair supported)"
+      echo "                        all - do all available repairs"
+      echo "                        none - do no repairs"
+      echo "                        3 - include third-party packages from config with --gen-requirements"
+      echo "                        a - repair oddities on ARM platforms"
+      echo "                        d - tidy up before and after installing metis-dkms driver, including udev, update-pciids"
+      echo "                        g - add user to any required groups"
+      echo "                        o - build operators"
+      echo "                        p - pin packages to required versions from config with --gen-requirements"
+      echo "                        P - pin/install packages from hardwired requirements within the installer"
+      echo "                        r - run axdevice --refresh"
+      echo "                        t - include torch packages from config with --gen-requirements"
+      fi
       echo "  -h --help             display this help and exit"
       echo
       exit $VAR_HELP_EXIT_CODE
@@ -3102,6 +3225,12 @@ shift $((OPTIND-1))
 if is_set "$1"; then
   error_print "Invalid argument: $1"
   error "Try '$_self --help' for a list of supported options"
+fi
+
+if $ARG_verbose; then
+  for var in ${!ARG_repair_*}; do
+    echo "$var = ${!var}"
+  done
 fi
 
 exit_if_error
@@ -3126,6 +3255,16 @@ if $ARG_gen_dockerfile; then
   ARG_no_driver=true
 fi
 
+if $ARG_use_dockerfile; then
+  if ! $ARG_docker; then
+    error "--use-dockerfile should not be specified without --docker"
+    ARG_use_dockerfile=false
+  elif ! [ -f Dockerfile ]; then
+    warn "No Dockerfile found, ignoring --use-dockerfile and generating a new one"
+    ARG_use_dockerfile=false
+  fi
+fi
+
 if $ARG_dry_run; then
   if [[ -z $ARG_user ]]; then
     ARG_user="dry-run-user"
@@ -3146,7 +3285,7 @@ if $ARG_no_development && ! $ARG_no_runtime; then
   warn "(This will be improved in future releases)"
 fi
 
-if [[ ${SYS_arch} == "arm64" ]] && ! in_container; then
+if $ARG_repair_arm && [[ ${SYS_arch} == "arm64" ]] && ! in_container; then
   prepare_arm_platform
 fi
 
@@ -3334,7 +3473,11 @@ if $ARG_gen_requirements; then
   resolve_option "gen_requirements" "Generate requirements"
 fi
 
-AX_GROUPS="video render messagebus kvm"
+if $ARG_repair_groups; then
+  AX_GROUPS="video render messagebus kvm"
+else
+  AX_GROUPS=""
+fi
 
 if arg_docker; then
   update_repo_list "$AX_docker_repos" "$STR_docker"
@@ -3410,7 +3553,7 @@ fi
 print_newline
 
 # Start defining a new container
-if needed "$STATUS_container"; then
+if needed "$STATUS_container" && ! $ARG_use_dockerfile; then
   if $ARG_dry_run; then
     if $ARG_no_development; then
       echo "./$_self --gen-dockerfile --no-development"
@@ -3484,7 +3627,7 @@ superpower="echo $USERNAME_WITHOUT_DOTS ALL=\\(ALL\\) NOPASSWD: ALL > /etc/sudoe
 superpower="bash -c \"$superpower\""
 
 if ! needed "$STATUS_container"; then
-  if ! $ARG_dry_run && ! $ARG_gen_requirements && [[ -f "${ACTIVATE}" ]]; then
+  if ! $ARG_dry_run && ! $ARG_gen_requirements && [[ -f "${ACTIVATE}" ]] && ($ARG_repair_operators or $ARG_repair_refresh); then
     # remaining tasks need active env
     # shellcheck disable=SC1090
     if [ -n "${_OLD_VIRTUAL_PATH:-}" ] ; then
@@ -3492,14 +3635,14 @@ if ! needed "$STATUS_container"; then
       deactivate || true
     fi
     source "${ACTIVATE}"
-    if ! $ARG_no_runtime; then
+    if ! $ARG_no_runtime && $ARG_repair_operators; then
       echo building operators
       (make clobber-libs && make operators) >& _operators.log || (cat _operators.log && error_continue "Failed to build operators")
     fi
 
     if is_dpkg_installed "metis-dkms"; then
       # rescan pcie and reload firmware if the driver is installed
-      if [ -d "/sys/bus/pci" ]; then
+      if [ -d "/sys/bus/pci" ] && $ARG_repair_refresh; then
         echo refreshing pcie and firmware
         # on some platforms this can take a couple of tries
         (axdevice --refresh &> /dev/null && axdevice --refresh) || warn "Failed to refresh pcie and firmware"

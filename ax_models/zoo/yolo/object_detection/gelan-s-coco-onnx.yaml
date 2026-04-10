@@ -1,0 +1,65 @@
+axelera-model-format: 1.0.0
+
+name: gelan-s-coco-onnx
+
+description: GELAN-s, a YOLOv9 variant, 640x640 (COCO), anchor free model
+
+pipeline:
+  - detections:
+      model_name: gelan-s-coco-onnx
+      input:
+        type: image
+      preprocess:
+        - letterbox:
+            height: ${{input_height}}
+            scaleup: true
+            width: ${{input_width}}
+        - torch-totensor:
+      inference:
+        handle_all: false
+      postprocess:
+        - decodeyolo:
+            box_format: xywh
+            conf_threshold: 0.25
+            label_filter: ${{label_filter}}
+            max_nms_boxes: 30000
+            nms_class_agnostic: true
+            nms_iou_threshold: 0.45
+            nms_top_k: 300
+            normalized_coord: false
+            use_multi_label: false
+            eval:
+              conf_threshold: 0.001
+              nms_class_agnostic: false
+              nms_iou_threshold: 0.7
+              use_multi_label: true
+
+models:
+  gelan-s-coco-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/gelan-s-dynamic.onnx
+    weight_url: https://media.axelera.ai/artifacts/model_cards/weights/yolo/object_detection/gelan-s-dynamic.onnx
+    weight_md5: de95695b91026d87c8b429631872e0d0
+    task_category: ObjectDetection
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 640, 640]
+    input_color_format: RGB
+    num_classes: 80
+    dataset: CocoDataset-COCO2017
+    extra_kwargs:
+      compilation_config:
+        quantization_scheme: hybrid_per_tensor_per_channel
+
+datasets:
+  CocoDataset-COCO2017:
+    class: ObjDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
+    data_dir_name: coco
+    labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/coco.names
+    label_type: COCO2017
+
+operators:
+  decodeyolo:
+    class: DecodeYolo
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/yolo.py

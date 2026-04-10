@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2026
+// Copyright Axelera AI, 2024
 #include <array>
 #include <unordered_map>
 #include <unordered_set>
@@ -70,27 +70,11 @@ class CLNormalize
   using kernel = CLProgram::ax_kernel;
 
   CLNormalize(std::string source, Ax::Logger &logger)
-      : program(source, logger), //
+      : program(std::move(source), logger), //
         quantize_rgba{ program.get_kernel("quantize_rgba") }, //
         quantize_rgb{ program.get_kernel("quantize_rgb") }, //
         quantize_grey{ program.get_kernel("quantize_grey") }
   {
-  }
-
-  CLProgram::flush_details run_kernel(cl_kernel kernel,
-      const buffer_details &out, const buffer &outbuf, bool start_flush)
-  {
-    size_t global_work_size[3] = { 1, 1, 1 };
-    global_work_size[0] = out.width;
-    global_work_size[1] = out.height;
-    error = program.execute_kernel(kernel, 2, global_work_size);
-    if (error != CL_SUCCESS) {
-      throw std::runtime_error("Unable to execute kernel. Error: "
-                               + ax_utils::cl_error_to_string(error));
-    }
-    return start_flush ? program.flush_output_buffer_async(
-               outbuf, ax_utils::determine_buffer_size(out)) :
-                         CLProgram::flush_details{};
   }
 
   cl_kernel get_kernel(const buffer_details &in)
@@ -117,20 +101,7 @@ class CLNormalize
     program.set_kernel_args(kernel, 0, out.height, out.width, in.stride,
         out.stride, *inpbuf, *outbuf, prop.mul, prop.add);
 
-    auto [error, event, mapped] = run_kernel(kernel, out, outbuf, start_flush);
-    if (error != CL_SUCCESS) {
-      throw std::runtime_error("Unable to map output buffer, error: "
-                               + ax_utils::cl_error_to_string(error));
-    }
-    if (!event) {
-      if (auto *p = std::get_if<opencl_buffer *>(&out.data)) {
-        (*p)->event = std::move(event);
-        (*p)->mapped = mapped;
-      } else {
-        clWaitForEvents(1, &*event);
-        event.reset();
-      }
-    }
+    run_kernel(program, kernel, in, out, inpbuf, outbuf, start_flush);
   }
 
   private:

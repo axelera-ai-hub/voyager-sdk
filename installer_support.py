@@ -134,7 +134,7 @@ def check_vars(envs):
         if not isinstance(k, str):
             raise RuntimeError(f"Variable {k} is not a string")
         if not isinstance(v, str):
-            raise RuntimeError(f"Value {v} is not a string")
+            raise RuntimeError(f"Value for {k}: {v} is not a string")
     # Overwrite the values of the variables from the environment if they exist
     for k, _ in __VAR_DICT.items():
         if k in os.environ:
@@ -493,6 +493,10 @@ def test_check_vars():
 
     envs["vars"]["VAR3"] = "${UNDEFINED_VAR}_test"
     with pytest.raises(RuntimeError, match='UNDEFINED_VAR is not defined'):
+        check_vars(envs)
+
+    envs = {"vars": {"VAR1": None}}
+    with pytest.raises(RuntimeError, match='Value for VAR1: None is not a string'):
         check_vars(envs)
 
 

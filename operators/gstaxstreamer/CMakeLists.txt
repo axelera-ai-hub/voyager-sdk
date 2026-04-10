@@ -65,3 +65,8 @@ target_include_directories(gstaxstreamer PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
+set_target_properties(gstaxstreamer
+    PROPERTIES
+    INSTALL_RPATH_USE_LINK_PATH TRUE
+    INSTALL_RPATH "$ORIGIN"
+)

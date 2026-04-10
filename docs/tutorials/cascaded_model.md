@@ -96,5 +96,7 @@ then classifying the cars into corresponding makes/models or model years.
 - **Add tracking**: Extend cascades with object tracking (see tracker examples in Model Zoo)
 
 ## Further support
-- For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
-- For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).
+
+For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
+
+For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).

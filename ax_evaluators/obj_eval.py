@@ -509,6 +509,13 @@ class YoloEvalmAPCalculator:
             gt_masks = np.expand_dims(gt_masks, axis=0)
             pred_masks = preds['masks']
 
+            # process_masks() in bbox_state.py converts the float32 masks in the following way:
+            #   - Negative values -> clipped to 0
+            #   - Positive values -> scaled to 1-255
+            # Therefore, any value > 0 means "inside mask"
+            # The evaluation code expects binary masks (0.0 or 1.0)
+            pred_masks = (pred_masks > 0).astype(np.float32)
+
             pred_classes = preds['labels']
             # reorder the labels and boxes according to the idx
             true_classes = targets['labels'][idx]
@@ -521,13 +528,21 @@ class YoloEvalmAPCalculator:
                 gt_masks = np.repeat(gt_masks, nl, axis=0)  # shape(1,640,640) -> (n,640,640)
                 gt_masks = np.where(gt_masks == index, 1.0, 0.0)
             if gt_masks.shape[1:] != pred_masks.shape[1:]:
-                scale_y = pred_masks.shape[1] / gt_masks.shape[1]
-                scale_x = pred_masks.shape[2] / gt_masks.shape[2]
+                # Validate mask dimensions before resize to prevent division by zero or invalid operations
+                if gt_masks.shape[1] == 0 or gt_masks.shape[2] == 0:
+                    LOG.error(f"Invalid GT mask dimensions: {gt_masks.shape}")
+                    return
+
+                if pred_masks.shape[1] == 0 or pred_masks.shape[2] == 0:
+                    LOG.error(f"Invalid pred mask dimensions: {pred_masks.shape}")
+                    return
 
                 # Align the size of the ground truth masks to the prediction masks
                 new_shape = (pred_masks.shape[1], pred_masks.shape[2])
                 # enable align_corners as a trick; it's not really necessary for measurement
                 gt_masks = simple_resize_masks(gt_masks, new_shape, align_corners=False)
+                # Re-binarize after bilinear interpolation
+                gt_masks = (gt_masks > 0.5).astype(np.float32)
 
             gt_masks = gt_masks.reshape(gt_masks.shape[0], -1)
             pred_masks = pred_masks.reshape(pred_masks.shape[0], -1)

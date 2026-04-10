@@ -1,5 +1,13 @@
 #!/usr/bin/env python
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
+import os
+import sys
+
+if __name__ == '__main__':
+    # Application Framework is not a package, so add it to the path to import it
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+
 from axelera.app import config, create_inference_stream, display
 
 stream = create_inference_stream(

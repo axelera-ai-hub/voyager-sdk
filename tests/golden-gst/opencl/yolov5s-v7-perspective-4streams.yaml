@@ -14,7 +14,7 @@
     options: stream_id:0
   - instance: axtransform
     lib: libtransform_perspective_cl.so
-    options: matrix:0.67153,0.34391,-67.264,-0.45295,0.50279,493.63,0,0,1;format:rgb
+    options: matrix:0.67153,0.34391,-67.264,-0.45295,0.50279,493.63,0,0,1;format:rgba
   - instance: queue
     connections:
       src: inference-task0.sink_%u
@@ -36,7 +36,7 @@
     options: stream_id:1
   - instance: axtransform
     lib: libtransform_perspective_cl.so
-    options: matrix:0.671533,0.343908,-67.2636,-0.452952,0.502787,493.63,0,0,1;format:rgb
+    options: matrix:0.671533,0.343908,-67.2636,-0.452952,0.502787,493.63,0,0,1;format:rgba
   - instance: queue
     connections:
       src: inference-task0.sink_%u
@@ -56,9 +56,6 @@
     name: decodebin-link2
     mode: meta
     options: stream_id:2
-  - instance: axtransform
-    lib: libtransform_colorconvert_cl.so
-    options: format:rgb
   - instance: queue
     connections:
       src: inference-task0.sink_%u
@@ -78,9 +75,6 @@
     name: decodebin-link3
     mode: meta
     options: stream_id:3
-  - instance: axtransform
-    lib: libtransform_colorconvert_cl.so
-    options: format:rgb
   - instance: queue
     connections:
       src: inference-task0.sink_%u
@@ -96,10 +90,9 @@
     dmabuf_outputs: true
     num_children: 0
     preprocess0_lib: libtransform_resize_cl.so
-    preprocess0_options: width:640;height:640;padding:114;letterbox:1;scale_up:1;to_tensor:1;mean:0.,0.,0.;std:1.,1.,1.;quant_scale:0.003919653594493866;quant_zeropoint:-128.0
+    preprocess0_options: width:640;height:640;padding:114;letterbox:1;scale_up:1;to_tensor:1;mean:0.,0.,0.;std:1.,1.,1.;quant_scale:0.003919653594493866;quant_zeropoint:-128.0;format:rgba
     preprocess1_lib: libtransform_padding.so
     preprocess1_options: padding:0,0,0,0,0,0,0,52;fill:-128
-    preprocess1_batch: 1
     postprocess0_lib: libdecode_yolov5.so
     postprocess0_options: meta_key:{{task_name0}};anchors:1.25,1.625,2.0,3.75,4.125,2.875,1.875,3.8125,3.875,2.8125,3.6875,7.4375,3.625,2.8125,4.875,6.1875,11.65625,10.1875;classes:80;confidence_threshold:0.25;scales:0.08142165094614029,0.09499982744455338,0.09290479868650436;zero_points:70,82,66;topk:{{max_boxes}};multiclass:0;sigmoid_in_postprocess:0;transpose:1;classlabels_file:{{label_file}};model_width:640;model_height:640;scale_up:1;letterbox:1
     postprocess0_mode: read

@@ -39,6 +39,8 @@ struct ssd_properties {
   bool multiclass{ true };
   bool softmax{ false };
   std::string meta_name{};
+  std::string master_meta{};
+  std::string association_meta{};
   std::string saved_anchors{};
   bool transpose{ true };
   bool row_major{ true };
@@ -301,15 +303,14 @@ find_max_score(const int8_t *data, int z_stride, int num_classes)
 ///
 template <bool multiclass, typename input_type>
 int
-decode_scores(const input_type *data, const float *lookups, const ssd_properties &props,
-    int z_stride, const decode_details &details, inferences &outputs)
+decode_scores(const input_type *data, const float *lookups,
+    const ssd_properties &props, const decode_details &details, inferences &outputs)
 {
   //  We ignore the background class
   if (multiclass) {
     if (props.softmax) {
       std::vector<float> softmaxed_scores(props.num_classes + 1);
-      ax_utils::softmax(data, props.num_classes + 1, z_stride, lookups,
-          softmaxed_scores.data());
+      ax_utils::softmax(data, props.num_classes + 1, lookups, softmaxed_scores.data());
       for (auto i : props.filter) {
         auto score = softmaxed_scores[i + 1];
         if (props.confidence <= score) {
@@ -318,9 +319,9 @@ decode_scores(const input_type *data, const float *lookups, const ssd_properties
         }
       }
     } else {
-      auto *first = data + z_stride;
+      auto *first = data + 1;
       for (auto i : props.filter) {
-        auto score = sigmoid(first[i * z_stride], lookups);
+        auto score = sigmoid(first[i], lookups);
         if (props.confidence <= score) {
           outputs.scores.push_back(score);
           outputs.class_ids.push_back(i);
@@ -329,8 +330,7 @@ decode_scores(const input_type *data, const float *lookups, const ssd_properties
     }
   } else if (props.softmax) {
     std::vector<float> softmaxed_scores(props.num_classes + 1);
-    ax_utils::softmax(
-        data, props.num_classes + 1, z_stride, lookups, softmaxed_scores.data());
+    ax_utils::softmax(data, props.num_classes + 1, lookups, softmaxed_scores.data());
     auto high_score = std::max_element(
         std::next(std::begin(softmaxed_scores)), std::end(softmaxed_scores));
     auto score = *high_score;
@@ -340,11 +340,11 @@ decode_scores(const input_type *data, const float *lookups, const ssd_properties
       outputs.class_ids.push_back(i);
     }
   } else {
-    auto *first = data + z_stride;
+    auto *first = data + 1;
     auto i = std::max_element(std::begin(props.filter), std::end(props.filter),
-        [=](auto a, auto b) { return first[a * z_stride] < first[b * z_stride]; });
+        [=](auto a, auto b) { return first[a] < first[b]; });
     auto idx = *i;
-    auto score = sigmoid(first[idx * z_stride], lookups);
+    auto score = sigmoid(first[idx], lookups);
     if (props.confidence <= score) {
       outputs.scores.push_back(score);
       outputs.class_ids.push_back(idx);
@@ -355,12 +355,12 @@ decode_scores(const input_type *data, const float *lookups, const ssd_properties
 
 template <typename input_type>
 int
-decode_scores(const input_type *data, const float *lookups, int z_stride,
+decode_scores(const input_type *data, const float *lookups,
     const ssd_properties &props, const decode_details &details, inferences &outputs)
 {
   return props.multiclass ?
-             decode_scores<true>(data, lookups, props, z_stride, details, outputs) :
-             decode_scores<false>(data, lookups, props, z_stride, details, outputs);
+             decode_scores<true>(data, lookups, props, details, outputs) :
+             decode_scores<false>(data, lookups, props, details, outputs);
 }
 
 /// @brief Decode a single cell of the tensor
@@ -383,9 +383,7 @@ decode_cell(const int8_t *box_data, const int8_t *score_data, const ssd_properti
   const auto dummy = float{};
   const auto &lookups
       = props.sigmoid_tables.empty() ? &dummy : props.sigmoid_tables[level].data();
-  const auto confidence = props.confidence;
-  const auto num_predictions
-      = decode_scores(score_data, lookups, score_z_stride, props, details, outputs);
+  const auto num_predictions = decode_scores(score_data, lookups, props, details, outputs);
   if (num_predictions != 0) {
 
     const auto &offsets = props.row_major ? row_major_offsets : col_major_offsets;
@@ -461,7 +459,6 @@ decode_tensor(const AxTensorsInterface &tensors, int score_idx, int box_idx,
   auto *score_data = static_cast<const int8_t *>(score_tensor.data);
 
   auto total = 0;
-  auto recip_width = 1.0F / std::max(box_width, box_height);
 
   const auto x_scale = 10.0F;
   const auto y_scale = 10.0F;
@@ -570,8 +567,7 @@ decode_tensors(const AxTensorsInterface &tensors, const ssd_properties &prop, Ax
   inferences predictions(1000);
   for (int level = 0; level != tensor_order.size(); ++level) {
     const auto [conf_tensor, loc_tensor] = tensor_order[level];
-    auto num = decode_tensor(
-        tensors, conf_tensor, loc_tensor, prop, level, predictions, logger);
+    decode_tensor(tensors, conf_tensor, loc_tensor, prop, level, predictions, logger);
   }
   return predictions;
 }
@@ -579,8 +575,8 @@ decode_tensors(const AxTensorsInterface &tensors, const ssd_properties &prop, Ax
 } // namespace ssd_decode
 
 extern "C" void
-decode_to_meta(const AxTensorsInterface &in_tensors,
-    const ssd_decode::ssd_properties *prop, unsigned int, unsigned int,
+decode_to_meta(const AxTensorsInterface &in_tensors, const ssd_decode::ssd_properties *prop,
+    unsigned int subframe_index, unsigned int number_of_subframes,
     std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> &map,
     const AxDataInterface &video_interface, Ax::Logger &logger)
 {
@@ -593,15 +589,16 @@ decode_to_meta(const AxTensorsInterface &in_tensors,
         "ssd_decode_to_meta : Number of input tensors or dequantize parameters is incorrect");
   }
   auto predictions = ssd_decode::decode_tensors(in_tensors, *prop, logger);
-  predictions = ax_utils::topk(predictions, prop->topk);
+  predictions = ax_utils::topk(std::move(predictions), prop->topk);
 
-  auto video_info = std::get<AxVideoInterface>(video_interface).info;
+  auto base_box = ax_utils::get_master_box(prop->master_meta,
+      prop->association_meta, video_interface, subframe_index, map, "ssd_decode");
+  auto pixel_boxes = ax_utils::scale_shift_boxes(predictions.boxes, base_box,
+      prop->model_width, prop->model_height, true, prop->letterbox);
 
-  auto scaled_boxes = ax_utils::scale_boxes(predictions.boxes, video_info.width,
-      video_info.height, prop->model_width, prop->model_height, prop->scale_up,
-      prop->letterbox);
-
-  map[prop->meta_name] = std::make_unique<AxMetaObjDetection>(std::move(scaled_boxes),
+  ax_utils::insert_and_associate_meta<AxMetaObjDetection>(map, prop->meta_name,
+      prop->master_meta, subframe_index, number_of_subframes,
+      prop->association_meta, std::move(pixel_boxes),
       std::move(predictions.scores), std::move(predictions.class_ids));
 }
 
@@ -610,6 +607,8 @@ allowed_properties()
 {
   static const std::unordered_set<std::string> allowed_properties{
     "meta_key",
+    "master_meta",
+    "association_meta",
     "classlabels_file",
     "confidence_threshold",
     "max_boxes",
@@ -651,7 +650,10 @@ init_and_set_static_properties(
   if (topk > 0) {
     props->topk = topk;
   }
-
+  props->master_meta = Ax::get_property(
+      input, "master_meta", "ssd_decode_static_properties", props->master_meta);
+  props->association_meta = Ax::get_property(input, "association_meta",
+      "ssd_decode_static_properties", props->association_meta);
   auto filename = Ax::get_property(
       input, "classlabels_file", "detection_static_properties", std::string{});
   if (!filename.empty()) {

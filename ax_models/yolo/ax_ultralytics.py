@@ -98,8 +98,12 @@ class AxUltralyticsYOLO(base_torch.TorchModel):
 
     def init_model_deploy(self, model_info: types.ModelInfo, dataset_config: dict, **kwargs):
         weights = Path(model_info.weight_path)
-        if not (weights.exists() and utils.md5_validates(weights, model_info.weight_md5)):
-            utils.download(model_info.weight_url, weights, model_info.weight_md5)
+        utils.download_model_artifacts(
+            weights,
+            model_info.weight_url,
+            model_info.weight_md5,
+            model_name=model_info.name,
+        )
 
         self.torch_model, self.model_type = get_simplified_model(weights)
         self.to("cpu")

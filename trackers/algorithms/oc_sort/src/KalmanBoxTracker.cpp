@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #include "../include/KalmanBoxTracker.hpp"
 
 #include <utility>
@@ -10,7 +10,7 @@ int KalmanBoxTracker::max_id = 0;
 int KalmanBoxTracker::count = 0;
 
 KalmanBoxTracker::KalmanBoxTracker(Eigen::VectorXf bbox_,
-    const Eigen::VectorXf &emb_, int cls_, int det_id, int delta_t_)
+    const Eigen::VectorXf &emb_, int cls_, int det_id, int delta_t_, int frame_id)
     : kf(std::make_shared<KalmanFilterNew>(7, 4))
 {
   bbox = std::move(bbox_);
@@ -26,7 +26,7 @@ KalmanBoxTracker::KalmanBoxTracker(Eigen::VectorXf bbox_,
   kf->Q.block(4, 4, 3, 3) *= 0.01;
   kf->x.head<4>() = convert_bbox_to_z(bbox);
   time_since_update = 0;
-  frame_of_last_update = 0;
+  frame_of_last_update = frame_id;
   cls = cls_;
   id = next_id();
   history.clear();

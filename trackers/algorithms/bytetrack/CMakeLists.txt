@@ -1,20 +1,22 @@
-cmake_minimum_required(VERSION 3.10)
-project(Bytetrack)
+# ByteTrack tracking algorithm
+# Parent handles: find_package(OpenCV/Eigen3), C++17 standard, install
 
-# Specify the required C++ standard
-set(CMAKE_CXX_STANDARD 17)
+add_library(bytetrack SHARED
+  src/BYTETracker.cpp
+  src/kalmanFilter.cpp
+  src/lapjv.cpp
+  src/STrack.cpp
+  src/utils.cpp
+)
 
-find_package(OpenCV 4 REQUIRED)
-find_package(Eigen3 3.3 REQUIRED NO_MODULE)
+target_include_directories(bytetrack
+  PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
 
-# Include directories
-include_directories(${OpenCV_INCLUDE_DIRS} ${EIGEN3_INCLUDE_DIR} include)
+target_link_libraries(bytetrack PUBLIC Eigen3::Eigen ${OpenCV_LIBS})
+target_link_options(bytetrack PRIVATE -Wl,--exclude-libs,ALL)
 
-# Source files
-file(GLOB BYTETRACK_SOURCES "src/*.cpp")
-
-# Add bytetrack library
-add_library(bytetrack SHARED ${BYTETRACK_SOURCES})
-
-# Link libraries
-target_link_libraries(bytetrack Eigen3::Eigen ${OpenCV_LIBS})
+set_target_properties(bytetrack PROPERTIES
+  INSTALL_RPATH "$ORIGIN"
+  BUILD_RPATH "$ORIGIN"
+)

@@ -1,6 +1,8 @@
+// Copyright Axelera AI, 2024
 #include "BYTETracker.h"
 
 #include <fstream>
+#include <iostream>
 
 BYTETracker::BYTETracker(int frame_rate, int track_buffer)
 {
@@ -51,6 +53,7 @@ BYTETracker::update(const vector<Object> &objects)
       float score = objects[i].prob;
 
       STrack strack(STrack::tlbr_to_tlwh(tlbr_), score, objects[i].label);
+      strack.latest_det_id = i;
       if (score >= track_thresh) {
         detections.push_back(strack);
       } else {

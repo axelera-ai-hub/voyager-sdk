@@ -19,7 +19,7 @@ The Compiler CLI provides a command-line interface to compile and quantize model
 The simplest way to compile a model is:
 
 ```bash
-compile -i /path/to/input/model.onnx -o /path/to/output/directory
+axcompile -i /path/to/input/model.onnx -o /path/to/output/directory
 ```
 
 This will:
@@ -32,12 +32,12 @@ This will:
 You can generate a default compiler configuration file with:
 
 ```bash
-compile --generate-config /path/to/output/directory
+axcompile --generate-config /path/to/output/directory
 ```
 This saves `default_conf.json` to the output directory. You can modify this file and use it later:
 
 ```bash
-compile -i /path/to/input/model.onnx --conf /path/to/configuration/file -o /path/to/output/directory
+axcompile -i /path/to/input/model.onnx --conf /path/to/configuration/file -o /path/to/output/directory
 ```
 
 The list of all compiler configurations can be found in [`Compiler Configurations`](/docs/reference/compiler_configs_full.md).
@@ -47,13 +47,13 @@ The list of all compiler configurations can be found in [`Compiler Configuration
 To perform quantization only and skip full compilation:
 
 ```bash
-compile -i /path/to/input/model.onnx --quantize-only -o /path/to/output/directory
+axcompile -i /path/to/input/model.onnx --quantize-only -o /path/to/output/directory
 ```
 
 This produces `quantized_model_manifest.json`, which you can later pass to compile:
 
 ```bash
-compile -i /path/to/quantized/model/quantized_model_manifest.json -o /path/to/output/directory
+axcompile -i /path/to/quantized/model/quantized_model_manifest.json -o /path/to/output/directory
 ```
 
 ## Models with Dynamic Shapes
@@ -61,7 +61,7 @@ compile -i /path/to/quantized/model/quantized_model_manifest.json -o /path/to/ou
 If your input model has dynamic input shapes, use --input-shape to provide a static shape that will be used for compilation and during inference.
 
 ```bash
-compile -i /path/to/input/model.onnx --input-shape 1,3,224,224 -o /path/to/output/directory
+axcompile -i /path/to/input/model.onnx --input-shape 1,3,224,224 -o /path/to/output/directory
 ```
 
 ## Using Real Images for Calibration
@@ -69,7 +69,7 @@ compile -i /path/to/input/model.onnx --input-shape 1,3,224,224 -o /path/to/outpu
 To use real images for calibration instead of random data:
 
 ```bash
-compile -i /path/to/input/model.onnx \
+axcompile -i /path/to/input/model.onnx \
   --input-shape 1,224,224,3 \
   --imageset /path/to/images \
   --transform /path/to/preprocess_transform.py \
@@ -106,7 +106,7 @@ Every compilation automatically generates a `cli_args.json` file in the output d
 To reuse a previously saved argument set:
 
 ```bash
-compile -i new_model.onnx --cli-args /path/to/previous_run/cli_args.json --output /new/output/dir
+axcompile -i new_model.onnx --cli-args /path/to/previous_run/cli_args.json --output /new/output/dir
 ```
 
 Note: Any CLI arguments passed in the current invocation will override values from the --cli-args file.
@@ -116,7 +116,7 @@ Note: Any CLI arguments passed in the current invocation will override values fr
 To see a full list of available flags:
 
 ```bash
-compile --help
+axcompile --help
 ```
 
 ## Compilation Artifacts

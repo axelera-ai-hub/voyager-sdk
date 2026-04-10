@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2026
+// Copyright Axelera AI, 2023
 #pragma once
 
 #define CL_TARGET_OPENCL_VERSION 210
@@ -23,7 +23,7 @@
 #include "AxOpUtils.hpp"
 #include "AxOpenClExtensions.hpp"
 
-constexpr int AX_ALLOCATION_CONTEXT_VERSION = 1;
+constexpr int AX_ALLOCATION_CONTEXT_VERSION = 2;
 struct AxAllocationContext {
   int version{ 0 };
   cl_device_id device_id;
@@ -31,6 +31,7 @@ struct AxAllocationContext {
   cl_command_queue commands;
   cl_extensions extensions;
   std::exception_ptr exception{ nullptr };
+  cl_command_queue map_commands;
 };
 
 namespace ax_utils
@@ -59,12 +60,15 @@ class CLProgram
 
   using ax_kernel = cl_object<cl_kernel>;
   using ax_buffer = cl_object<cl_mem>;
+  using ax_event = cl_object<cl_event>;
 
   using buffer_initializer
       = std::variant<void *, int, VASurfaceID_proxy *, opencl_buffer *>;
   // The class is not copyable
   CLProgram(const CLProgram &) = delete;
   CLProgram &operator=(const CLProgram &) = delete;
+
+  ax_kernel build_kernel_from_source(const std::string &source, const std::string &kernel_name);
 
   /// @brief Get a handle to the requested kernel
   /// @param kernel_name - The name of the kernel
@@ -134,13 +138,8 @@ class CLProgram
   /// @param kernel - The kernel handle
   /// @param num_dims - The number of dimensions
   /// @param global_work_size - The actual dimensions
-  int execute_kernel(cl_kernel kernel, int num_dims, size_t global_work_size[3]);
-
-  /// @brief Ensures the output buffer is mapped to the host
-  /// @param out - The buffer to map
-  /// @param size - The size of the buffer
-  /// @return - Any status code
-  int flush_output_buffer(const ax_buffer &out, int size);
+  ax_event execute_kernel(cl_kernel kernel, int num_dims,
+      size_t global_work_size[3], ax_event event);
 
   bool can_use_dmabuf() const
   {
@@ -156,7 +155,6 @@ class CLProgram
     return can_import_va(cl_details.extensions);
   }
 
-  using ax_event = cl_object<cl_event>;
 
   struct flush_details {
     int result{};
@@ -164,9 +162,9 @@ class CLProgram
     void *mapped{};
   };
 
-  flush_details flush_output_buffer_async(const ax_buffer &out, int size);
+  flush_details flush_output_buffer_async(const ax_buffer &out, int size, ax_event ev);
 
-  flush_details start_flush_output_buffer(const ax_buffer &out, int size);
+  flush_details start_flush_output_buffer(const ax_buffer &out, int size, ax_event ev);
 
   int unmap_buffer(ax_event event, const ax_buffer &out, void *mapped);
 
@@ -190,6 +188,35 @@ class CLProgram
   bool RPi_Hack{};
 };
 
-output_format get_output_format(AxVideoFormat format, bool ignore_alpha = true);
 std::string get_kernel_utils(int rotate_type = 0);
+
+std::string get_rotation(int rotate_type);
+
+int run_kernel(CLProgram &program, cl_kernel k, const buffer_details &in,
+    const buffer_details &out, CLProgram::ax_buffer &inbuf,
+    CLProgram::ax_buffer &outbuf, bool start_flush);
+
+
+std::array<float, 16> get_color_conversion_matrix(
+    AxVideoFormat in_format, AxVideoFormat out_format);
+
+std::array<cl_int, 4> build_strides(const buffer_details &in, const buffer_details &out);
+
+std::array<cl_int, 4> build_offsets(const buffer_details &in, const buffer_details &out);
+
+struct kernel_arg_details {
+  AxVideoFormat in_format;
+  std::string in_type;
+  std::string sampler;
+};
+
+enum class Interpolation { nearest, bilinear };
+
+kernel_arg_details get_input_details(
+    AxVideoFormat format, Interpolation interp = Interpolation::bilinear);
+
+kernel_arg_details get_output_details(AxVideoFormat in_format, AxVideoFormat out_format);
+kernel_arg_details get_output_norm_details(AxVideoFormat in_format, AxVideoFormat out_format);
+
+
 } // namespace ax_utils

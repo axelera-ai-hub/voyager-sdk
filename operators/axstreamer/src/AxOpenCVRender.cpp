@@ -127,9 +127,10 @@ Ax::OpenCV::render(const AxMetaSegmentsDetection &segs, cv::Mat &buffer,
         const auto g = buffer.at<cv::Vec3b>(y, x)[1];
         const auto r = buffer.at<cv::Vec3b>(y, x)[2];
         const auto gray = (r * 0.299f) + (g * 0.587f) + (b * 0.114f);
-        const auto grayness = options.segments_in_grayscale ? fmask.at<float>(
-                                  (y - dest.y1) / scale, (dest.x1 - x) / scale) :
-                                                              0.0;
+        const auto grayness
+            = options.segments_in_grayscale ?
+                  fmask.at<float>((y - dest.y1) / scale, (dest.x1 - x) / scale) :
+                  0.0;
         buffer.at<cv::Vec3b>(y, x)[0] = (grayness * gray) + ((1.0f - grayness) * b);
         buffer.at<cv::Vec3b>(y, x)[1] = (grayness * gray) + ((1.0f - grayness) * g);
         buffer.at<cv::Vec3b>(y, x)[2] = (grayness * gray) + ((1.0f - grayness) * r);
@@ -181,7 +182,9 @@ class TimeKeeper
 {
   public:
   explicit TimeKeeper(high_resolution_clock::time_point start)
-      : start_(start), last_update_(start), last_render_(start)
+      : start_(start),
+        last_update_(start),
+        last_render_(start)
   {
   }
 
@@ -233,7 +236,8 @@ class TimeKeeper
 class OpenCVDisplay : public Ax::OpenCV::Display
 {
   public:
-  explicit OpenCVDisplay(const std::string &name) : wndname(name)
+  explicit OpenCVDisplay(const std::string &name)
+      : wndname(name)
   {
     cv::namedWindow(wndname, cv::WINDOW_AUTOSIZE);
     cv::setWindowProperty(wndname, cv::WND_PROP_ASPECT_RATIO, cv::WINDOW_KEEPRATIO);
@@ -279,7 +283,8 @@ class OpenCVDisplay : public Ax::OpenCV::Display
 class AnsiDisplay : public Ax::OpenCV::Display
 {
   public:
-  AnsiDisplay(std::ostream &os) : f(os)
+  AnsiDisplay(std::ostream &os)
+      : f(os)
   {
     const auto [term_cols, term_rows] = get_terminal_size();
     f << "\033[2J\033[H"; // Clear console and move cursor to top left

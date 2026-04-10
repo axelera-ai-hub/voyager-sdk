@@ -1,0 +1,59 @@
+axelera-model-format: 1.0.0
+
+name: yolo26n-obb-dotav1-onnx
+
+description: yolo26n obb detection, 1024x1024 (DOTAv1), NMS free model
+
+pipeline:
+  - detections:
+      model_name: yolo26n-obb-dotav1-onnx
+      input:
+        type: image
+      preprocess:
+        - letterbox:
+            height: ${{input_height}}
+            scaleup: true
+            width: ${{input_width}}
+        - torch-totensor:
+      inference:
+        handle_all: false
+      postprocess:
+        - decodeyolo:
+            box_format: xywhr
+            conf_threshold: 0.25
+            label_filter: ${{label_filter}}
+            nms_class_agnostic: true
+            nms_free: true
+            nms_top_k: 300
+            normalized_coord: false
+            eval:
+              conf_threshold: 0.01
+              nms_class_agnostic: false
+
+models:
+  yolo26n-obb-dotav1-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: yolo26n-obb.onnx
+    weight_url: https://media.axelera.ai/artifacts/model_cards/weights/yolo/object_detection/yolo26n-obb-202602-official.onnx
+    weight_md5: b69118da67073c181b22c073283f1389
+    task_category: ObjectDetection
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 1024, 1024]
+    input_color_format: RGB
+    num_classes: 15
+    dataset: DOTAv1DetectionOBBDataset
+    extra_kwargs:
+      compiler_config_file: yolo26.toml
+
+datasets:
+  DOTAv1DetectionOBBDataset:
+    class: OBBDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/detection_obb.py
+    data_dir_name: detection_obb
+    labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/dotav1.names
+
+operators:
+  decodeyolo:
+    class: DecodeYolo
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/yolo.py

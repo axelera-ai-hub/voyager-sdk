@@ -72,6 +72,7 @@ def process_mask(protos, mask_coef, bboxes, shape):
     resize_bboxes[:, 2] *= w_ratio
     resize_bboxes[:, 3] *= h_ratio
     resize_bboxes[:, 1] *= h_ratio
+    resize_bboxes = np.round(resize_bboxes)
     masks = crop_mask(masks, resize_bboxes)  # size [n,h,w]
     info = np.iinfo(np.uint8)
     masks = np.clip(masks * info.max, info.min, info.max).astype(np.uint8)

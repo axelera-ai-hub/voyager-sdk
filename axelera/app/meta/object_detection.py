@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Bounding boxes for object detection task
 from __future__ import annotations
 
@@ -124,12 +124,13 @@ class ObjectDetectionMeta(AxTaskMeta):
         return convert(self.boxes, types.BoxFormat.XYXY, types.BoxFormat.LTWH)
 
     def draw(self, draw: display.Draw):
-        draw_bounding_boxes(
-            self,
-            draw,
-            self.task_render_config.show_labels,
-            self.task_render_config.show_annotations,
-        )
+        if draw.options.show_bounding_boxes:
+            draw_bounding_boxes(
+                self,
+                draw,
+                self.task_render_config.show_labels,
+                self.task_render_config.show_annotations,
+            )
 
     def to_evaluation(self):
         if not (ground_truth := self.access_ground_truth()):
@@ -176,3 +177,25 @@ class ObjectDetectionMeta(AxTaskMeta):
             class_ids=np.concatenate([meta.class_ids for meta in meta_list]),
             labels=meta_list[0].labels,
         )
+
+
+@dataclass(frozen=True)
+class ObjectDetectionMetaTiles(ObjectDetectionMeta):
+
+    def draw(self, draw: display.Draw):
+        if draw.options.show_tiles:
+            draw_bounding_boxes(
+                self,
+                draw,
+                self.task_render_config.show_labels,
+                self.task_render_config.show_annotations,
+                override_color=(0, 0, 0, 255),
+            )
+
+    @classmethod
+    def decode(cls, data: Dict[str, Union[bytes, bytearray]]) -> 'ObjectDetectionMetaTiles':
+        return super().decode(data)
+
+    @classmethod
+    def aggregate(cls, meta_list: List['ObjectDetectionMeta']) -> 'ObjectDetectionMeta':
+        return super().aggregate(meta_list)

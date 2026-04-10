@@ -114,8 +114,12 @@ class AxMMSegmentationPytorch(AxMMSegmentationBase, base_torch.TorchModel):
 
     def init_model_deploy(self, model_info: types.ModelInfo, dataset_config: dict, **kwargs):
         checkpoint = Path(model_info.weight_path)
-        if not (checkpoint.exists() and utils.md5_validates(checkpoint, model_info.weight_md5)):
-            utils.download(model_info.weight_url, checkpoint, model_info.weight_md5)
+        utils.download_model_artifacts(
+            checkpoint,
+            model_info.weight_url,
+            model_info.weight_md5,
+            model_name=model_info.name,
+        )
         self.cfg.data_preprocessor = None
         self.cfg.model.data_preprocessor = None
         self.torch_model = init_model(self.cfg, str(checkpoint), device=torch.device('cpu'))
@@ -130,8 +134,12 @@ class AxMMSegmentationOnnx(AxMMSegmentationBase, types.ONNXModel):
 
     def init_model_deploy(self, model_info: types.ModelInfo, dataset_config: dict, **kwargs):
         checkpoint = Path(model_info.weight_path)
-        if not (checkpoint.exists() and utils.md5_validates(checkpoint, model_info.weight_md5)):
-            utils.download(model_info.weight_url, checkpoint, model_info.weight_md5)
+        utils.download_model_artifacts(
+            checkpoint,
+            model_info.weight_url,
+            model_info.weight_md5,
+            model_name=model_info.name,
+        )
 
         self.cfg.data_preprocessor = None
         self.cfg.model.data_preprocessor = None

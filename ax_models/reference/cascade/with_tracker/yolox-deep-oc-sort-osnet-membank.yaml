@@ -60,12 +60,13 @@ pipeline:
               max_id: 0
               # Enable memory bank and tune the parameters based on your scenario
               enable_id_recovery: True
+              max_age: 100  # Must be > recovery thresholds below (rec_track_min_time_since_update_*)
               # Memory bank parameters for ID recovery (with defaults shown)
               rec_image_rect_margin: 20  # Pixels from image boundary to consider "out of frame"
               rec_track_min_time_since_update_at_boundary: 6  # Frames before boundary tracks enter memory
-              rec_track_min_time_since_update_inside: 300  # Frames before inside tracks enter memory (10s @ 30fps)
-              rec_track_min_age: 30  # Minimum track age (frames) to be eligible for memory bank
-              rec_track_merge_lap_thresh: 0.09  # Cosine distance threshold for ID recovery (0.09 = ~0.91 similarity)
+              rec_track_min_time_since_update_inside: 70  # Frames before inside tracks enter memory (10s @ 30fps)
+              rec_track_min_age: 50  # Minimum track age (frames) to be eligible for memory bank
+              rec_track_merge_lap_thresh: 0.075  # Cosine distance threshold for ID recovery (0.075 = ~0.925 similarity)
               rec_track_memory_capacity: 1000  # Maximum tracks in memory bank
               rec_track_memory_max_age: 54000  # Maximum frames in memory (30min@ 30fps)
 

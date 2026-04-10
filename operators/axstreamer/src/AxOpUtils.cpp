@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2023
 #include "AxOpUtils.hpp"
 #include "AxStreamerUtils.hpp"
 
@@ -8,9 +8,40 @@
 #include <numeric>
 
 #include <iostream>
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
 #include <string_view>
 namespace ax_utils
 {
+int
+parse_metric_type(const std::unordered_map<std::string, std::string> &input,
+    int default_value, const std::string &error_type)
+{
+  auto found = input.find("metric_type");
+  if (found == input.end()) {
+    return default_value;
+  }
+
+  const auto &raw = found->second;
+  if (raw == "euclidean_distance") {
+    return EUCLIDEAN_DISTANCE;
+  }
+  if (raw == "squared_euclidean_distance") {
+    return SQUARED_EUCLIDEAN_DISTANCE;
+  }
+  if (raw == "cosine_distance") {
+    return COSINE_DISTANCE;
+  }
+  if (raw == "cosine_similarity") {
+    return COSINE_SIMILARITY;
+  }
+
+  throw std::runtime_error(error_type
+                           + " : metric_type must be one of euclidean_distance, "
+                             "squared_euclidean_distance, cosine_distance, cosine_similarity; got '"
+                           + raw + "'");
+}
+
 std::string
 sizes_to_string(const std::vector<int> &sizes)
 {
@@ -150,33 +181,34 @@ indices_for_topk_center(const std::vector<box_xyxy> &boxes, int topk, int width,
 }
 
 inferences
-topk(const inferences &predictions, int topk)
+topk(inferences predictions, int topk)
 {
   std::vector<int> indices = indices_for_topk(predictions.scores, topk);
   inferences result(topk);
-  result.set_prototype_dims(predictions.prototype_width,
-      predictions.prototype_height, predictions.prototype_depth);
-  result.prototype_coefs = std::move(predictions.prototype_coefs);
   for (auto idx : indices) {
-    if (!predictions.boxes.empty())
-      result.boxes.push_back(predictions.boxes[idx]);
-    if (!predictions.obb.empty())
-      result.obb.push_back(predictions.obb[idx]);
-    result.scores.push_back(predictions.scores[idx]);
-    result.class_ids.push_back(predictions.class_ids[idx]);
-    if (!predictions.seg_funcs.empty())
-      result.seg_funcs.emplace_back(std::move(predictions.seg_funcs[idx]));
-    if (!predictions.segments.empty())
-      result.segments.emplace_back(std::move(predictions.segments[idx]));
-    if (predictions.kpts_shape.empty()) {
-      continue;
-    }
-    if (0 != predictions.kpts_shape[0]) {
-      auto start = std::next(predictions.kpts.begin(), idx * predictions.kpts_shape[0]);
-      auto end = std::next(start, predictions.kpts_shape[0]);
-      result.kpts.insert(result.kpts.end(), start, end);
+    result.scores.push_back(std::move(predictions.scores[idx]));
+    result.class_ids.push_back(std::move(predictions.class_ids[idx]));
+
+    if (!predictions.obb.empty()) {
+      result.obb.push_back(std::move(predictions.obb[idx]));
+    } else {
+      if (!predictions.boxes.empty())
+        result.boxes.push_back(std::move(predictions.boxes[idx]));
+
+      if (!predictions.seg_info.empty())
+        result.seg_info.push_back(std::move(predictions.seg_info[idx]));
+      if (!predictions.segments.empty())
+        result.segments.push_back(std::move(predictions.segments[idx]));
+
+      if (!predictions.kpts_shape.empty() && predictions.kpts_shape[0] != 0) {
+        auto start
+            = std::next(predictions.kpts.begin(), idx * predictions.kpts_shape[0]);
+        auto end = std::next(start, predictions.kpts_shape[0]);
+        result.kpts.insert(result.kpts.end(), start, end);
+      }
     }
   }
+  result.prototype = std::move(predictions.prototype);
   result.kpts_shape = std::move(predictions.kpts_shape);
   return result;
 }
@@ -252,8 +284,20 @@ build_general_trigonometric_tables(const std::vector<float> &zero_points,
   }
   return trig_tables;
 }
+
 std::vector<sin_cos_lookups>
-build_trigonometric_tables(const std::vector<float> &zero_points,
+build_trigonometric_tables(
+    const std::vector<float> &zero_points, const std::vector<float> &scales)
+{
+  auto sin_cos_tables = build_general_trigonometric_tables(
+      zero_points, scales, [](float x) { return std::sin(x); },
+      [](float x) { return std::cos(x); });
+
+  return sin_cos_tables;
+}
+
+std::vector<sin_cos_lookups>
+build_sigmoid_trigonometric_tables(const std::vector<float> &zero_points,
     const std::vector<float> &scales, float add, float mul)
 {
   auto sin_cos_tables = build_general_trigonometric_tables(
@@ -292,10 +336,10 @@ exponential(int value, const float *lookups)
 }
 
 void
-softmax(const int8_t *input, int num_elems, size_t stride, const float *lookups, float *output)
+softmax(const int8_t *input, int num_elems, const float *lookups, float *output)
 {
-  auto first = make_stride_iterator(input, 0, stride);
-  auto last = make_stride_iterator(input, num_elems, stride);
+  auto first = input;
+  auto last = input + num_elems;
   auto largest = *std::max_element(first, last);
   auto total = 0.0F;
 
@@ -374,11 +418,13 @@ scale(int video_width, int video_height, int tensor_width, int tensor_height,
 }
 
 std::vector<KptXyv>
-scale_kpts(const std::vector<ax_utils::fkpt> &norm_kpts, int video_width,
-    int video_height, int tensor_width, int tensor_height, bool scale_up, bool letterbox)
+scale_shift_kpts(const std::vector<ax_utils::fkpt> &norm_kpts, BboxXyxy master_box,
+    int tensor_width, int tensor_height, bool scale_up, bool letterbox)
 {
-  const auto [to_orig_x, to_orig_y, unused_scale_x, unused_scale_y] = scale(
-      video_width, video_height, tensor_width, tensor_height, scale_up, letterbox);
+  auto box_width = 1 + master_box.x2 - master_box.x1;
+  auto box_height = 1 + master_box.y2 - master_box.y1;
+  const auto [to_orig_x, to_orig_y, unused_scale_x, unused_scale_y]
+      = scale(box_width, box_height, tensor_width, tensor_height, scale_up, letterbox);
   (void) unused_scale_x;
   (void) unused_scale_y;
   std::vector<KptXyv> keypoints;
@@ -386,8 +432,8 @@ scale_kpts(const std::vector<ax_utils::fkpt> &norm_kpts, int video_width,
 
   for (const auto &k : norm_kpts) {
     KptXyv kpt{
-      to_orig_x(k.x),
-      to_orig_y(k.y),
+      to_orig_x(k.x) + master_box.x1,
+      to_orig_y(k.y) + master_box.y1,
       k.visibility,
     };
     keypoints.push_back(kpt);
@@ -395,71 +441,28 @@ scale_kpts(const std::vector<ax_utils::fkpt> &norm_kpts, int video_width,
   return keypoints;
 }
 
-std::vector<KptXyv>
-scale_shift_kpts(const std::vector<ax_utils::fkpt> &norm_kpts, BboxXyxy master_box,
+std::vector<BboxXyxy>
+scale_shift_boxes(const std::vector<ax_utils::fbox> &norm_boxes, BboxXyxy master_box,
     int tensor_width, int tensor_height, bool scale_up, bool letterbox)
 {
-  auto box_width = master_box.x2 - master_box.x1;
-  auto box_height = master_box.y2 - master_box.y1;
-  auto kpts = scale_kpts(norm_kpts, box_width, box_height, tensor_width,
-      tensor_height, scale_up, letterbox);
-  for (auto &kpt : kpts) {
-    kpt.x += master_box.x1;
-    kpt.y += master_box.y1;
-  }
-  return kpts;
-}
+  auto box_width = 1 + master_box.x2 - master_box.x1;
+  auto box_height = 1 + master_box.y2 - master_box.y1;
 
-std::vector<BboxXyxy>
-scale_boxes(const std::vector<ax_utils::fbox> &norm_boxes, int video_width,
-    int video_height, int tensor_width, int tensor_height, bool scale_up, bool letterbox)
-{
-  const auto [to_orig_x, to_orig_y, unused_scale_x, unused_scale_y] = scale(
-      video_width, video_height, tensor_width, tensor_height, scale_up, letterbox);
+  const auto [to_orig_x, to_orig_y, unused_scale_x, unused_scale_y]
+      = scale(box_width, box_height, tensor_width, tensor_height, scale_up, letterbox);
+  (void) unused_scale_x;
+  (void) unused_scale_y;
   std::vector<BboxXyxy> boxes;
   boxes.reserve(norm_boxes.size());
 
   for (const auto &b : norm_boxes) {
     BboxXyxy box{
-      to_orig_x(b.x1),
-      to_orig_y(b.y1),
-      to_orig_x(b.x2),
-      to_orig_y(b.y2),
+      to_orig_x(b.x1) + master_box.x1,
+      to_orig_y(b.y1) + master_box.y1,
+      to_orig_x(b.x2) + master_box.x1,
+      to_orig_y(b.y2) + master_box.y1,
     };
     boxes.push_back(box);
-  }
-  return boxes;
-}
-
-std::vector<BboxXyxy>
-scale_boxes(const std::vector<ax_utils::fbox> &norm_boxes, const AxVideoInterface &vinfo,
-    int model_width, int model_height, bool scale_up, bool letterbox)
-{
-  return scale_boxes(norm_boxes, vinfo.info.width, vinfo.info.height,
-      model_width, model_height, scale_up, letterbox);
-}
-
-std::vector<BboxXywhr>
-scale_boxes(const std::vector<fobox> &norm_boxes, const AxVideoInterface &vinfo,
-    int model_width, int model_height, bool scale_up, bool letterbox)
-{
-  return scale_boxes(norm_boxes, vinfo.info.width, vinfo.info.height,
-      model_width, model_height, scale_up, letterbox);
-}
-
-std::vector<BboxXywhr>
-scale_boxes(const std::vector<ax_utils::fobox> &norm_boxes, int video_width,
-    int video_height, int tensor_width, int tensor_height, bool scale_up, bool letterbox)
-{
-  const auto [to_orig_x, to_orig_y, scale_x, scale_y] = scale(video_width,
-      video_height, tensor_width, tensor_height, scale_up, letterbox);
-  std::vector<BboxXywhr> boxes;
-  boxes.reserve(norm_boxes.size());
-
-  for (const auto &obb : norm_boxes) {
-    BboxXywhr transformed_box{ to_orig_x(obb.x), to_orig_y(obb.y),
-      static_cast<int>(scale_x * obb.w), static_cast<int>(scale_y * obb.h), obb.angle };
-    boxes.push_back(transformed_box);
   }
   return boxes;
 }
@@ -468,30 +471,23 @@ std::vector<BboxXywhr>
 scale_shift_boxes(const std::vector<ax_utils::fobox> &norm_boxes, BboxXyxy master_box,
     int tensor_width, int tensor_height, bool scale_up, bool letterbox)
 {
-  auto box_width = master_box.x2 - master_box.x1;
-  auto box_height = master_box.y2 - master_box.y1;
-  auto boxes = scale_boxes(norm_boxes, box_width, box_height, tensor_width,
-      tensor_height, scale_up, letterbox);
-  for (auto &box : boxes) {
-    box.x += master_box.x1;
-    box.y += master_box.y1;
-  }
-  return boxes;
-}
+  auto box_width = 1 + master_box.x2 - master_box.x1;
+  auto box_height = 1 + master_box.y2 - master_box.y1;
 
-std::vector<BboxXyxy>
-scale_shift_boxes(const std::vector<ax_utils::fbox> &norm_boxes, BboxXyxy master_box,
-    int tensor_width, int tensor_height, bool scale_up, bool letterbox)
-{
-  auto box_width = master_box.x2 - master_box.x1;
-  auto box_height = master_box.y2 - master_box.y1;
-  auto boxes = scale_boxes(norm_boxes, box_width, box_height, tensor_width,
-      tensor_height, scale_up, letterbox);
-  for (auto &box : boxes) {
-    box.x1 += master_box.x1;
-    box.y1 += master_box.y1;
-    box.x2 += master_box.x1;
-    box.y2 += master_box.y1;
+  const auto [to_orig_x, to_orig_y, scale_x, scale_y]
+      = scale(box_width, box_height, tensor_width, tensor_height, scale_up, letterbox);
+  std::vector<BboxXywhr> boxes;
+  boxes.reserve(norm_boxes.size());
+
+  for (const auto &obb : norm_boxes) {
+    BboxXywhr transformed_box{
+      to_orig_x(obb.x) + master_box.x1,
+      to_orig_y(obb.y) + master_box.y1,
+      static_cast<int>(scale_x * obb.w),
+      static_cast<int>(scale_y * obb.h),
+      obb.angle,
+    };
+    boxes.push_back(transformed_box);
   }
   return boxes;
 }
@@ -667,6 +663,8 @@ determine_height(const buffer_details &info, int which_channel)
     case AxVideoFormat::I420:
     case AxVideoFormat::NV12:
       return which_channel == 0 ? info.actual_height : info.actual_height / 2;
+    case AxVideoFormat::NV16:
+      return info.actual_height; // Both Y and UV planes have full height
     case AxVideoFormat::UNDEFINED:
       if (which_channel == 0) {
         return info.actual_height;
@@ -695,20 +693,84 @@ determine_buffer_size(const buffer_details &info)
   return info.offsets[last_channel] + determine_size(info, last_channel);
 }
 
+void
+remove_cropinfo(AxDataInterface &out)
+{
+  if (auto *video = std::get_if<AxVideoInterface>(&out)) {
+    video->info.stride
+        = video->info.width * AxVideoFormatNumChannels(video->info.format);
+    video->strides = { size_t(video->info.stride) };
+    video->info.cropped = false;
+    video->info.x_offset = 0;
+    video->info.y_offset = 0;
+    video->info.actual_height = video->info.height;
+  }
+}
+
+
+namespace
+{
+constexpr float kEmbeddingNormEpsilon = 1e-6f;
+} // namespace
+
 std::vector<float>
-embeddings_cosine_similarity(const std::vector<float> &desc, const Eigen::MatrixXf &embeddings)
+embeddings_cosine_similarity(const std::vector<float> &desc,
+    const Eigen::MatrixXf &embeddings, bool normalise)
 {
   Eigen::VectorXf desc_vec = Eigen::Map<const Eigen::VectorXf>(desc.data(), desc.size());
   Eigen::VectorXf similarity_vec = embeddings * desc_vec;
+
+  if (normalise) {
+    const float desc_norm = desc_vec.norm();
+    if (desc_norm > kEmbeddingNormEpsilon) {
+      similarity_vec /= desc_norm;
+    } else {
+      similarity_vec.setZero();
+    }
+
+    const Eigen::VectorXf row_norms = embeddings.rowwise().norm();
+    for (int i = 0; i < similarity_vec.size(); ++i) {
+      const float row_norm = row_norms(i);
+      if (row_norm > kEmbeddingNormEpsilon) {
+        similarity_vec(i) /= row_norm;
+      } else {
+        similarity_vec(i) = 0.0f;
+      }
+    }
+  }
 
   return std::vector<float>(
       similarity_vec.data(), similarity_vec.data() + similarity_vec.size());
 }
 
 std::vector<float>
-embeddings_euclidean_distance(const std::vector<float> &desc, const Eigen::MatrixXf &embeddings)
+embeddings_euclidean_distance(const std::vector<float> &desc,
+    const Eigen::MatrixXf &embeddings, bool normalise)
 {
   Eigen::VectorXf desc_vec = Eigen::Map<const Eigen::VectorXf>(desc.data(), desc.size());
+  if (normalise) {
+    Eigen::VectorXf desc_normed = desc_vec;
+    const float desc_norm = desc_normed.norm();
+    if (desc_norm > kEmbeddingNormEpsilon) {
+      desc_normed /= desc_norm;
+    } else {
+      desc_normed.setZero();
+    }
+
+    const float desc_normed_norm = desc_normed.norm();
+    const Eigen::VectorXf row_norms = embeddings.rowwise().norm();
+    Eigen::VectorXf distances(embeddings.rows());
+    for (int i = 0; i < embeddings.rows(); ++i) {
+      const float row_norm = row_norms(i);
+      if (row_norm > kEmbeddingNormEpsilon) {
+        distances(i) = (embeddings.row(i) / row_norm - desc_normed.transpose()).norm();
+      } else {
+        distances(i) = desc_normed_norm;
+      }
+    }
+    return std::vector<float>(distances.data(), distances.data() + distances.size());
+  }
+
   Eigen::VectorXf distances
       = (embeddings.rowwise() - desc_vec.transpose()).rowwise().norm();
 
@@ -716,23 +778,51 @@ embeddings_euclidean_distance(const std::vector<float> &desc, const Eigen::Matri
 }
 
 std::vector<float>
-embeddings_squared_euclidean_distance(
-    const std::vector<float> &desc, const Eigen::MatrixXf &embeddings)
+embeddings_squared_euclidean_distance(const std::vector<float> &desc,
+    const Eigen::MatrixXf &embeddings, bool normalise)
 {
-  std::vector<float> distances = embeddings_euclidean_distance(desc, embeddings);
-  std::transform(distances.begin(), distances.end(), distances.begin(),
-      [](float val) { return std::pow(val, 2); });
+  Eigen::VectorXf desc_vec = Eigen::Map<const Eigen::VectorXf>(desc.data(), desc.size());
+  if (normalise) {
+    Eigen::VectorXf desc_normed = desc_vec;
+    const float desc_norm = desc_normed.norm();
+    if (desc_norm > kEmbeddingNormEpsilon) {
+      desc_normed /= desc_norm;
+    } else {
+      desc_normed.setZero();
+    }
 
-  return distances;
+    const float desc_normed_sqnorm = desc_normed.squaredNorm();
+    const Eigen::VectorXf row_norms = embeddings.rowwise().norm();
+    Eigen::VectorXf distances(embeddings.rows());
+    for (int i = 0; i < embeddings.rows(); ++i) {
+      const float row_norm = row_norms(i);
+      if (row_norm > kEmbeddingNormEpsilon) {
+        distances(i) = (embeddings.row(i) / row_norm - desc_normed.transpose()).squaredNorm();
+      } else {
+        distances(i) = desc_normed_sqnorm;
+      }
+    }
+    return std::vector<float>(distances.data(), distances.data() + distances.size());
+  }
+
+  Eigen::VectorXf distances
+      = (embeddings.rowwise() - desc_vec.transpose()).rowwise().squaredNorm();
+
+  return std::vector<float>(distances.data(), distances.data() + distances.size());
 }
 
 std::vector<float>
-embeddings_cosine_distance(const std::vector<float> &desc, const Eigen::MatrixXf &embeddings)
+embeddings_cosine_distance(const std::vector<float> &desc,
+    const Eigen::MatrixXf &embeddings, bool normalise)
 {
   std::vector<float> distances;
-  auto similarities = embeddings_cosine_similarity(desc, embeddings);
+  auto similarities = embeddings_cosine_similarity(desc, embeddings, normalise);
   for (const auto &sim : similarities) {
-    distances.push_back(std::acos(sim) / M_PI);
+    float clamped_sim = std::clamp(sim, -1.0f, 1.0f);
+    if (!std::isfinite(clamped_sim)) {
+      clamped_sim = 0.0f;
+    }
+    distances.push_back(std::acos(clamped_sim) / static_cast<float>(M_PI));
   }
   return distances;
 }
@@ -841,6 +931,7 @@ get_bytes_per_pixel(AxVideoFormat format)
       return 2;
     case AxVideoFormat::I420:
     case AxVideoFormat::NV12:
+    case AxVideoFormat::NV16:
     case AxVideoFormat::GRAY8:
       return 1; // Y channel
     case AxVideoFormat::UNDEFINED:
@@ -849,4 +940,39 @@ get_bytes_per_pixel(AxVideoFormat format)
       throw std::runtime_error("Unsupported video format: " + AxVideoFormatToString(format));
   }
 }
+
+std::vector<uint8_t>
+build_filter(const std::vector<int> &input_filter, int num_classes)
+{
+  if (input_filter.empty()) {
+    //  If the input filter is empty we allow all classes
+    return std::vector<uint8_t>(num_classes, 0xFF);
+  }
+  std::vector<uint8_t> filter(num_classes, 0x00);
+  for (auto i : input_filter) {
+    if (0 <= i && i < num_classes) {
+      filter[i] = 0xFF;
+    } else {
+      throw std::runtime_error("Filter index " + std::to_string(i) + " out of range for number of classes "
+                               + std::to_string(num_classes));
+    }
+  }
+  return filter;
+}
+
+BboxXyxy
+get_master_box(std::string master, std::string associated,
+    const AxDataInterface &video_interface, unsigned int subframe_index,
+    const std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> &map,
+    const std::string &decoder)
+{
+  if (master.empty()) {
+    auto vinfo = std::get<AxVideoInterface>(video_interface);
+    return { 0, 0, vinfo.info.width - 1, vinfo.info.height - 1 };
+  }
+  const auto &box_key = associated.empty() ? master : associated;
+  auto master_meta = ax_utils::get_meta<AxMetaBbox>(box_key, map, decoder);
+  return master_meta->get_box_xyxy(subframe_index);
+}
+
 } // namespace ax_utils

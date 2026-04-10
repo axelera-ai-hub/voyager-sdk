@@ -1,0 +1,31 @@
+input:
+  type: image
+preprocess:
+  - letterbox:
+      width: ${{input_width}}
+      height: ${{input_height}}
+      scaleup: True
+      half_pixel_centers: True
+  - torch-totensor:
+inference:
+  handle_all: False
+postprocess:
+  - decodeyolo26seg:
+      box_format: xyxy
+      normalized_coord: False
+      label_filter: ${{label_filter}}
+      conf_threshold: 0.25
+      nms_top_k: 300
+      use_multi_label: False
+      nms_free: True
+      dfl_size: 1
+      eval:
+        conf_threshold: 0.001
+        use_multi_label: True
+        dfl_size: 1
+
+
+operators:
+  decodeyolo26seg:
+    class: DecodeYoloSeg
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/yoloseg.py

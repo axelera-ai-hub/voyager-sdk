@@ -1,0 +1,209 @@
+axelera-model-format: 1.0.0
+
+name: parallel-fastsams-retinaface-yolo11
+
+description: A parallel model combining FastSAM, RetinaFace, and YOLO11 pose detection.
+
+pipeline:
+  - fastsam_detections:
+      model_name: fastsams-onnx
+      input:
+          source: no_tiles
+      template_path: $AXELERA_FRAMEWORK/pipeline-template/yoloseg-letterbox.yaml
+      postprocess:
+        - decodeyoloseg:
+            max_nms_boxes: 30000
+            conf_threshold: 0.7
+            nms_iou_threshold: 0.45
+            nms_top_k: 300
+
+  - face_detections:
+      model_name: retinaface-mobilenet0.25-widerface-onnx
+      input:
+          type: image
+          source: no_tiles
+          color_format: BGR
+          imreader_backend: OpenCV
+      preprocess:
+          - letterbox:
+              width: 640
+              height: 640
+              scaleup: True
+
+          - torch-totensor:
+              scale: False
+          - linear-scaling: # [0,1]
+              mean: 1, 1, 1
+              shift: -104, -117, -123
+      inference:
+          handle_all: False
+      postprocess:
+          - decode-retinaface:
+              box_format: xywh
+              normalized_coord: True
+              max_nms_boxes: 5000
+              conf_threshold: 0.2
+              nms_iou_threshold: 0.4
+              nms_class_agnostic: True
+              nms_top_k: 200
+              eval: # overrides for evaluating accuracy
+                conf_threshold: 0.02
+                nms_iou_threshold: 0.5
+                nms_top_k: 750
+  - pose_detections:
+      model_name: yolo11npose-coco
+      template_path: $AXELERA_FRAMEWORK/pipeline-template/yolopose-letterbox.yaml
+      postprocess:
+        - decodeyolopose:
+            max_nms_boxes: 30000
+            conf_threshold: 0.25
+            nms_iou_threshold: 0.45
+            nms_top_k: 300
+            eval:
+              conf_threshold: 0.001
+              nms_iou_threshold: 0.65
+  - detections:
+      model_name: resnet50x4-encoder
+      input:
+        type: image
+        source: roi
+        where: fastsam_detections
+        which: SCORE # AREA, SCORE, CENTER
+        # NOTE: For interactive CLIP search (e.g. backpacks on 2K tiles), ROIs must include
+        # smaller objects. Keeping these too large will exclude backpacks entirely, but too
+        # small will increase processing time.
+        top_k: 50
+        min_width: 300  # 96 for 2K video; 300 for 8K
+        min_height: 300
+      preprocess:
+        - resize:
+            width: 288
+            height: 288
+        - torch-totensor:
+        - normalize:
+            mean: 0.48145466, 0.4578275, 0.40821073
+            std: 0.26862954, 0.26130258, 0.27577711
+      inference:
+        postamble_onnxruntime_intra_op_num_threads: 4
+        postamble_onnxruntime_inter_op_num_threads: 4
+        postamble_onnx: ax_models/reference/apps/fastsam/clip-rn50x4-bs1-simp-part2-opt.onnx
+      postprocess:
+        - decodeembeddings:
+
+  - tracking:
+      model_name: tracker
+      input:
+        source: full
+        color_format: RGB
+      cv_process:
+        - tracker:
+            algorithm: oc-sort
+            bbox_task_name: pose_detections
+            history_length: 30
+            algo_params:
+              max_age: 50
+              min_hits: 1
+              iou_threshold: 0.3
+              max_id: 0
+
+operators:
+  decode-retinaface:
+    class: DecodeRetinaface
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/retinaface.py
+
+
+models:
+  fastsams-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/fast_sams_segm.onnx
+    weight_url: https://media.axelera.ai/artifacts/models/reference/fast_sams_segm.onnx
+    weight_md5: 80eb4366be8cfe60bb9381b3a4ede621
+    task_category: InstanceSegmentation
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 640, 640]
+    input_color_format: RGB
+    num_classes: 1
+    dataset: CocoDataset-Segment-COCO2017
+    extra_kwargs:
+      aipu_cores: 1
+
+  retinaface-mobilenet0.25-widerface-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/Retinaface_mb0.25_pytorch.onnx
+    weight_url: https://media.axelera.ai/artifacts/model_cards/weights/others/object_detection/Retinaface_mb0.25_pytorch.onnx
+    weight_md5: 9232a08b7056937f63ba26b6a3606546
+    task_category: ObjectDetection
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 640, 640]
+    input_color_format: BGR
+    num_classes: 1
+    dataset: WiderFace
+    extra_kwargs:
+      aipu_cores: 1
+      RetinaFace:
+        cfg:
+          min_sizes: [[16, 32], [64, 128], [256, 512]]
+          steps: [8, 16, 32]
+          variance: [0.1, 0.2]
+          clip: False
+  yolo11npose-coco:
+    class: AxUltralyticsYOLO
+    class_path: $AXELERA_FRAMEWORK/ax_models/yolo/ax_ultralytics.py
+    weight_path: weights/yolo11n-pose.pt
+    weight_url: https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-pose.pt
+    weight_md5: 475cd7f66ff9f02e47cf6546bcab42a7
+    task_category: KeypointDetection
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 640, 640]
+    input_color_format: RGB
+    num_classes: 1
+    dataset: CocoDataset-keypoint-COCO2017
+    extra_kwargs:
+      aipu_cores: 1
+      compilation_config:
+        quantization_scheme: per_tensor_min_max
+        ignore_weight_buffers: False
+
+  resnet50x4-encoder:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/clip_rn50x4_bs1_simp_part1.onnx
+    weight_url: https://media.axelera.ai/artifacts/models/reference/clip_rn50x4_bs1_simp_part1.onnx
+    weight_md5: f6988f9cd5957c6a47acbdedb7ee706f
+    task_category: Classification
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 288, 288]
+    input_color_format: RGB
+    dataset: DefaultRepresentativeDataset
+    extra_kwargs:
+      aipu_cores: 1
+      max_compiler_cores: 1
+
+  tracker:
+    model_type: CLASSICAL_CV
+    task_category: ObjectTracking
+
+datasets:
+  CocoDataset-Segment-COCO2017:
+    class: SegDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
+    data_dir_name: coco
+    label_type: COCO2017
+    # val_data: val2017.txt
+    # mask_size: [160, 160] # 640//4
+  DefaultRepresentativeDataset:
+    class: DataAdapter
+  WiderFace:
+    class: WiderFaceDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/widerface.py
+    data_dir_name: widerface
+    labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/face.names
+    # cal_data: train/label.txt
+    val_data: val/label.txt
+  CocoDataset-keypoint-COCO2017:
+    class: KptDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
+    data_dir_name: coco
+    label_type: COCO2017

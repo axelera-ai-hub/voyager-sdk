@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #include "../include/OCSort.hpp"
 #include <algorithm>
 #include <cmath>
@@ -33,10 +33,17 @@ OCSort::OCSort(float det_thresh_, int max_age_, int min_hits_,
     int rec_image_rect_margin_, int rec_track_min_time_since_update_at_boundary_,
     int rec_track_min_time_since_update_inside_, int rec_track_min_age_,
     float rec_track_merge_lap_thresh_, int rec_track_memory_capacity_, int rec_track_memory_max_age_)
-    : det_thresh(det_thresh_), max_age(max_age_), min_hits(min_hits_),
-      iou_threshold(iou_threshold_), delta_t(delta_t_), inertia(inertia_),
-      w_assoc_emb(w_assoc_emb_), alpha_fixed_emb(alpha_fixed_emb_),
-      aw_off(aw_off_), aw_param(aw_param_), cmc_off(cmc_off_),
+    : det_thresh(det_thresh_),
+      max_age(max_age_),
+      min_hits(min_hits_),
+      iou_threshold(iou_threshold_),
+      delta_t(delta_t_),
+      inertia(inertia_),
+      w_assoc_emb(w_assoc_emb_),
+      alpha_fixed_emb(alpha_fixed_emb_),
+      aw_off(aw_off_),
+      aw_param(aw_param_),
+      cmc_off(cmc_off_),
       enable_id_recovery(enable_id_recovery_),
       rec_image_rect_margin(rec_image_rect_margin_),
       rec_track_min_time_since_update_at_boundary(rec_track_min_time_since_update_at_boundary_),
@@ -44,7 +51,8 @@ OCSort::OCSort(float det_thresh_, int max_age_, int min_hits_,
       rec_track_min_age(rec_track_min_age_),
       rec_track_merge_lap_thresh(rec_track_merge_lap_thresh_),
       rec_track_memory_capacity(rec_track_memory_capacity_),
-      rec_track_memory_max_age(rec_track_memory_max_age_), frame_count(0)
+      rec_track_memory_max_age(rec_track_memory_max_age_),
+      frame_count(0)
 {
   const auto make_error = [](const char *param, const std::string &detail) {
     return std::invalid_argument(
@@ -109,6 +117,15 @@ OCSort::OCSort(float det_thresh_, int max_age_, int min_hits_,
   if (enable_id_recovery) {
     require(img_width_ > 0, "img_width", "must be positive when enable_id_recovery is true.");
     require(img_height_ > 0, "img_height", "must be positive when enable_id_recovery is true.");
+
+    require(max_age >= rec_track_min_time_since_update_at_boundary, "max_age",
+        "must be >= rec_track_min_time_since_update_at_boundary when enable_id_recovery is true; "
+        "this is necessary for the ID recovery feature (memory bank) to work correctly; "
+        "boundary reappearing trackers may never be added when max_age is smaller.");
+    require(max_age >= rec_track_min_time_since_update_inside, "max_age",
+        "must be >= rec_track_min_time_since_update_inside when enable_id_recovery is true; "
+        "this is necessary for the ID recovery feature (memory bank) to work correctly; "
+        "inside reappearing trackers may never be added when max_age is smaller.");
   }
 
   KalmanBoxTracker::max_id = max_id_;
@@ -171,7 +188,7 @@ mergeTracksIfTheSame(std::vector<KalmanBoxTracker> &active_tracks,
 
   // Solve LAP (Hungarian) assignment
   std::vector<int> rowsol, colsol;
-  float cost = execLapjv(cost_matrix, rowsol, colsol, true, merge_thresh, false);
+  execLapjv(cost_matrix, rowsol, colsol, true, merge_thresh, false);
 
   // Threshold for merging (tune as needed, e.g., 0.2 means cosine similarity > 0.8)
 
@@ -343,7 +360,7 @@ OCSort::update(Eigen::MatrixXf dets, Eigen::MatrixXf embs, Eigen::Matrix<float, 
         }
       }
       std::vector<int> rowsol, colsol;
-      float MIN_cost = execLapjv(iou_matrix, rowsol, colsol, true, 0.01, true);
+      execLapjv(iou_matrix, rowsol, colsol, true, 0.01, false);
       std::vector<std::vector<int>> rematched_indices;
       for (int i = 0; i < rowsol.size(); i++) {
         if (rowsol.at(i) >= 0) {
@@ -402,8 +419,8 @@ OCSort::update(Eigen::MatrixXf dets, Eigen::MatrixXf embs, Eigen::Matrix<float, 
     if (use_reid)
       det_emb_ = dets_embs.row(i);
 
-    KalmanBoxTracker trk = KalmanBoxTracker(
-        tmp_bbox, det_emb_, cls_, map_dets_first_to_dets[i], delta_t);
+    KalmanBoxTracker trk = KalmanBoxTracker(tmp_bbox, det_emb_, cls_,
+        map_dets_first_to_dets[i], delta_t, frame_count);
     // Append newly created tracker to the end of trackers
     trackers.push_back(trk);
   }
@@ -412,6 +429,11 @@ OCSort::update(Eigen::MatrixXf dets, Eigen::MatrixXf embs, Eigen::Matrix<float, 
   lost_trackers.clear();
   not_active_trackers.clear();
   for (int i = trackers.size() - 1; i >= 0; i--) {
+    if (trackers.at(i).time_since_update > max_age) {
+      trackers.at(i).release_id();
+      continue; // Skip this tracker - don't add to any list
+    }
+
     Eigen::Matrix<float, 1, 4> d;
     int last_observation_sum = trackers.at(i).last_observation.sum();
     if (last_observation_sum < 0) {
@@ -469,12 +491,14 @@ OCSort::update(Eigen::MatrixXf dets, Eigen::MatrixXf embs, Eigen::Matrix<float, 
     };
 
     if (rec_track_memory_max_age >= 0) {
-      reappearing_trackers.erase(
-          std::remove_if(reappearing_trackers.begin(), reappearing_trackers.end(),
-              [&](const KalmanBoxTracker &tracker) {
-                return frames_since_update(tracker) > rec_track_memory_max_age;
-              }),
-          reappearing_trackers.end());
+      for (auto it = reappearing_trackers.begin(); it != reappearing_trackers.end();) {
+        if (frames_since_update(*it) > rec_track_memory_max_age) {
+          it->release_id();
+          it = reappearing_trackers.erase(it);
+        } else {
+          ++it;
+        }
+      }
     }
 
     if (rec_track_memory_capacity >= 0
@@ -485,6 +509,9 @@ OCSort::update(Eigen::MatrixXf dets, Eigen::MatrixXf embs, Eigen::Matrix<float, 
             return frames_since_update(lhs) < frames_since_update(rhs);
           });
 
+      for (auto it = nth; it != reappearing_trackers.end(); ++it) {
+        it->release_id();
+      }
       reappearing_trackers.erase(nth, reappearing_trackers.end());
     }
   }

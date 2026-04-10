@@ -51,7 +51,9 @@ struct ObservedObject {
   private:
   // Private constructor to enforce the use of factory methods
   ObservedObject(float x1, float y1, float x2, float y2, int classId, float score)
-      : bbox({ x1, y1, x2, y2 }), class_id(classId), score(score)
+      : bbox({ x1, y1, x2, y2 }),
+        class_id(classId),
+        score(score)
   {
   }
 };
@@ -84,8 +86,11 @@ struct TrackedObject {
 
   TrackedObject(float x1, float y1, float x2, float y2, int trackId = -1,
       int classId = -1, float scoreVal = -1.0f, TrackState trackState = kUndefined)
-      : bbox{ x1, y1, x2, y2 }, score(scoreVal), class_id(classId),
-        track_id(trackId), state(trackState)
+      : bbox{ x1, y1, x2, y2 },
+        score(scoreVal),
+        class_id(classId),
+        track_id(trackId),
+        state(trackState)
   {
   }
 };

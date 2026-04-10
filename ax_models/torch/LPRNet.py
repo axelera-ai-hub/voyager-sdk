@@ -107,19 +107,12 @@ def build_lprnet(lpr_max_len, class_num, dropout_rate=0.5):
 class LPRNetTorchModel(TorchModel):
     def init_model_deploy(self, model_info: types.ModelInfo, dataset_config: dict, **kwargs):
         weights = Path(model_info.weight_path)
-        if not weights.exists() or (
-            model_info.weight_md5 and not utils.md5_validates(weights, model_info.weight_md5)
-        ):
-            if not model_info.weight_url:
-                raise ValueError(
-                    f'No suitable weights found for {model_info.name} at {weights} and no weight_url specified'
-                )
-            try:
-                utils.download(model_info.weight_url, weights, model_info.weight_md5)
-            except Exception as e:
-                raise RuntimeError(
-                    f'Failed to download {weights} from {model_info.weight_url}\n\t{e}'
-                ) from None
+        utils.download_model_artifacts(
+            weights,
+            model_info.weight_url,
+            model_info.weight_md5,
+            model_name=model_info.name,
+        )
         LOG.debug(f'Load model with weights {weights}')
 
         if 'LPRNet' not in kwargs:

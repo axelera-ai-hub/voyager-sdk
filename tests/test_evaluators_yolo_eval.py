@@ -238,3 +238,64 @@ def test_collect_metrics(obj_evaluator, mock_evaluator):
 
     mock_evaluator.summary.assert_called_once()
     assert isinstance(result, EvalResult)
+
+
+def test_segmentation_eval_with_proper_binarization():
+    """
+    Test that segmentation evaluation produces correct metrics when masks are properly binarized.
+    This ensures that uint8 masks (0-255) are converted to binary (0.0/1.0) as expected.
+    Without proper binarization, evaluation metrics would be incorrect.
+    """
+    calculator = YoloEvalmAPCalculator(is_seg=True, eval_seg_overlap=False, is_lazy=False)
+
+    # Create a prediction mask with varied uint8 values (1-255, not just 255)
+    # These represent the scaled output from process_mask in bbox_state.py
+    # All values > 0 should become 1.0 after binarization
+    # One pixel deviates: position [0,2] has 100 (will be 1.0) but GT has 0
+    pred_masks_uint8 = np.array(
+        [
+            [[0, 50, 100], [150, 200, 255], [0, 0, 128]],  # uint8: mixed 1-255 values
+        ],
+        dtype=np.uint8,
+    )
+
+    # GT mask is binary (0 or 1) - almost matching pred pattern but one pixel differs
+    # Position [0,2] is 0 in GT but pred has 100 (which becomes 1.0 after binarization)
+    # Shape is (h, w) - will be expanded to (1, h, w) by the evaluation code
+    gt_masks_binary = np.array(
+        [[0, 1, 0], [1, 1, 1], [0, 0, 1]],  # Binary ground truth (h, w) - one mismatch
+        dtype=np.uint8,
+    )
+
+    pred_all = [
+        {
+            'boxes': np.array([[10.0, 10.0, 40.0, 40.0]]),
+            'labels': np.array([0]),
+            'scores': np.array([0.95]),
+            'masks': pred_masks_uint8,
+        }
+    ]
+
+    label_all = [
+        {
+            'boxes': np.array([[10.0, 10.0, 40.0, 40.0]]),
+            'labels': np.array([0]),
+            'masks': (gt_masks_binary, np.array([0])),
+        }
+    ]
+
+    result = calculator(pred_all, label_all)
+
+    # Extract mAP metrics
+    metric_dict = {name: (agg, val) for name, agg, val in result}
+
+    # With proper binarization:
+    # pred: [[0,1,1], [1,1,1], [0,0,1]] (after binarization of [0,50,100,150,200,255,0,0,128])
+    # GT:   [[0,1,0], [1,1,1], [0,0,1]]
+    # One pixel differs at position [0,2]
+    # The actual mAP calculation involves IoU thresholding and AP computation
+    mask_map = metric_dict.get('mAP', (None, '0.00%'))[1]
+
+    # Check for expected value with proper binarization
+    # The exact value is 69.65% based on the IoU and AP calculation
+    assert mask_map == '69.65%', f"Expected mAP=69.65% with proper binarization, got {mask_map}"

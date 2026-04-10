@@ -102,7 +102,6 @@
     preprocess1_mode: write
     preprocess2_lib: libtransform_padding.so
     preprocess2_options: "padding:0,0,0,0,0,0,0,52;fill:-128"
-    preprocess2_batch: 1
     postprocess0_lib: libdecode_yolov5.so
     postprocess0_options: "meta_key:{{task_name0}};anchors:1.25,1.625,2.0,3.75,4.125,2.875,1.875,3.8125,3.875,2.8125,3.6875,7.4375,3.625,2.8125,4.875,6.1875,11.65625,10.1875;classes:80;confidence_threshold:0.25;scales:0.08142165094614029,0.09499982744455338,0.09290479868650436;zero_points:70,82,66;topk:{{max_boxes}};multiclass:0;sigmoid_in_postprocess:0;transpose:1;classlabels_file:{{label_file}};model_width:640;model_height:640;scale_up:1;letterbox:1"
     postprocess0_mode: read

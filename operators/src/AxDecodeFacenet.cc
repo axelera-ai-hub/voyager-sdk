@@ -434,8 +434,8 @@ init_and_set_static_properties(
       input, "decoder_name", "recog_static_properties", props->decoder_name);
   props->distance_threshold = Ax::get_property(input, "distance_threshold",
       "recog_static_properties", props->distance_threshold);
-  props->metric_type = Ax::get_property(
-      input, "metric_type", "recog_static_properties", props->metric_type);
+  props->metric_type = ax_utils::parse_metric_type(
+      input, props->metric_type, "recog_static_properties");
 
   props->pair_validation = Ax::get_property(input, "pair_validation",
       "recog_static_properties", props->pair_validation);

@@ -12,9 +12,6 @@
     lib: libinplace_addstreamid.so
     mode: meta
     options: stream_id:0
-  - instance: axtransform
-    lib: libtransform_colorconvert_cl.so
-    options: format:rgb
   - instance: queue
     name: queue0
     connections:
@@ -31,10 +28,9 @@
     dmabuf_outputs: true
     num_children: 3
     preprocess0_lib: libtransform_resize_cl.so
-    preprocess0_options: width:640;height:640;padding:114;letterbox:1;scale_up:1;to_tensor:1;mean:0.,0.,0.;std:1.,1.,1.;quant_scale:0.003919653594493866;quant_zeropoint:-128.0
+    preprocess0_options: width:640;height:640;padding:114;letterbox:1;scale_up:1;to_tensor:1;mean:0.,0.,0.;std:1.,1.,1.;quant_scale:0.003919653594493866;quant_zeropoint:-128.0;format:rgba
     preprocess1_lib: libtransform_padding.so
     preprocess1_options: padding:{{pads0}};fill:-128
-    preprocess1_batch: 1
     postprocess0_lib: libdecode_yolov5.so
     postprocess0_options: meta_key:{{task_name0}};anchors:1.25,1.625,2.0,3.75,4.125,2.875,1.875,3.8125,3.875,2.8125,3.6875,7.4375,3.625,2.8125,4.875,6.1875,11.65625,10.1875;classes:80;confidence_threshold:0.3;scales:0.0038571979384869337,0.0038748111110180616,0.0038069516886025667;zero_points:-128,-128,-128;topk:30000;multiclass:0;sigmoid_in_postprocess:0;transpose:1;classlabels_file:{{label_file}};model_width:640;model_height:640;scale_up:1;letterbox:1
     postprocess0_mode: read
@@ -59,15 +55,14 @@
     dmabuf_outputs: true
     num_children: 0
     meta: "{{task_name1}}_adapted_as_input_for_{{task_name2}}"
-    preprocess0_lib: libtransform_roicrop.so
-    preprocess0_options: meta_key:{{task_name1}}_adapted_as_input_for_{{task_name2}}
+    preprocess0_lib: libtransform_roicrop_cl.so
+    preprocess0_options: meta_key:{{task_name1}}_adapted_as_input_for_{{task_name2}};format:rgba
     preprocess1_lib: libtransform_centrecropextra.so
     preprocess1_options: scalesize:256;crop_width:224;crop_height:224
     preprocess2_lib: libtransform_resize_cl.so
-    preprocess2_options: width:224;height:224;to_tensor:1;mean:0.485,0.456,0.406;std:0.229,0.224,0.225;quant_scale:0.01863;quant_zeropoint:-14.0
+    preprocess2_options: width:224;height:224;to_tensor:1;mean:0.485,0.456,0.406;std:0.229,0.224,0.225;quant_scale:0.01863;quant_zeropoint:-14.0;format:rgba
     preprocess3_lib: libtransform_padding.so
     preprocess3_options: padding:{{pads2}};fill:-14
-    preprocess3_batch: 1
     postprocess0_lib: libtransform_dequantize.so
     postprocess0_options: dequant_scale:{{dequant_scale2}};dequant_zeropoint:{{dequant_zeropoint2}};transpose:0;dequant_lut:1
     postprocess1_lib: libdecode_classification.so

@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #include "gtest/gtest.h"
 #include <gmodule.h>
 #include "gmock/gmock.h"
@@ -393,15 +393,10 @@ TEST(yolov8_focal_loss, detects_no_focal_loss_from_box_depth_4)
 
   std::unordered_map<std::string, std::string> properties = {
     { "meta_key", meta_identifier },
-    { "padding", "0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0" },
-    { "zero_points", "0, 0" },
-    { "scales", "1.0, 1.0" },
-    { "confidence_threshold", "0.20" },
-    { "classes", "1" },
-    { "multiclass", "0" },
-    { "model_width", "640" },
-    { "model_height", "640" },
-    { "scale_up", "1" },
+    { "padding", "0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0" }, { "zero_points", "0, 0" },
+    { "scales", "1.0, 1.0" }, { "confidence_threshold", "0.20" }, { "classes", "1" },
+    { "multiclass", "0" }, { "model_width", "640" }, { "model_height", "640" },
+    { "scale_up", "1" }, { "dfl_size", "1" }, // Box depth = 4 means dfl_size = 1
   };
   auto decoder = Ax::LoadDecode("yolov8", properties);
 
@@ -453,16 +448,12 @@ TEST(yolov8_focal_loss, dequantize_tables_used_for_non_focal_loss)
   std::string meta_identifier = "yolov8";
 
   std::unordered_map<std::string, std::string> properties = {
-    { "meta_key", meta_identifier },
-    { "padding", "0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0" },
+    { "meta_key", meta_identifier }, { "padding", "0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0" },
     { "zero_points", "0, 5" }, // Different zero points for scores and boxes
     { "scales", "1.0, 2.0" }, // Different scales
-    { "confidence_threshold", "0.20" },
-    { "classes", "1" },
-    { "multiclass", "0" },
-    { "model_width", "640" },
-    { "model_height", "640" },
-    { "scale_up", "1" },
+    { "confidence_threshold", "0.20" }, { "classes", "1" },
+    { "multiclass", "0" }, { "model_width", "640" }, { "model_height", "640" },
+    { "scale_up", "1" }, { "dfl_size", "1" }, // Box depth = 4 means dfl_size = 1
   };
   auto decoder = Ax::LoadDecode("yolov8", properties);
 

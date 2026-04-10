@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 # Makefile and build system integration
 
 import collections
@@ -288,7 +288,7 @@ def get_model_details(
     apply_framework_dir: bool = True,
     llm_in_model_cards: bool = False,
 ) -> ModelCollection:
-    prefix = os.path.expandvars("$AXELERA_FRAMEWORK/") if apply_framework_dir else ""
+    prefix = str(config.env.framework) + '/' if apply_framework_dir else ""
     model_cards = get_models(f"{prefix}ax_models/model_cards", "mc-")
     model_customers = get_models(f"{prefix}customers", "")
     model_llm_local = get_models(f"{prefix}ax_models/llm", "")

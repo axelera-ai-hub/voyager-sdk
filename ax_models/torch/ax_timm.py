@@ -43,13 +43,13 @@ class AxTimmModel(base_torch.TorchModel):
         )
 
         if model_info.weight_path:
-            if not Path(model_info.weight_path).exists():
-                if model_info.weight_url:
-                    utils.download(
-                        model_info.weight_url, Path(model_info.weight_path), model_info.weight_md5
-                    )
-                else:
-                    raise FileNotFoundError(f"weight_path: {model_info.weight_path} not found")
+            weights = Path(model_info.weight_path)
+            utils.download_model_artifacts(
+                weights,
+                model_info.weight_url,
+                model_info.weight_md5,
+                model_name=model_info.name,
+            )
 
             # Always load the model with its default configuration first
             self.torch_model = timm.create_model(model_name, pretrained=False)

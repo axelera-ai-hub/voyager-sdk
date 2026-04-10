@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright Axelera AI, 2025
 """
 ML Training Environment Setup Script
 
@@ -35,7 +36,7 @@ from setup_pytorch import (
 # Common ML dependencies; consider to move to a separate requirements file
 ML_REQUIREMENTS = [
     "timm==0.9.8",
-    "matplotlib==3.8.0",
+    "matplotlib==3.10.8",
     "tqdm==4.66.1",
     "datasets==2.15.0",
     "pytorch-accelerated==0.1.52",
@@ -75,6 +76,7 @@ def parse_args():
     parser.add_argument(
         "--no-activation-script",
         action="store_true",
+        dest='existing_venv',
         help="Don't generate a separate activation script (used by containerless.sh)",
     )
     return parser.parse_args()
@@ -140,7 +142,7 @@ def run_command(cmd, env=None, check=True, shell=False):
         return e.output, e.returncode
 
 
-def create_virtual_environment(env_dir, force_reinstall=False):
+def create_venv(env_dir, force_reinstall=False):
     """Create a virtual environment at the specified path."""
     print(f"Creating virtual environment at: {env_dir}")
     if os.path.exists(env_dir):
@@ -149,11 +151,11 @@ def create_virtual_environment(env_dir, force_reinstall=False):
             shutil.rmtree(env_dir)
         else:
             print(f"Using existing environment at {env_dir}")
-            return True  # Return True to indicate environment already exists
+            return False  # to indicate environment not created
 
     venv.create(env_dir, with_pip=True)
     print_colored(f"Virtual environment created successfully at {env_dir}", "green")
-    return False  # Return False to indicate new environment was created
+    return True  # to indicate new environment was created
 
 
 def get_pip_path(env_dir):
@@ -245,7 +247,7 @@ def main():
     args = parse_args()
     env_dir = args.env_dir
 
-    if os.environ.get('VIRTUAL_ENV'):
+    if not args.existing_venv and os.environ.get('VIRTUAL_ENV'):
         print_colored("\nWARNING: You are currently in a Python virtual environment.", "yellow")
         print("It's recommended to run this script outside any virtual environment.")
         response = input("Do you want to continue anyway? (y/n): ")
@@ -253,9 +255,8 @@ def main():
             print("Exiting...")
             sys.exit(0)
 
-    env_exists = create_virtual_environment(env_dir, force_reinstall=args.force_reinstall)
-
-    if not env_exists or args.force_reinstall:
+    need_install = args.existing_venv or create_venv(env_dir, args.force_reinstall)
+    if need_install or args.force_reinstall:
         install_dependencies(env_dir, args.torch_version, not args.no_cuda)
         register_with_jupyter(env_dir)
         python_path = get_python_path(env_dir)
@@ -264,7 +265,7 @@ def main():
         print_colored("Using existing environment - skipping package installation", "green")
         print("Use --force-reinstall flag to force package reinstallation")
 
-    if not args.no_activation_script:
+    if not args.existing_venv:
         print_activation_instructions(env_dir)
 
     return 0

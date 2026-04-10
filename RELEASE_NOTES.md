@@ -1,284 +1,279 @@
-![](/docs/images/Ax_Page_Banner_2500x168_01.png)
-# Voyager SDK release notes v1.5
+# Voyager SDK release notes v1.6
 
-- [Voyager SDK release notes v1.5](#voyager-sdk-release-notes-v15)
-  - [Voyager SDK release notes v1.5.3](#voyager-sdk-release-notes-v153)
-  - [Fixed Issues Since v1.5.2](#fixed-issues-since-v152)
-  - [New Features / Support Since v1.5.2](#new-features--support-since-v152)
-  - [Document Updates Since v1.5.2](#document-updates-since-v152) 
-  - [Voyager SDK release notes v1.5.2](#voyager-sdk-release-notes-v152)
-  - [Fixed Issues Since v1.5.1](#fixed-issues-since-v151)
-  - [New Features / Support Since v1.5.1](#new-features--support-since-v151)
-  - [Document Updates Since v1.5.1](#document-updates-since-v151)
-  - [Voyager SDK release notes v1.5.1](#voyager-sdk-release-notes-v151)
-  - [Release Qualification](#release-qualification)
-  - [New Features / Support](#new-features--support)
-    - [New Axelera AI Cards and Systems](#new-axelera-ai-cards-and-systems)
-    - [New Platforms](#new-platforms)
-    - [New Networks Supported](#new-networks-supported)
-      - [New models for Image Classification](#new-models-for-image-classification)
-      - [New models for Oriented Bounding Boxes Object Detection](#new-models-for-oriented-bounding-boxes-object-detection)
-      - [New models for Instance Segmentation](#new-models-for-instance-segmentation)
-      - [New models for Keypoint Detection](#new-models-for-keypoint-detection)
-    - [End-to-End Pipelines](#end-to-end-pipelines)
-    - [Installation](#installation)
-    - [AI Pipeline Builder](#ai-pipeline-builder)
-    - [Beta Model Compiler](#beta-model-compiler)
-    - [Runtime](#runtime)
-    - [Tools](#tools)
-    - [Firmware](#firmware)
-  - [Breaking Changes](#breaking-changes)
-  - [Fixed Issues Since Last Release](#fixed-issues-since-last-release)
-  - [Known Issues and Limitations](#known-issues-and-limitations)
-  - [System Requirement](#system-requirement)
-    - [Development Environment](#development-environment)
-    - [Runtime Environment](#runtime-environment)
-  - [Further Support](#further-support)
+- [Voyager SDK release notes v1.6](#voyager-sdk-release-notes-v16)
+    - [Voyager SDK release notes v1.6.0](#voyager-sdk-release-notes-v160)
+    - [Release Qualification](#release-qualification)
+    - [New Features / Support](#new-features--support)
+        - [New Axelera AI Cards and Systems](#new-axelera-ai-cards-and-systems)
+        - [New Platforms](#new-platforms)
+        - [New Networks Supported](#new-networks-supported)
+            - [New models for Object Detection](#new-models-for-object-detection)
+            - [New models for Instance Segmentation](#new-models-for-instance-segmentation)
+            - [New models for Keypoint / Pose Detection](#new-models-for-keypoint--pose-detection)
+            - [New models for Oriented Bounding Boxes Object Detection](#new-models-for-oriented-bounding-boxes-object-detection)
+            - [New models for Re-Identification](#new-models-for-re-identification)
+        - [End-to-End Pipelines](#end-to-end-pipelines)
+        - [Installation](#installation)
+        - [AI Pipeline Builder](#ai-pipeline-builder)
+            - [YAML Pipeline Builder](#yaml-pipeline-builder)
+            - [\[Alpha\] Pipeline Builder API](#alpha-pipeline-builder-api)
+            - [AxLLM](#axllm)
+        - [Beta Model Compiler](#beta-model-compiler)
+        - [Runtime](#runtime)
+        - [Tools](#tools)
+        - [Firmware](#firmware)
+    - [Breaking Changes](#breaking-changes)
+    - [Fixed Issues Since Last Release](#fixed-issues-since-last-release)
+    - [Known Issues and Limitations](#known-issues-and-limitations)
+    - [System Requirement](#system-requirement)
+        - [Development Environment](#development-environment)
+        - [Runtime Environment](#runtime-environment)
+    - [Further Support](#further-support)
 
+## Voyager SDK release notes v1.6.0
 
-## Voyager SDK release notes v1.5.3
-This release adds support for YOLO26 from Ultralytics(TM). The model is available for in the
-n/s/m/l configurations.
+Voyager SDK v1.6.0 introduces support for new Axelera hardware, host platforms and operating systems. The release expands installation flexibility, pipeline APIs, the model zoo and end-to-end pipelines, and development tools.
 
-See [Ultralytics YOLO26](https://docs.ultralytics.com/models/yolo26/) for more information.
-
-This release also addresses several issues found in v1.5.2 and delivers targeted improvements to
-stability, compatibility, and developer experience.
-
-## Fixed Issues Since v1.5.2
-- Fixed resource leaks occurring during shutting down of a GStreamer or AxInferenceNet pipeline.
-- Fixed a segmentation fault when recreating a pipeline with a tracker.
-- Fixed an OpenCL Event per-frame memory leak.
-- Fixed a segmentation fault in the face recognition pipeline when no faces were detected in the primary model.
-- Ensure an OpenCL color convert is used for secondary models in a cascaded pipeline improving end-to-end pipeline performance.
-- Prevent a deadlock on systems with more than 8 Metis devices and a single input stream.
-
-## New Features / Support Since v1.5.2
-- Support for YOLO26s, YOLO26m, YOLO26l, YOLO26x. Prebuilt models trained on coco are available under...
-  - [YOLO26n](/ax_models/zoo/yolo/object_detection/yolo26n-coco-onnx.yaml)
-  - [YOLO26s](/ax_models/zoo/yolo/object_detection/yolo26s-coco-onnx.yaml)
-  - [YOLO26m](/ax_models/zoo/yolo/object_detection/yolo26m-coco-onnx.yaml)
-  - [YOLO26l](/ax_models/zoo/yolo/object_detection/yolo26l-coco-onnx.yaml)
-
-  See performance and accuracy data [here](/docs/reference/model_zoo.md#object-detection).
-- Optimised DMA Buf handling for better performance, particularly on systems with a discrete GPU.
-- Optimised Semantic Segmentation network decoding by avoiding some unnecessary copies of
-  segmentation data.
-
-## Document Updates Since v1.5.2
-- Added troubleshooting and verification sections to axmonitor documentation.
-
-## Voyager SDK release notes v1.5.2
-This release addresses several issues found in v1.5.1 and delivers targeted improvements to stability, compatibility, and developer experience.
-
-## Fixed Issues Since v1.5.1
-- Fixed build failures for ImageNet networks using HINT instructions.
-- Fixed `NormaliseCL` to correctly handle non‑4‑channel inputs.
-- Prevented segmentation faults in YOLO decoders when receiving an unexpected number of input tensors.
-
-## New Features / Support Since 1.5.1
-- Runtime now supports executing AXM files directly, streamlining deployment.
-- Added selectable network protocol for RTSP sources in `inference.py` to improve input flexibility.
-- Added `create_inference_net` overloads to allow existing code to compile without a context parameter.
-
-## Document Updates Since v1.5.1
-- General refinements across tutorials and references aligned with the above changes.
-
-## Voyager SDK release notes v1.5.1
-- Support for Ubuntu 24.04 with Python 3.12 for development and running inference.
-- A new computer vision task Oriented Bounding Boxes Object Detection added to the model zoo.
-- New models added for image classification, instance segmentation and keypoint detection.
-- Enhanced support on Windows including running LLMs and full functionality of `axmonitor`.
+- Metis M.2 Max support, delivering PCIe-class performance in the M.2 form factor.
+- Standalone Python wheels with ManyLinux support for broader Linux distribution coverage.
+- New Pipeline Builder API for defining and executing pipelines from Python.
 
 ## Release Qualification
-This is a production-ready release of Voyager SDK. Software components and features that are in
-development are marked "\[Beta\]" indicating tested functionality that will continue to grow in
-future releases or "\[Experimental\]" indicating early-stage feature with limited testing.
+
+This is a production-ready release of Voyager SDK. Software components and features that are in development are marked with one of the following maturity labels:
+
+- **Experimental:** May change or be removed without notice; no support guarantees.
+- **Alpha:** Usable but incomplete; breaking changes possible.
+- **Beta:** Feature-complete but not fully stable; committed to developing this further in future releases.
 
 ## New Features / Support
 
 ### New Axelera AI Cards and Systems
-- The release adds support for
-  [Metis 4-chip PCIe Cards](https://store.axelera.ai/collections/ai-acceleration-cards/products/pcie-ai-accelerator-card-powered-by-4-metis-aipu) including both the 16GB and the 64GB variants.
 
-### New Platforms
-- \[Beta\] Nvidia Jetson Orin Nano (Arm Cortex-A78AE).
+- The release adds \[Beta\] support for [Metis M.2 Max](https://axelera.ai/ai-accelerators/metis-m2-ai-acceleration-card) engineering samples.
+
+### Host Platform Support
+
+#### Validated hardware platforms
+
+- Dell Pro Slim Plus XE5 (Intel Core Ultra Series 2).
+- AsRock NUC Box-125 (Intel Core Ultra Series 1).
+- Lenovo P3 Tiny Gen2 (Intel Core i)
+- Kontron KISS 1U V4 ADL 1U (Intel Core i)
+- Supermicro SYS-322GA-NR (Intel Xeon 6)
+
+The full list of Validated Host Systems for Axelera Metis Cards is available [here](https://support.axelera.ai/hc/en-us/articles/34274775900178-Validated-Host-Systems-for-Axelera-Metis-AI-Accelerator-Cards).
+
+#### Operating Systems
+
+- Yocto layer (`meta-axelera`) for integrating Axelera AI hardware in custom Yocto distributions available at [meta-axelera](https://github.com/axelera-ai-hub/meta-axelera), removing the need for manual integration.
+- Yocto build sources for the Metis Compute Board are available at [axelera-aisbc-bsp](https://github.com/axelera-ai-hub/axelera-aisbc-bsp), enabling users to build a custom Linux image for the single-board computer.
+- \[Beta\] Debian 12 and 13 on x86 host systems.
+- \[Beta\] Red Hat Enterprise Linux 9 and 10 on x86 host systems.
+- \[Alpha\] Runtime environment supported (refer to `axelera-rt` in Installation section) on Yocto-based Linux using the new Pipeline Builder API.
+
+#### Virtualization support
+
+\[Beta\] PCIe passthrough in KVM virtual machines. Metis devices can be passed through from the host to a VM, with the entire runtime stack including the host driver running inside the guest.
 
 ### New Networks Supported
 
-Voyager SDK model zoo includes computer vision tasks and LLMs. For a full list of supported models
-and data about their performance and accuracy see [here](/docs/reference/model_zoo.md).
+Voyager SDK model zoo includes computer vision tasks and LLMs. For a full list of supported models and data about their performance and accuracy see [here](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/docs/reference/model_zoo.md).
 
-Models that are supported but not included in the model zoo are documented
-[here](/docs/reference/additional_models.md).
+Models that are supported but not included in the model zoo are documented [here](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/docs/reference/additional_models.md).
 
-For convenience, pre-compiled models are available to download by running `axdownloadmodel` in the
-parent folder of Voyager SDK.
+For convenience, pre-compiled models are available to download by running `axdownloadmodel` in the parent folder of Voyager SDK.
 
-#### New models for Image Classification
+#### New models for Object Detection
 
-| Model Name                                                                                     | Resolution | Format        |
-| :--------------------------------------------------------------------------------------------- | :--------- | :------------ |
-| [ResNeXt50_32x4d](/ax_models/zoo/torchvision/classification/resnext50_32x4d-imagenet.yaml)     | 224x224    | Pytorch, ONNX |
-| [Wide ResNet-50](/ax_models/zoo/torchvision/classification/wide_resnet50-imagenet.yaml)        | 224x224    | Pytorch, ONNX |
-| [MobilenetV3-large](/ax_models/zoo/torchvision/classification/mobilenetv3_large-imagenet.yaml) | 224x224    | Pytorch, ONNX |
-| [DenseNet-121](/ax_models/zoo/torchvision/classification/densenet121-imagenet.yaml)            | 224x224    | Pytorch, ONNX |
-| [RegNetX-1_6GF](/ax_models/zoo/torchvision/classification/regnet_x_1_6gf-imagenet.yaml)        | 224x224    | Pytorch, ONNX |
-| [RegNetX-400MF](/ax_models/zoo/torchvision/classification/regnet_x_400mf-imagenet.yaml)        | 224x224    | Pytorch, ONNX |
-| [RegNetY-1_6GF](/ax_models/zoo/torchvision/classification/regnet_y_1_6gf-imagenet.yaml)        | 224x224    | Pytorch, ONNX |
-| [RegNetY-400MF](/ax_models/zoo/torchvision/classification/regnet_y_400mf-imagenet.yaml)        | 224x224    | Pytorch, ONNX |
+| Model Name | Resolution | Format |
+| --- | --- | --- |
+| [GELAN-S](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/object_detection/gelan-s-coco-onnx.yaml) | 640x640 | ONNX |
+| [GELAN-M](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/object_detection/gelan-m-coco-onnx.yaml) | 640x640 | ONNX |
+| [GELAN-C](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/object_detection/gelan-c-coco-onnx.yaml) | 640x640 | ONNX |
+| [YOLO26-X](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/object_detection/yolo26x-coco-onnx.yaml) | 640x640 | ONNX |
+| [YOLO-NAS S](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/object_detection/yolonas-s-coco-onnx.yaml) | 640x640 | ONNX |
+| [YOLO-NAS M](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/object_detection/yolonas-m-coco-onnx.yaml) | 640x640 | ONNX |
+| [YOLO-NAS L](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/object_detection/yolonas-l-coco-onnx.yaml) | 640x640 | ONNX |
+
+The GELAN family (Generalized Efficient Layer Aggregation Network) is the architecture underlying YOLOv9. YOLO-NAS (Neural Architecture Search) models are Deci AI's accuracy-optimised architecture with quantisation-aware blocks.
+
+#### New models for Instance Segmentation
+
+| Model Name | Resolution | Format |
+| --- | --- | --- |
+| [YOLO26-N Seg](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/instance_segmentation/yolo26nseg-coco-onnx.yaml) | 640x640 | ONNX |
+| [YOLO26-S Seg](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/instance_segmentation/yolo26sseg-coco-onnx.yaml) | 640x640 | ONNX |
+| [YOLO26-M Seg](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/instance_segmentation/yolo26mseg-coco-onnx.yaml) | 640x640 | ONNX |
+| [YOLO26-L Seg](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/instance_segmentation/yolo26lseg-coco-onnx.yaml) | 640x640 | ONNX |
+| [YOLO26-X Seg](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/instance_segmentation/yolo26xseg-coco-onnx.yaml) | 640x640 | ONNX |
+
+#### New models for Keypoint / Pose Detection
+
+| Model Name | Resolution | Format |
+| --- | --- | --- |
+| [YOLO26-N Pose](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/keypoint_detection/yolo26npose-coco-onnx.yaml) | 640x640 | ONNX |
+| [YOLO26-S Pose](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/keypoint_detection/yolo26spose-coco-onnx.yaml) | 640x640 | ONNX |
+| [YOLO26-M Pose](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/keypoint_detection/yolo26mpose-coco-onnx.yaml) | 640x640 | ONNX |
+| [YOLO26-L Pose](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/keypoint_detection/yolo26lpose-coco-onnx.yaml) | 640x640 | ONNX |
+| [YOLO26-X Pose](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/keypoint_detection/yolo26xpose-coco-onnx.yaml) | 640x640 | ONNX |
 
 #### New models for Oriented Bounding Boxes Object Detection
 
-| Model Name                                                                      | Resolution | Format |
-| :------------------------------------------------------------------------------ | :--------- | :----- |
-| [Yolov8n-obb](/ax_models/zoo/yolo/obb_detection/yolov8n-obb-dotav1-onnx.yaml)   | 640x640    | ONNX   |
-| [Yolov8l-obb](/ax_models/zoo/yolo/obb_detection/yolov8l-obb-dotav1-onnx.yaml)   | 640x640    | ONNX   |
-| [Yolov11n-obb](/ax_models/zoo/yolo/obb_detection/yolo11n-obb-dotav1-onnx.yaml)  | 640x640    | ONNX   |
-| [Yolov11l-obb](/ax_models/zoo/yolo/obb_detection/yolo11l-obb-dotav1-onnx.yaml)  | 640x640    | ONNX   |
+| Model Name | Resolution | Format |
+| --- | --- | --- |
+| [YOLO26-N OBB](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/obb_detection/yolo26n-obb-dotav1-onnx.yaml) | 640x640 | ONNX |
+| [YOLO26-S OBB](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/obb_detection/yolo26s-obb-dotav1-onnx.yaml) | 640x640 | ONNX |
+| [YOLO26-M OBB](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/obb_detection/yolo26m-obb-dotav1-onnx.yaml) | 640x640 | ONNX |
+| [YOLO26-L OBB](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/obb_detection/yolo26l-obb-dotav1-onnx.yaml) | 640x640 | ONNX |
+| [YOLO26-X OBB](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/yolo/obb_detection/yolo26x-obb-dotav1-onnx.yaml) | 640x640 | ONNX |
 
-#### New models for Instance Segmentation
-| Model Name                                                                          | Resolution | Format          |
-| :---------------------------------------------------------------------------------- | :--------- | :-------------- |
-| [Yolov8m-seg](/ax_models/zoo/yolo/instance_segmentation/yolov8mseg-coco.yaml)       | 640x640    | Pytorch, ONNX   |
+#### New models for Re-Identification
 
-#### New models for Keypoint Detection
-| Model Name                                                                   | Resolution | Format        |
-| :--------------------------------------------------------------------------- | :--------- | :------------ |
-| [Yolov8m-pose](/ax_models/zoo/yolo/keypoint_detection/yolov8mpose-coco.yaml) | 640x640    | Pytorch, ONNX |
+| Model Name | Resolution | Format |
+| --- | --- | --- |
+| [SBS-S50](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/zoo/torch/sbs-s50-market1501-onnx.yaml) | 256x128 | ONNX |
+
+SBS-S50 is a Re-ID backbone used with the Deep-OC-SORT tracker, enabling the full re-identification tracking pipeline on Axelera hardware.
 
 ### End-to-End Pipelines
-- New YAML files for all new models offered in our model zoo in this release (see tables above).
-- Enhanced multi-object tracking features and examples:
-  - \[Experimental\] New Track ID Recovery Mechanism: Introduced a memory bank for track ID
-    recovery, restoring a person's ID after they leave and subsequently reappear.
-    See: [yolox-deep-oc-sort-osnet-membank.yaml](/ax_models/reference/cascade/with_tracker/yolox-deep-oc-sort-osnet-membank.yaml).
-  - Multi-Object Tracking (MOT) with Re-ID example in C++ showcasing the built-in OC-SORT using
-    `AxInferenceNet`. This allows flexible configuration to enable Deep-OC-SORT (using OSNet for
-    Re-ID) and further activate the memory bank via tracking parameters.
-    Refer to: [axinferencenet_tracker.cpp](/examples/axinferencenet/axinferencenet_tracker.cpp).
-  - A new example [cross_line_count.py](/examples/cross_line_count.py) has been added which
-    demonstrates how to use a tracker in application code. Another example
-    [remote_cross_line_monitor.py](/examples/remote_cross_line_monitor.py) shows how the line
-    crossing events can be made available via a simple TCP server.
+
+- **New YAML files:** The release includes new YAML files for all new models offered in our model zoo in this release (see tables above).
+- **New parallel multi-model reference pipelines:** These demonstrate how to run multiple detection, segmentation, and face detection models simultaneously on a single input stream.
+    - [parallel-yolo11-pose-seg-retinaface.yaml](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/reference/parallel/parallel-yolo11-pose-seg-retinaface.yaml) - simultaneous detection, pose, segmentation, and face detection.
+    - [parallel-fastsams-retinaface-yolo11.yaml](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/reference/parallel/parallel-fastsams-retinaface-yolo11.yaml) - simultaneous segmentation, face detection, and object detection.
+- **New examples:**
+    - [render_to_wxpython.py](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/examples/render_to_wxpython.py) - GUI for streaming inference with live network switching (replaces render_to_ui). Supports switching between models without restarting the pipeline.
+    - [axinferencenet_local_plugin.cpp](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/examples/axinferencenet/axinferencenet_local_plugin.cpp) - raw tensor access for custom postprocessing in C++.
+- **Enhanced multi-object tracking features:**
+    - TrackTrack - a state-of-the-art multi-object tracking algorithm using iterative matching with track-aware NMS (CVPR 2025). Full implementation in C++ with Python bindings.
+    - Re-identification pipeline: Deep-OC-SORT with SBS-S50 re-identification backbone. See [deep-oc-sort-sbs50-onnx.yaml](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/model_cards/torch/deep-oc-sort-sbs50-onnx.yaml).
+    - Camera motion compensation (CMC) support for (Deep-)OC-SORT, improving tracking under camera movement. See [yolox-deep-oc-sort-cmc-osnet.yaml](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/reference/cascade/with_tracker/yolox-deep-oc-sort-cmc-osnet.yaml).
+    - \[Experimental\] Memory Bank: Enables the tracker to restore a person's ID after they leave the scene and later reappear. See [yolox-deep-oc-sort-osnet-membank.yaml](https://github.com/axelera-ai-hub/voyager-sdk/blob/latest/ax_models/reference/cascade/with_tracker/yolox-deep-oc-sort-osnet-membank.yaml).
 
 ### Installation
-- Stability improvements in Windows installation.
-- Ubuntu 24.04 native installation supported. Ubuntu 22.04 remains supported.
+
+This release introduces new installation options including standalone Python wheels and a unified PyPI index (see tutorials/install_new.md). The existing `install.sh` installer remains stable and available as a fallback.
+
+- **Python wheels:** The SDK is now split into runtime and compilation environments delivered as standalone Python wheels: `axelera-rt` and `axelera-devkit` respectively.
+    - `axelera-rt` - runtime environment (inference, device management, monitoring).
+    - `axelera-devkit` - compilation and quantization environment.
+    - Supported Python versions: 3.10, 3.11, 3.12, 3.13.
+    - ManyLinux support: the wheels can be installed across different Linux distributions (Debian 12 & 13, Red Hat Enterprise Linux 9 & 10) and Yocto images without the Axelera installer script.
+- **New PyPI index:** Python packages are now indexed by a new, single Axelera-hosted index (`https://software.axelera.ai/artifactory/axelera-pypi/`) which replaces the previous two indexes (`axelera-dev-pypi` and `axelera-runtime-pypi`). Any installation scripts or pip configuration files referencing the old URLs must be updated.
+- **Expanded PyTorch support:** The `axelera-devkit` now supports PyTorch versions 2.7 through 2.10 (previously limited to 2.9 and below).
+
+#### New and improved driver
+
+- PCIe Linux driver source is publicly available at [axelera-driver](https://github.com/axelera-ai-hub/axelera-driver), enabling building the kernel module.
+- \[Beta\] The host driver supports Debian 12 and 13 kernels.
+- \[Beta\] The host driver supports Red Hat Enterprise Linux 9 and 10 kernels. The user may build RPM packages from the driver repository.
+- See driver install using `axdevice` under the Tools section.
 
 ### AI Pipeline Builder
-- Reduced latency when using OpenCL by changing how asynchronous workloads are implemented. This
-  optimisation is always enabled.
-- New optional low latency mode that trades-off FPS for low latency added.
-  - This mode can be enabled using `--low-latency` on the command line for example with
-    `inference.py`, or using `low_latency=True` in pipeline construction. 
-  - Performance impact when using this mode compared to normal mode depends on the pipeline (see
-    tables below for examples). Smaller and faster models are more significantly impacted. Latency
-    statistics taken across all frames in the inference run are output. 
 
-    `./inference.py yolov8n-resnet50  media/traffic1_1080p.mp4@30 --no-display --low-latency`    
+#### YAML Pipeline Builder
 
-    **Video res 1080p, 30 frame rate**
-    |                       | Latency (ms) | Throughput (FPS) |
-    | :-------------------- | :----------- | :--------------- |
-    | v1.5 low latency mode | 12           | 30               |
-    | v1.5 normal mode      | 403          | 30               |
+New features have been added to the YAML Pipeline Builder:
 
-    `./inference.py yolov8n-resnet50  media/traffic1_1080p.mp4 --no-display --low-latency` 
+- **Multi-stream tiling**:
+    - Tiling pipelines now support multiple camera sources simultaneously, enabling tiled inference for each stream for high-resolution input processing.
+    - `tile[...]:source` syntax for different tiling configurations per camera.
+    - Automatic pipeline construction for tiled multi-stream scenarios.
+- **OpenCL acceleration**: Face alignment, color conversion (NV16, BGR/RGB), polar transforms, and ROI cropping on GPU.
+- **DMA buffer passthrough**: `AxInferenceNet` accepts dmabuf inputs directly, avoiding memory copies on ARM. This is particularly valuable for Metis Compute Board deployments where camera and display share DMA buffers.
+- **YOLO decoder unification**: Consolidated YOLOv8/seg/OBB decoders into single implementation, reducing code duplication. Future YOLO decoder improvements now benefit all YOLO task types.
+- **ONNX preamble integration**: Automatic extraction of preprocessing constants from ONNX graphs into pipeline operators. This ensures the pipeline exactly matches the original model's preprocessing without manual transcription.
+- **Buffer pool management**: Improved sizing for batched workloads, queue fixes for Nvidia Jetson Orin platforms.
+- **Performance optimizations** result in up to 50% end-to-end performance improvement for high-throughput model pipelines, as measured on an Intel Core-i5 platform.
 
-    **Video res 1080p, unrestricted frame rate**
-    |                       | Latency (ms) | Throughput (FPS) |
-    | :-------------------- | :----------- | :--------------- |
-    | v1.5 low latency mode | 117          | 170              |
-    | v1.5 normal mode      | 125          | 185              |
+#### \[Alpha\] Pipeline Builder API
 
-- Support for tiled inference on high-resolution video streams (4K or 8K) resulting in
-  high-accuracy detection and pose estimation for large numbers of small objects in each frame. The 
-  tiling size is configurable, while fine-grained configuration of tile size and location using a
-  JSON file allows users to have more tiles in areas of interest or where the objects are further
-  away. A [demo](/examples/demos/8k_demo.py) application is available.
-- Support for rendering to images without windows is added for embedding rendered results into
-  other UI frameworks. See examples [render_to_ui.py](/examples/render_to_ui.py) and
-  [render_to_video.py](/examples/render_to_video.py).
-- Multiple source/streams as inputs are supported in application framework. 
-- New Polar transform operator can be used to allow inference on fish eye lenses.
-- A more general crop operator has been added.
-- The centre crop operator now allows for non-square outputs.
+A new Python-native API for building, running, and packaging ML inference pipelines. The entire pipeline, from model loading through post-processing and tracking, can be expressed as a composable Python expression.
 
-### Beta Model Compiler
-- \[Beta\] The Compiler CLI default for the `resources_used` option has been changed from 1.0 to
-  0.25. With this option set to the default 0.25 on compilation, it compiles models for single-core
-  using 1/4 of the available memory resources. This allows to easily decide at execution time how
-  many cores are used for execution (1 to 4). The best performance on multiple cores (2, 3, 4) is
-  achieved by compiling with aipu_cores_used set to 4 and `resources_used` set to the appropriate
-  amount of memory for all cores (which optimises the cache configuration), but this means you
-  cannot run on fewer cores without recompiling. See multi-core-modes for more details on the
-  different multi-core modes.
-- List of supported operators documented [here](/docs/reference/onnx-opset17-support.md) will grow
-  in future releases. For technical assistance on compiling your own model please turn to the
-  [Axelera Community](https://community.axelera.ai/).
+- **Composable operators**: `op.seq()` for sequential, `op.par()` for parallel, `op.foreach()` for cascade (per-object) processing.
+- **Data routing**: `op.select(i)` to extract from tuples, `op.pack()` / `op.unpack()` for explicit tuple conversion.
+- **30+ operators** across preprocessing, inference, postprocessing, filtering, tracking, and result types.
+- **Model loading**:
+    - `op.load('model.axm')` - hardware inference on AIPU.
+    - `op.onnx_model('model.onnx')` - CPU inference, no AIPU required.
+    - `op.load('pipeline.axe')` - portable pipeline package (new .axe format).
+- **Tracker integration**: `op.tracker(algo='bytetrack')` - supports ByteTrack, OC-SORT, SORT, TrackTrack. Full lifecycle states via `return_all_states=True` (new, tracked, lost, removed).
+- **Pipeline optimizer**: Automatic SIMD-accelerated fusion of operator chains (e.g., NchwToNhwc + Quant + Pad into single QuantizeTransposePad).
+- **Typed result objects**: `DetectedObject`, `PoseObject`, `SegmentedObject`, `TrackedObject`, `Classification` with protocol-based interfaces and `.draw()` visualization.
+
+#### AxLLM
+
+- Added support for Gradio 6.x (in addition to Gradio 5.x), ensuring the LLM demo UI compatibility for both versions.
+
+### \[Beta\] Model Compiler
+
+- **TOML configuration format**: The compiler CLI now generates default configuration files in TOML format, making model-specific configurations more readable and editable. The `compile --generate-config` command outputs `default_conf.toml`. Existing JSON configs remain supported for backwards compatibility; use `compile --generate-config --config-format json` to generate JSON.
+- Model configurations are now grouped by model family, simplifying multi-model setups.
+- **AXM output format**: Added support for generating AXM files (self-contained archive) as a compilation output, simplifying model deployment.
 
 ### Runtime
-- Support for running LLMs on Windows platforms with `axllm` tool.
 
 ### Tools
-- `interactive_flash_update` supports automatic firmware update of all Metis devices simultaneously.
-  Refer to the [firmware flash update documentation](/docs/tutorials/firmware_flash_update.md).
-- Enhanced functionality of `axmonitor`:
-  - New metrics - DDR size, DDR utilization per-context, PCIe utilization per channel (4 read and
-    4 writes channels).
-  - Device and system timestamps recorded per sampling point.
-  - System setup and device configuration provided e.g. firmware version, core frequency.
-  - Full functionality supported on Windows platforms.
-- New `axmodelinfo` tool to report model information in areas such as model structure (inputs,
-  outputs, tensor layouts), quantization details, padding and pre-/post-processing info, version
-  and compatibility checks.
-- All features of `axdevice` supported on Windows platforms.
+
+- `axdownloadmedia`: A new command-line utility to list and download Axelera-provided media files (test videos, images) from cloud storage.
+- `axdevice` improvements:
+    - `axdevice driver --install`: New option for Debian-based systems to automatically install or download the Axelera PCIe device driver, simplifying first-time setup. Without `--install` the tool shows the current status of the driver.
+    - `axdevice` firmware flashing: `axdevice` now includes firmware flash subcommands (`axdevice interactive_flash_update`, `axdevice interactive_flash_downgrade`), integrating firmware flashing into the standard `axdevice` workflow.
+    - `axdevice` power limit display improvements: `--set-power-limit` now accepts `off` or `0` to explicitly disable throttling. Relevant only for M.2 Max boards.
+- `axmonitor` improvements:
+    - `axmonitor` loop and frame rate throttling for `image_dir` inputs: Users can now enable looping and set a frame rate limit, making it easier to run continuous benchmarks on a fixed image dataset.
+    - `axmonitor` DDR bandwidth measurement is now available with a plot in the OVERVIEW page, helping users understand whether workloads are DDR-bandwidth-bound vs. compute-bound.
+    - `axmonitor` power measurements extended (M.2 Max and PCIe Rev2 boards only) with min, max, and average values over a 1-second window.
 
 ### Firmware
-- Improved compatibility and UX with a range of hosts by significantly reducing Metis boot time
-  resulting in successful enumeration in the first attempt.
+
+- \[Beta\] New board controller firmware release supporting Metis M.2 Max.
+- \[Beta\] **Closed loop power control** supported for M.2 Max. This mechanism trades off peak compute throughput for predictable power envelope, allowing safe operation in thermally or electrically constrained environments such as M.2 form-factor boards. Users can set the power limit with `axdevice --set-power-limit LIMIT` where `LIMIT` is an integer representing watts. See the [Power Management Guide](https://github.com/axelera-ai/application.framework/blob/main/docs/reference/thermal_and_power_guide.md#2-power-management-guide).
+- **Power saving when idle**: When an AI-core is idle for 1 second or more, the core frequency is automatically reduced. This saves ~0.6W total across all four cores with no performance impact.
 
 ## Breaking Changes
-- Model format: The model format is updated to support new LLM model formats and future AIPU
-  versions. All computer vision models compiled with SDK versions older than v1.5 need to be
-  re-deployed. Similarly, downloaded pre-compiled models (computer vision as well as LLMs) need to
-  be re-downloaded.
+
+- **New PyPI index**: The previous two PyPI indexes (`axelera-dev-pypi` and `axelera-runtime-pypi`) have been replaced by a single index (`https://software.axelera.ai/artifactory/axelera-pypi/`). Any installation scripts or pip configuration files referencing the old URLs must be updated.
+- **TOML default for compiler configuration**: The compiler CLI now generates TOML configuration files by default instead of JSON. Existing JSON configs remain supported; use `compile --generate-config --config-format json` to generate JSON.
 
 ## Fixed Issues Since Last Release
-- Fixed memory leak issues with discrete GPUs (SDK-8171) and axinferencenet with GStreamer.
-- Improved handling of pipeline shutdown and RTSP source errors.
-- Fixed incorrect cropping and face alignment issues.
+
+- Installer tool's docker option not working (SDK-8083): Running `install.sh --docker` fails on certain configurations, for example on Firefly ITX-3588J motherboard.
 
 ## Known Issues and Limitations
-- **Installer tool's docker option not working (SDK-8083):** Running `install.sh --docker` fails on
-  certain configurations, for example on Firefly ITX-3588J motherboard.
-- **Higher RAM required for compiling `Real-ESRGAN-x4plus`:**
-  Compiling the model Real-ESRGAN-x4plus requires a machine with at least 128GB of memory.
-- **Device monitoring with AxMonitor is not supported on single-MSI hosts (SDK-6581):** 
-  For some systems with single-MSI hosts, device monitoring with `AxMonitor` does not display any
-  data. An example of a host with this issue is Arduino Portenta X8 Mini.
+
+- Performance variability is observed on certain hosts. Inference-only performance (FPS) drops of up to 5-10% is observed on `yolox-x-crowdhuman-onnx` and `yolo11l-obb-dotav1-onnx` compared to SDK Release v1.5.
+- Numpy compatibility: `axelera-devkit` supports only NumPy 1.x APIs and is not compatible with NumPy 2.x. `axelera-rt` supports both NumPy 1.x and 2.x but constrains the `numpy` dependency to prevent breaking `axelera-devkit` on Linux. The Windows runtime environment supports NumPy 2.x.
+- Python 3.13 incompatibility with wheel installer on Ubuntu 24.04. Not reproducible with Python 3.12 (default for Ubuntu 24.04).
+- When using `inference.py`, performance degrades when writing output video to disk.
+- Metis Compute Board video output rendering is choppy (1–2 FPS). This impacts rendering to display only, inference performance is not impacted.
+- YOLO X models (e.g. `yolo26x-obb-dotav1-onnx`) sometimes fails to deploy unexpectedly.
+- MobileNetV3 may yield degraded accuracy on some combinations of hosts and cards.
+- \[Beta\] Closed-loop power control on M.2 Max may cause unexpected performance degradation. For maximum performance, use a host system whose M.2 slot is rated to PCI-SIG M.2 Specification Revision 4.0 or higher (e.g. AsRock NUC Box-125, Seco Titan 300), where closed-loop power control is not required. On hosts with lower M.2 slot power delivery, set the MVM utilization limit via the environment variable e.g. `AXELERA_CONFIGURE_BOARD=,20` will set the MVM utilization limit to 20%.
+- Device monitoring with AxMonitor is not supported on single-MSI hosts. For some systems with single-MSI hosts, device monitoring with `AxMonitor` does not display any data. An example of a host with this issue is Arduino Portenta X8 Mini.
 
 ## System Requirement
+
 ### Development Environment
+
 For model compiling purposes, these are the host requirements:
 
-| Requirement               | Detail                                                                 |
-| :------------------------ | :--------------------------------------------------------------------- |
-| OS                        | Linux Ubuntu 22.04, Docker (on Windows or Linux), Windows + WSL/Ubuntu |
-| CPU architecture          | ARM64, x86, x86\_64                                                    |
-| Recommended CPU           | Intel Core-i5 or equivalent                                            |
-| Minimum System Memory     | 16GB (large models may require swap partition)                         |
-| Recommended System Memory | 32 GB                                                                  |
+| Requirement | Detail |
+| --- | --- |
+| OS | Linux Ubuntu 22.04, Ubuntu 24.04, Docker (on Windows or Linux), Windows + WSL/Ubuntu |
+| CPU architecture | ARM64, x86, x86_64 |
+| Recommended CPU | Intel Core-i5 or equivalent |
+| Minimum System Memory | 16GB (large models may require swap partition) |
+| Recommended System Memory* | 32 GB |
+
+\*Compiling the model Real-ESRGAN-x4plus requires a machine with at least 128GB of memory.
 
 ### Runtime Environment
-This release is expected to work with Intel Core-i 12th and 13th generations (x86), AMD Ryzen (x86)
-and Arm64 host CPUs. Please find the list of platforms Axelera AI has tested with Metis M.2 Card
-[here](https://support.axelera.ai/hc/en-us/articles/25437844422418-Metis-M-2-Tested-Host-PCs) and
-Metis PCIe Card
-[here](https://support.axelera.ai/hc/en-us/articles/25437554693138-Metis-PCIe-Tested-Host-PCs).
+
+This release is expected to work with Intel (x86), AMD (x86) and Arm64 host CPUs. See [here](https://support.axelera.ai/hc/en-us/articles/34274775900178-Validated-Host-Systems-for-Axelera-Metis-AI-Accelerator-Cards) for a list of validated host systems for Axelera Metis AI Accelerator Cards.
 
 ## Further Support
-- For blog posts, projects and technical support please visit
-[Axelera AI Customer Portal](https://support.axelera.ai).
+
+- For blog posts, projects and technical support please visit [Axelera AI Customer Portal](https://support.axelera.ai/).
 - For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).

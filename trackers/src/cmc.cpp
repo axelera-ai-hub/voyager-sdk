@@ -1,6 +1,8 @@
+// Copyright Axelera AI, 2025
 #include "../include/cmc.hpp"
 #include <fstream>
 #include <iostream>
+#include <opencv2/calib3d.hpp>
 #include <opencv2/core/eigen.hpp>
 #include <opencv2/features2d.hpp>
 #include <opencv2/video/tracking.hpp>

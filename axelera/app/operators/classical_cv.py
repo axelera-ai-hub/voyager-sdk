@@ -33,7 +33,13 @@ class Tracker(BaseClassicalCV):
     label_filter: List[str] = []
 
     def _post_init(self):
-        supported_algorithms = ['sort', 'scalarmot', 'oc-sort', 'bytetrack']
+        supported_algorithms = [
+            'sort',
+            'scalarmot',
+            'oc-sort',
+            'bytetrack',
+            'tracktrack',
+        ]
         self.algorithm = self.algorithm.lower()
         assert (
             self.algorithm in supported_algorithms
@@ -123,11 +129,48 @@ class Tracker(BaseClassicalCV):
             supported_params = [
                 'maxLostFrames',
             ]
+        elif self.algorithm == 'tracktrack':
+            supported_params = [
+                'det_thr',
+                'init_thr',
+                'match_thr',
+                'tai_thr',
+                'penalty_p',
+                'penalty_q',
+                'reduce_step',
+                'max_time_lost',
+                'min_len',
+                'min_box_area',
+                'alpha',
+                'use_cmc',
+                'dataset_type',
+            ]
 
         for k in self.algo_params:
-            assert (
-                k in supported_params
-            ), f'Only {supported_params} are supported for {self.algorithm}'
+            if k not in supported_params:
+                raise ValueError(f'Only {supported_params} are supported for {self.algorithm}')
+
+        if self.algorithm == 'oc-sort' and self.algo_params.get('enable_id_recovery'):
+            max_age = self.algo_params.get('max_age')
+            boundary = self.algo_params.get('rec_track_min_time_since_update_at_boundary')
+            inside = self.algo_params.get('rec_track_min_time_since_update_inside')
+            if max_age is not None:
+                if boundary is not None:
+                    if max_age < boundary:
+                        raise ValueError(
+                            'max_age must be >= rec_track_min_time_since_update_at_boundary when '
+                            'enable_id_recovery is true; this is necessary for the ID recovery feature '
+                            '(memory bank) to work correctly; boundary reappearing trackers may never '
+                            'be added when max_age is smaller.'
+                        )
+                if inside is not None:
+                    if max_age < inside:
+                        raise ValueError(
+                            'max_age must be >= rec_track_min_time_since_update_inside when '
+                            'enable_id_recovery is true; this is necessary for the ID recovery feature '
+                            '(memory bank) to work correctly; inside reappearing trackers may never '
+                            'be added when max_age is smaller.'
+                        )
 
     def __del__(self):
         if self._algo_params_json is not None and self._algo_params_json.exists():

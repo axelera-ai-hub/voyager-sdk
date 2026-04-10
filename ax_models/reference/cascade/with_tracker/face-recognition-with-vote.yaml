@@ -44,21 +44,14 @@ pipeline:
         - tracker:
             algorithm: oc-sort
             bbox_task_name: detections
-            min_width: 80
-            min_height: 80
+            min_width: 40
+            min_height: 40
             history_length: 20
             algo_params:
               max_age: 50
               min_hits: 1
               iou_threshold: 0.4
               max_id: 0
-            filter_callbacks:
-              recognitions:
-                lib: libtrackerfilter_numsubtaskruns.so
-                num_subtask_runs: 10
-            determine_object_attribute_callbacks:
-              recognitions:
-                lib: libtrackerattribute_mostfrequent.so
   - recognitions:
       model_name: facenet-lfw
       input:
@@ -67,11 +60,14 @@ pipeline:
           where: tracking
           which: AREA # AREA, SCORE, CENTER
           top_k: 3
+          min_width: 40
+          min_height: 40
           image_processing_on_roi:
           - facealign:
-              keypoints_submeta_key: tracking
               width: 192
               height: 192
+              use_self_normalizing: False
+              save_aligned_images: False # for debugging
       preprocess:
         - resize:
             width: 192
@@ -87,7 +83,7 @@ pipeline:
         - recognition:
             distance_metric: cosine_similarity
             embeddings_file: famous_embeddings.json
-            distance_threshold: 0.3520
+            distance_threshold: 0.4
             k: 1 # topK
             update_embeddings: False
 

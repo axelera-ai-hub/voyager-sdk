@@ -1,23 +1,37 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 from __future__ import annotations
 
 import argparse
 import collections
 import dataclasses
+import difflib
 import enum
 import inspect
 import logging
 import os
 from pathlib import Path
 import re
+import sys
 import typing
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple, TYPE_CHECKING
 
 import numpy as np
 
 from axelera import types
 
 from . import environ, logging_utils, utils, yaml_parser
+
+# Import TOML library (Python 3.11+ has tomllib built-in)
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    try:
+        import tomli as tomllib
+    except ImportError:
+        tomllib = None  # type: ignore
+
+if TYPE_CHECKING:
+    from axelera.compiler.config import CompilerConfig
 
 LOG = logging_utils.getLogger(__name__)
 MODEL_FOR_HELP_EXAMPLE = 'yolov8n-coco'
@@ -238,21 +252,160 @@ HardwareCaps.OPENCL = HardwareCaps(
 )
 
 
-def gen_compilation_config(deploy_cores, user_cfg, deploy_mode):
+def resolve_toml_path(toml_ref: str, yaml_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """Resolve TOML configuration file path and determine its source.
+
+    Supports three path types:
+    1. Absolute paths: Used as-is (local file)
+    2. Relative paths with directory: Relative to yaml_dir (local file)
+    3. Filename only: Check yaml_dir first (local), then compiler configs (wheel)
+
+    Args:
+        toml_ref: TOML file reference (absolute path, relative path, or filename)
+        yaml_dir: Directory of the YAML file (for relative path resolution)
+
+    Returns:
+        Dictionary with:
+            - 'path': Resolved Path object
+            - 'source': 'local' or 'compiler_wheel'
+            - 'original_ref': Original reference string
+
+    Raises:
+        FileNotFoundError: If TOML file cannot be found
+    """
+    toml_path = Path(toml_ref)
+
+    # Absolute path - use as-is (local file)
+    if toml_path.is_absolute():
+        if toml_path.exists():
+            return {'path': toml_path, 'source': 'local', 'original_ref': toml_ref}
+        raise FileNotFoundError(f"TOML config not found: {toml_path}")
+
+    # Relative path with directory - relative to YAML dir (local file)
+    if len(toml_path.parts) > 1:
+        if yaml_dir is None:
+            yaml_dir = Path.cwd()
+        resolved = yaml_dir / toml_path
+        if resolved.exists():
+            return {'path': resolved, 'source': 'local', 'original_ref': toml_ref}
+        raise FileNotFoundError(f"TOML config not found: {resolved}")
+
+    # Filename only - check yaml_dir first (local takes precedence)
+    if yaml_dir is not None:
+        yaml_relative = yaml_dir / toml_ref
+        if yaml_relative.exists():
+            return {'path': yaml_relative, 'source': 'local', 'original_ref': toml_ref}
+
+    # Then check compiler configs (from axelera.compiler.config package)
+    try:
+        import axelera.compiler.config as compiler_config_pkg
+
+        compiler_models_dir = Path(compiler_config_pkg.__file__).parent / "models"
+        compiler_path = compiler_models_dir / toml_ref
+        if compiler_path.exists():
+            return {
+                'path': compiler_path,
+                'source': 'compiler_wheel',
+                'original_ref': toml_ref,
+            }
+    except ImportError:
+        LOG.debug("axelera.compiler.config not available (compiler wheel not installed)")
+        compiler_models_dir = None
+
+    # Not found anywhere - collect available TOML files for suggestions
+    if yaml_dir is None:
+        yaml_dir = Path.cwd()
+    yaml_relative = yaml_dir / toml_ref
+
+    available_tomls = sorted({f.name for f in yaml_dir.glob('*.toml')})
+    if compiler_models_dir is not None:
+        available_tomls = sorted(
+            set(available_tomls) | {f.name for f in compiler_models_dir.glob('*.toml')}
+        )
+
+    error_msg = f"TOML config '{toml_ref}' not found in:\n  - {yaml_relative} (local)"
+    if compiler_models_dir is not None:
+        error_msg += f"\n  - {compiler_models_dir / toml_ref} (compiler wheel)"
+    else:
+        error_msg += "\n  - compiler wheel (not installed)"
+
+    if available_tomls:
+        close_matches = difflib.get_close_matches(toml_ref, available_tomls, n=3, cutoff=0.4)
+        if close_matches:
+            error_msg += f"\n  Did you mean: {', '.join(close_matches)}?"
+        else:
+            error_msg += f"\n  Available configs: {', '.join(available_tomls)}"
+
+    error_msg += "\n  To use default compiler settings, comment out the 'compiler_config_file' line in your YAML."
+
+    raise FileNotFoundError(error_msg)
+
+
+def load_toml_config(toml_path: Path) -> Dict[str, Any]:
+    """Load TOML configuration file.
+
+    Args:
+        toml_path: Path to TOML file
+
+    Returns:
+        Dictionary of config key-value pairs
+
+    Raises:
+        RuntimeError: If TOML library not available
+        ValueError: If TOML file has syntax errors
+    """
+    if tomllib is None:
+        raise RuntimeError("TOML support not available. Please install tomli: pip install tomli")
+
+    try:
+        with open(toml_path, "rb") as f:
+            config = tomllib.load(f)
+        LOG.debug(f"Loaded TOML config: {toml_path}")
+        return config
+    except tomllib.TOMLDecodeError as e:
+        raise ValueError(f"Invalid TOML syntax in {toml_path}: {e}") from e
+
+
+def gen_compilation_config(
+    deploy_cores, user_cfg, deploy_mode, yaml_dir: Optional[Path] = None
+) -> Tuple["CompilerConfig", Dict[str, Any]]:
     """Generate the compilation configuration based on the user configuration.
 
     NOTE: CompilerConfig is a Pydantic model that will validate the configuration
     when it is created or when a field is set. If the configuration is invalid,
     a ValueError or ValidationError will be raised.
+
+    Args:
+        deploy_cores: Number of AIPU cores to deploy on
+        user_cfg: User configuration dictionary from YAML extra_kwargs
+        deploy_mode: Deployment mode (QUANTIZE, QUANTCOMPILE, PREQUANTIZED, etc.)
+        yaml_dir: Directory of the YAML file (for TOML path resolution)
+
+    Returns:
+        Tuple of (CompilerConfig, metadata_dict) where metadata contains:
+            - toml_info: TOML source information (if used)
+            - yaml_overrides: List of fields overridden by YAML
+            - toml_fields: List of fields set by TOML
     """
 
-    from axelera.compiler.config import CompilerConfig, HostArch, HostOS, MulticoreMode
+    try:
+        from axelera.compiler.config import CompilerConfig, HostArch, HostOS, MulticoreMode
+    except ImportError as e:
+        raise RuntimeError(
+            "axelera.compiler is required for model compilation. "
+            "Please install the compiler wheel or set up the development environment. "
+            f"Import error: {e}"
+        ) from e
 
     # Deploy cores may be 0 for classical cv models. This is unsupported by the
     # CompilerConfig. This is a workaround since the CompilerConfig is discarded
     # ultimately for these models, and this avoids a larger refactor.
     deploy_cores = max(1, deploy_cores)
 
+    # Initialize metadata tracking
+    metadata = {'toml_info': None, 'yaml_overrides': [], 'toml_fields': []}
+
+    # 1. Start with default CompilerConfig
     compiler_config = CompilerConfig(
         multicore_mode=MulticoreMode.BATCH,  # Default to batch mode
         aipu_cores_used=deploy_cores,
@@ -260,29 +413,83 @@ def gen_compilation_config(deploy_cores, user_cfg, deploy_mode):
         host_processes_used=1,  # Will disable compiler-internal resource validation
         host_arch=HostArch.auto_detect(),
         host_os=HostOS.auto_detect(),
-        # NOTE: If we enable this and pass the correct model name, the compiler will
-        # automatically determine optimal settings based on the model name in the config.
-        # This could replace the current model-card specific configuration, and would
-        # probably help align the compiler behavior more closely with the app framework.
-        configure_model_specific=False,
         model_name="model",
     )
 
-    # Apply any manual/user overrides
+    # 2. Load TOML config if specified (middle priority)
+    compiler_config_file = user_cfg.get('compiler_config_file')
+    toml_settings = {}
+    if compiler_config_file:
+        try:
+            toml_info = resolve_toml_path(compiler_config_file, yaml_dir)
+            toml_path = toml_info['path']
+            toml_settings = load_toml_config(toml_path)
+
+            # Store TOML info for manifest
+            metadata['toml_info'] = toml_info
+
+            # Log TOML source
+            source_desc = (
+                "compiler wheel" if toml_info['source'] == 'compiler_wheel' else "local file"
+            )
+            LOG.info(f"Loading compiler config from TOML: {toml_path}")
+            LOG.info(f"TOML source: {source_desc}")
+
+            # Apply TOML settings, warn about unknown fields
+            for key, value in toml_settings.items():
+                if hasattr(compiler_config, key):
+                    setattr(compiler_config, key, value)
+                    metadata['toml_fields'].append(key)
+                else:
+                    LOG.warning(
+                        f"Unknown compiler config field '{key}' in {toml_path}. "
+                        f"This field will be ignored (forward compatibility)."
+                    )
+        except FileNotFoundError as e:
+            LOG.warning(f"Compiler config file not found, using default settings.\n{e}")
+        except Exception as e:
+            LOG.error(f"Failed to load TOML config '{compiler_config_file}': {e}")
+            raise
+
+    # 3. Apply inline YAML overrides (highest priority)
     user_overrides = user_cfg.get('compilation_config', {})
-    for key, value in user_overrides.items():
-        setattr(compiler_config, key, value)
+    if user_overrides:
+        if compiler_config_file:
+            LOG.warning(
+                "Both compiler_config_file and inline compilation_config are specified. "
+                "Inline settings will override TOML settings."
+            )
+
+        # Track overrides and log them
+        for key, value in user_overrides.items():
+            old_value = getattr(compiler_config, key, None)
+            setattr(compiler_config, key, value)
+            metadata['yaml_overrides'].append(key)
+
+            # Log overrides with before/after values
+            if key in toml_settings:
+                LOG.info(f"YAML override: {key}: {toml_settings[key]} (TOML) -> {value} (YAML)")
+            else:
+                LOG.info(f"YAML override: {key}: {old_value} (default) -> {value} (YAML)")
+
+    # Log summary
+    if metadata['toml_fields'] or metadata['yaml_overrides']:
+        LOG.info(
+            f"Compilation config sources: "
+            f"TOML fields: {len(metadata['toml_fields'])}, "
+            f"YAML overrides: {len(metadata['yaml_overrides'])}"
+        )
 
     if deploy_mode == DeployMode.QUANTIZE:
-        return compiler_config
+        return compiler_config, metadata
 
     elif deploy_mode == DeployMode.QUANTIZE_DEBUG:
         if not compiler_config.quantization_debug:
             compiler_config.quantization_debug = True
-        return compiler_config
+        return compiler_config, metadata
 
     else:
-        return compiler_config
+        return compiler_config, metadata
 
 
 def positive_int_for_argparse(value: str) -> int:
@@ -649,8 +856,12 @@ def create_inference_argparser(
     source_help = f'''{_source_help()}
 
 For fakevideo and video file source, you can specify the frame rate using @N where N
-is the desired frame rate in frames per second. For video file, you can use 'auto' to
+is the desired frame rate in frames per second. For video file, you can use '@auto' to
 use the source's native frame rate.
+
+For RTSP source, you can specify the username and password as normal like
+`rtsp://id:pwd@10.40.130.221/stream0/media.amp?videocodec=jpeg&resolution=1280x960`.
+Username and password can be encoded using the URI encoding protocol like P%40ssword.
 
 Sources can also be prefixed with one or more image preprocessing steps, separated by colons:
     rotate90:horizontalflip:input.mp4
@@ -887,6 +1098,14 @@ is set to 0, the pipeline will use the frame rate of each individual input sourc
     )
 
     parser.add_argument(
+        "--custom-tiles",
+        default="",
+        type=str,
+        help=argparse.SUPPRESS,
+        # "Enable tiled inference and specify the where to read the tile configuration from. Default is None.",
+    )
+
+    parser.add_argument(
         '--cl-platform',
         type=str,
         choices=['auto', 'intel', 'nvidia', 'arm', 'gpu', 'cpu'],
@@ -980,6 +1199,11 @@ class _InferenceArgumentParser(_ExtendedHelpParser):
         if ns.pipe == 'torch-aipu' and ns.aipu_cores > 1:
             LOG.info('torch-aipu pipeline supports aipu-cores=1 only')
             ns.aipu_cores = 1
+        if ns.timeout:
+            if ns.pipe == 'torch':
+                ns.timeout *= 2
+            elif ns.pipe == 'torch-aipu':
+                ns.timeout *= 1.5
 
         _resolve_network(
             self,
@@ -1578,7 +1802,7 @@ def _is_image(p: Path):
 
 @_source_match(SourceType.VIDEO_FILE, r'(loop:)?(.*?)(?:@(\d+|auto))?$')
 def _video_file(src: Source, m: re.Match) -> bool:
-    '''Video file (filename.mp4)(@fps|auto)'''
+    '''Video file (filename.mp4)(@fps|@auto)'''
     path = Path(m.group(2))
     if m2 := (path.suffix.lower() in utils.VIDEO_EXTENSIONS):
         if not path.is_file():
@@ -1590,16 +1814,19 @@ def _video_file(src: Source, m: re.Match) -> bool:
     return m2
 
 
-@_source_match(SourceType.IMAGE_FILES)
-def _image_files(src: Source, s: str) -> bool:
-    '''Directory of images (path/to/images) (images located recursively)'''
-    path = Path(s)
-    if m := path.is_dir():
+@_source_match(SourceType.IMAGE_FILES, r'(loop:)?(.*?)(?:@(\d+))?$')
+def _image_files(src: Source, m: re.Match) -> bool:
+    '''Directory of images (loop:)(path/to/images)(@fps) (images located recursively)'''
+    path = Path(m.group(2))
+    if m2 := path.is_dir():
         src.location = str(path.expanduser())
         src.images = utils.list_images_recursive(path)
         if not src.images:
             raise RuntimeError(f"Failed to locate any images in {src.location}")
-    return m
+        src.loop = bool(m.group(1))
+        fps = m.group(3)
+        src.fps = -1 if fps == 'auto' else int(fps or '0')
+    return m2
 
 
 @_source_match(SourceType.IMAGE_FILES)
@@ -1648,6 +1875,12 @@ def _arg_from_str(param: str, s: str | Any, t: type | None) -> Any:
     sequences = (list, tuple)
     if t is None or not isinstance(s, str):
         return s  # no type hint, or not a string (came from a default arg)
+    # unwrap typing.Optional[t]
+    origin = typing.get_origin(t)
+    if origin is typing.Union:
+        args = [a for a in typing.get_args(t) if a is not type(None)]
+        if len(args) == 1:
+            t = args[0]
     s = s.strip()
     if t is str:
         return s
@@ -1811,6 +2044,40 @@ def camera_undistort(
 
 
 @_image_preproc
+def polar(
+    width: int,
+    height: int,
+    size: int,
+    rotate180: bool,
+    center_x: float,
+    center_y: float,
+    max_radius: int,
+    inverse: bool,
+    linear_polar: bool,
+    format: types.ColorFormat = types.ColorFormat.RGB,
+) -> list[ImagePreproc]:
+    '''Apply polar transformation to the image.'''
+    return [
+        ImagePreproc(
+            'polar',
+            (
+                width,
+                height,
+                size,
+                rotate180,
+                center_x,
+                center_y,
+                max_radius,
+                inverse,
+                linear_polar,
+                format,
+            ),
+            {},
+        )
+    ]
+
+
+@_image_preproc
 def source_config(path: Path) -> list[ImagePreproc]:
     '''Read preproc operators from a file, the format is the same as the command line format.
 
@@ -1833,6 +2100,19 @@ def source_config(path: Path) -> list[ImagePreproc]:
     return ops
 
 
+@_image_preproc
+def tile(
+    *,
+    size: int = 0,
+    overlap: int = 0,
+    position: str = 'none',
+    show: bool = False,
+    file: str = '',
+):
+    '''Tile the image into smaller overlapping tiles.'''
+    return [ImagePreproc.from_tile_config(TilingConfig(size, overlap, position, show, file))]
+
+
 @dataclasses.dataclass
 class ImagePreproc:
     name: str
@@ -1841,6 +2121,16 @@ class ImagePreproc:
     """The arguments for the preprocessing operator."""
     kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
     """The keyword arguments for the preprocessing operator."""
+
+    @property
+    def is_tiling(self) -> bool:
+        """Whether this preprocessing step is a tiling operation."""
+        return self.name == '_add_tiles'
+
+    @classmethod
+    def from_tile_config(cls, cfg: TilingConfig) -> ImagePreproc:
+        """Create an ImagePreproc from a TilingConfig."""
+        return cls('_add_tiles', (cfg,), {})
 
 
 Image = typing.Union[np.ndarray, types.Image]
@@ -1925,12 +2215,24 @@ class Source:
             raise TypeError("When using a string parameter you must use kwargs, not args")
         super().__init__()
         source, self.preprocessing = _parse_image_preprocs(source_or_type)
+        if len([op for op in self.preprocessing if op.is_tiling]) > 1:
+            raise ValueError("Only one tile preproc is allowed per source")
         for type, handler, _ in _source_types:
             if handler(self, source):
                 _setattr_dataclass_from_args(self, **kwargs)
                 return self.__post_init__()
         helps = _source_help()
         raise ValueError(f"Unrecognized source: {source}. Valid formats are:\n{helps}")
+
+    @property
+    def has_tiling(self) -> bool:
+        """Whether this source has tiling enabled in its preprocessing steps."""
+        return any(p.is_tiling for p in self.preprocessing or [])
+
+    @property
+    def has_image_preproc(self) -> bool:
+        """Whether this source has any non-tiling ops in its preprocessing steps."""
+        return any(not p.is_tiling for p in self.preprocessing or [])
 
     def __post_init__(self):
         self.images = self.images or []
@@ -1963,15 +2265,25 @@ class TilingConfig:
     """Position of the tile, one of 'none', 'left', 'right', 'bottom', 'top'."""
     show: bool = False
     """Whether to show the tiles in the output."""
+    file: str = ''
+    """If set, load tile configuration from the specified file."""
+
+    def __post_init__(self):
+        if self.file and any((self.size, self.overlap, self.position != 'none')):
+            raise ValueError("Cannot specify both file and other parameters for tiling config")
+        if self.position not in ('none', 'left', 'right', 'bottom', 'top'):
+            raise ValueError(f"Invalid tile position: {self.position}")
 
     def __bool__(self):
         """Return True if tiled inference is enabled."""
-        return self.size > 0
+        return self.size > 0 or bool(self.file)
 
     @classmethod
     def from_parsed_args(cls, args: argparse.Namespace) -> TilingConfig:
         """Create a TilingConfig from parsed arguments."""
-        return cls(args.tiled, args.tile_overlap, args.tile_position, args.show_tiles)
+        return cls(
+            args.tiled, args.tile_overlap, args.tile_position, args.show_tiles, args.custom_tiles
+        )
 
 
 @dataclasses.dataclass
@@ -1991,6 +2303,7 @@ class PipelineConfig(BaseConfig):
     rtsp_latency: int = 500
     save_output: str = ''
     tiling: TilingConfig = dataclasses.field(default_factory=TilingConfig)
+    """Legacy tiling configuration, will be applied to all sources that do not have tiling configured."""
     which_cl: str = 'auto'
     """Configuration for tiled inference."""
     render_config: RenderConfig | None = None
@@ -2014,6 +2327,12 @@ class PipelineConfig(BaseConfig):
             raise ValueError(
                 f"{which.name.title().replace('_', ' ')} source cannot be used with multiple sources"
             )
+        if self.tiling:
+            for s in self.sources:
+                if not s.has_tiling:
+                    s.preprocessing.append(ImagePreproc.from_tile_config(self.tiling))
+            # clear legacy tiling config as it's now applied to the sources
+            self.tiling = TilingConfig()
 
         if self.sources[0].type == SourceType.DATASET:
             LOG.info("Using dataset %s", self.sources[0].location)

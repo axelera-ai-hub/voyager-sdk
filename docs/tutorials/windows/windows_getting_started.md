@@ -109,7 +109,7 @@ wsl
 ```
 
 b) **Clone and Configure voyager-sdk**:
-   - Clone the voyager-sdk repository from https://github.com/axelera-ai-hub/voyager-sdk and checkout branch release/v1.4 **in a Windows-accessible folder**. For example: `/mnt/c/Axelera/voyager-sdk` (accessible from Windows as `C:\Axelera\voyager-sdk`). Complete cloning instructions are available in the [Installation guide](/docs/tutorials/install.md).
+   - Clone the voyager-sdk repository from https://github.com/axelera-ai-hub/voyager-sdk and checkout branch release/v1.6 **in a Windows-accessible folder**. For example: `/mnt/c/Axelera/voyager-sdk` (accessible from Windows as `C:\Axelera\voyager-sdk`). Complete cloning instructions are available in the [Installation guide](/docs/tutorials/install.md).
    - Follow the [Installation guide](/docs/tutorials/install.md) setup instructions, selecting only the Python environment and runtime libraries during installation
    - **Important:** Do not select the driver installation option as it is not compatible with WSL
    ![WSL Installation Options](/docs/images/windows/wsl_voyager_install.png)
@@ -167,14 +167,14 @@ Create a local windows-packages directory and download the installers:
 rmdir /s /q windows-packages 2>nul
 mkdir windows-packages
 cd windows-packages
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.5.x/axelera-win-device-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.5.x/axelera-win-runtime-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.5.x/axelera-win-syslibs-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.5.x/axelera-win-toolchain-deps-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.5.x/axelera-win-services-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-runtime-pypi/axelera-runtime/axelera_runtime-1.5.3-py3-none-any.whl
-curl -L -O https://software.axelera.ai/artifactory/axelera-runtime-pypi/axelera-types/axelera_types-1.5.3-py3-none-any.whl
-curl -L -O https://software.axelera.ai/artifactory/axelera-runtime-pypi/axelera-llm/axelera_llm-1.5.3-py3-none-any.whl
+curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.6.x/axelera-win-device-installer.exe
+curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.6.x/axelera-win-runtime-installer.exe
+curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.6.x/axelera-win-syslibs-installer.exe
+curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.6.x/axelera-win-toolchain-deps-installer.exe
+curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.6.x/axelera-win-services-installer.exe
+curl -L -O https://software.axelera.ai/artifactory/axelera-runtime-pypi/axelera-runtime/axelera_runtime-1.6.0-py3-none-any.whl
+curl -L -O https://software.axelera.ai/artifactory/axelera-runtime-pypi/axelera-types/axelera_types-1.6.0-py3-none-any.whl
+curl -L -O https://software.axelera.ai/artifactory/axelera-runtime-pypi/axelera-llm/axelera_llm-1.6.0-py3-none-any.whl
 cd ..
 ```
 
@@ -209,9 +209,9 @@ venv-win\Scripts\activate.bat
 ```
 Install the Python packages:
 ```cmd
-pip install windows-packages\axelera_runtime-1.5.0-py3-none-any.whl
-pip install windows-packages\axelera_types-1.5.0-py3-none-any.whl
-pip install windows-packages\axelera_llm-1.5.0-py3-none-any.whl
+pip install windows-packages\axelera_runtime-1.6.0-py3-none-any.whl
+pip install windows-packages\axelera_types-1.6.0-py3-none-any.whl
+pip install windows-packages\axelera_llm-1.6.0-py3-none-any.whl
 ```
 
 ## Step 5: Running Examples [Optional]
@@ -318,5 +318,7 @@ Once activated, you can run all the same commands as described in the [Running E
 - [AxDevice API](../../reference/axdevice.md) - Verify hardware detection after install
 
 ## Further support
-- For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
-- For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).
+
+For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
+
+For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).

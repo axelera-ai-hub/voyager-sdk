@@ -1,3 +1,4 @@
+# Copyright Axelera AI, 2026
 import pytest
 
 torch = pytest.importorskip("torch")

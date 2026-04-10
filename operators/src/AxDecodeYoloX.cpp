@@ -32,7 +32,7 @@ struct properties {
   std::vector<float> zero_points{};
   std::vector<float> scales{};
   std::vector<std::string> class_labels{};
-  std::vector<int> filter{};
+  std::vector<uint8_t> filter{};
 
   float confidence{ 0.25F };
   int num_classes{ 0 };
@@ -122,7 +122,7 @@ decode_cell(const int8_t *box_data, const int8_t *score_data, const int8_t *obje
   }
   const auto &score_lookups = props.dequantize_tables[score_level].data();
   const auto num_predictions = ax_utils::decode_scores(score_data, score_lookups,
-      1, props.filter, props.confidence, props.multiclass, outputs, objectness);
+      props.filter, props.confidence, props.multiclass, outputs, objectness);
 
   if (num_predictions != 0) {
     const auto &box_lookups = props.dequantize_tables[box_level].data();
@@ -237,8 +237,8 @@ decode_tensors(const AxTensorsInterface &tensors, const properties &prop,
   predictions.kpts_shape = { 0, 0 };
   for (int level = 0; level != tensor_order.size(); ++level) {
     const auto [conf_tensor, loc_tensor, objectness_tensor] = tensor_order[level];
-    auto num = decode_tensor(tensors, conf_tensor, loc_tensor,
-        objectness_tensor, prop, level, predictions, logger);
+    decode_tensor(tensors, conf_tensor, loc_tensor, objectness_tensor, prop,
+        level, predictions, logger);
   }
   return predictions;
 }
@@ -271,27 +271,17 @@ decode_to_meta(const AxTensorsInterface &in_tensors,
   }
 
   auto predictions = yolox_decode::decode_tensors(tensors, *prop, padding, logger);
-  predictions = ax_utils::topk(predictions, prop->topk);
+  predictions = ax_utils::topk(std::move(predictions), prop->topk);
 
-  std::vector<BboxXyxy> pixel_boxes;
-  if (prop->master_meta.empty()) {
-    pixel_boxes = ax_utils::scale_boxes(predictions.boxes,
-        std::get<AxVideoInterface>(video_interface), prop->model_width,
-        prop->model_height, prop->scale_up, prop->letterbox);
-  } else {
-    const auto &box_key = prop->association_meta.empty() ? prop->master_meta :
-                                                           prop->association_meta;
-    auto master_meta = ax_utils::get_meta<AxMetaBbox>(box_key, map, "yolox_decode");
-    auto master_box = master_meta->get_box_xyxy(subframe_index);
-    pixel_boxes = ax_utils::scale_shift_boxes(predictions.boxes, master_box,
-        prop->model_width, prop->model_height, prop->scale_up, prop->letterbox);
-  }
-  auto [boxes, scores, class_ids] = ax_utils::remove_empty_boxes(
-      pixel_boxes, predictions.scores, predictions.class_ids);
+  auto base_box = ax_utils::get_master_box(prop->master_meta,
+      prop->association_meta, video_interface, subframe_index, map, "yolox_decode");
+  auto pixel_boxes = ax_utils::scale_shift_boxes(predictions.boxes, base_box,
+      prop->model_width, prop->model_height, true, prop->letterbox);
 
   ax_utils::insert_and_associate_meta<AxMetaObjDetection>(map, prop->meta_name,
-      prop->master_meta, subframe_index, number_of_subframes, prop->association_meta,
-      std::move(boxes), std::move(scores), std::move(class_ids));
+      prop->master_meta, subframe_index, number_of_subframes,
+      prop->association_meta, std::move(pixel_boxes),
+      std::move(predictions.scores), std::move(predictions.class_ids));
   auto end_time = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
   logger(AX_DEBUG) << "decode_to_meta : Decoding took " << duration.count()
@@ -394,18 +384,13 @@ init_and_set_static_properties(
   props->dequantize_tables
       = ax_utils::build_dequantization_tables(props->zero_points, props->scales);
 
-  props->filter = Ax::get_property(
-      input, "label_filter", "detection_static_properties", props->filter);
-  if (props->filter.empty()) {
-    auto size = props->num_classes;
-    props->filter.resize(size);
-    std::iota(props->filter.begin(), props->filter.end(), 0);
-  }
+  auto filter = Ax::get_property(
+      input, "label_filter", "detection_static_properties", std::vector<int>{});
+  props->filter = ax_utils::build_filter(filter, props->num_classes);
+
+
   props->padding = Ax::get_property(
       input, "padding", "detection_static_properties", props->padding);
-  std::sort(props->filter.begin(), props->filter.end());
-  props->filter.erase(std::unique(props->filter.begin(), props->filter.end()),
-      props->filter.end());
   props->letterbox = Ax::get_property(
       input, "letterbox", "detection_static_properties", props->letterbox);
   return props;

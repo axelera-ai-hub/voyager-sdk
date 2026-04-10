@@ -3,6 +3,15 @@ ifndef CFG
   CFG=release
 endif
 
+# CUDA support is disabled by default
+# To enable CUDA, explicitly set CUDA_AVAILABLE=1
+# Requirements: nvidia GPU (nvidia-smi), cuda toolkit (nvcc), and libcudnn8-dev
+ifndef CUDA_AVAILABLE
+  CUDA_AVAILABLE=0
+else
+  $(info CUDA_AVAILABLE explicitly set to $(CUDA_AVAILABLE))
+endif
+
 ifeq ($(CFG),debug)
   BUILD_TYPE=Debug
 else
@@ -48,9 +57,15 @@ endif
 endif
 ONNX_RUNTIME_VERSION := 1.17.1
 ONNX_RUNTIME_BASEDIR := onnxruntime
-ONNX_RUNTIME_NAME := onnxruntime-$(ONNX_RUNTIME_OS)-$(ONNX_RUNTIME_ARCH)-$(ONNX_RUNTIME_VERSION)
+ifeq ($(CUDA_AVAILABLE),1)
+  ONNX_RUNTIME_NAME := onnxruntime-$(ONNX_RUNTIME_OS)-$(ONNX_RUNTIME_ARCH)-cuda12-$(ONNX_RUNTIME_VERSION)
+  ONNX_RUNTIME_DIRNAME := onnxruntime-$(ONNX_RUNTIME_OS)-$(ONNX_RUNTIME_ARCH)-cuda-$(ONNX_RUNTIME_VERSION)
+else
+  ONNX_RUNTIME_NAME := onnxruntime-$(ONNX_RUNTIME_OS)-$(ONNX_RUNTIME_ARCH)-$(ONNX_RUNTIME_VERSION)
+  ONNX_RUNTIME_DIRNAME := $(ONNX_RUNTIME_NAME)
+endif
 ONNX_RUNTIME_URL := https://github.com/microsoft/onnxruntime/releases/download/v$(ONNX_RUNTIME_VERSION)/$(ONNX_RUNTIME_NAME).tgz
-ONNX_RUNTIME_DIR := $(ONNX_RUNTIME_BASEDIR)/$(ONNX_RUNTIME_NAME)
+ONNX_RUNTIME_DIR := $(ONNX_RUNTIME_BASEDIR)/$(ONNX_RUNTIME_DIRNAME)
 
 CMAKE_CACHE := $(BUILD_DIR)/CMakeCache.txt
 
@@ -58,7 +73,11 @@ define run-cmake
 	mkdir -p $(BUILD_DIR)
 	cd $(BUILD_DIR) && \
 	PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) cmake .. $(1) -GNinja -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
-		-DCMAKE_INSTALL_PREFIX=$(PREFIX_DIR) -DCMAKE_INSTALL_LIBDIR=lib  -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON || (cd .. && $(call clobber-it) && exit 1)
+		-DCMAKE_INSTALL_PREFIX=$(PREFIX_DIR) -DCMAKE_INSTALL_LIBDIR=lib -DCUDA_AVAILABLE=$(CUDA_AVAILABLE) || \
+		(cd .. && \
+		echo "\n*** Some platforms may have different/extra package requirements not covered by SDK installation." && \
+		echo "*** If cmake has reported missing packages you may need to identify and install these separately.\n" && \
+		$(call clobber-it) && exit 1)
 endef
 
 gst_ops_install:  $(BUILD_DIR) $(ONNX_RUNTIME_DIR) $(INSTALL_DIR) | check_cmake_rerun
@@ -66,7 +85,7 @@ gst_ops_install:  $(BUILD_DIR) $(ONNX_RUNTIME_DIR) $(INSTALL_DIR) | check_cmake_
 # If it exists, only run ninja if there's work to do
 ifneq ($(wildcard $(BUILD_DIR)),)
 ifeq (,$(findstring no work to do,$(shell ninja -n -C $(BUILD_DIR))))
-	ninja -C $(BUILD_DIR) install
+	ninja -C $(BUILD_DIR) install -j ${shell nproc --all --ignore=2}
 endif
 endif
 
@@ -81,13 +100,13 @@ $(CMAKE_CACHE):
 	$(call run-cmake)
 
 $(BUILD_DIR) $(INSTALL_DIR): $(ONNX_RUNTIME_DIR) $(CMAKE_CACHE) | check_cmake_rerun
-	ninja -C $(BUILD_DIR) install
+	ninja -C $(BUILD_DIR) install -j ${shell nproc --all --ignore=2}
 	@touch $@
 
 $(ONNX_RUNTIME_DIR):
 	mkdir -p $(ONNX_RUNTIME_BASEDIR)
 	(cd $(ONNX_RUNTIME_BASEDIR) && wget $(ONNX_RUNTIME_URL) && tar -xzf $(ONNX_RUNTIME_NAME).tgz)  || (cd .. && $(call clobber-it) && exit 1)
-	ln -snf $(ONNX_RUNTIME_NAME) onnxruntime/onnxruntime
+	ln -snf $(ONNX_RUNTIME_DIRNAME) onnxruntime/onnxruntime
 	mkdir -p lib
 	for lib in onnxruntime/onnxruntime/lib/*; do ln -snf "../$${lib}" lib; done
 

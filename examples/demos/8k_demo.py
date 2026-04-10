@@ -12,8 +12,8 @@ TITLE = "Axelera 8K Demo YOLOV8L Tiling"
 TITLE_FONT = 78
 UNTILED_GRAYSCALE = 0.7  # 0.0 = no grayscale, 1.0 = full grayscale
 
-LOGO1 = os.path.join(config.env.framework, "axelera/app/voyager-sdk-logo-white.png")
-LOGO2 = os.path.join(config.env.framework, "axelera/app/axelera-ai-logo.png")
+LOGO1 = os.path.join(config.env.framework, "axelera/app/render_assets/voyager-sdk-logo-white.png")
+LOGO2 = os.path.join(config.env.framework, "axelera/app/render_assets/axelera-ai-logo.png")
 
 
 def main(window, stream, args):

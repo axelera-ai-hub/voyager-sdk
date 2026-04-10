@@ -11,8 +11,9 @@ Ax::FFMpegVideoDecoder::FFMpegVideoDecoder(const std::string &input,
   video_stream_index = -1;
   format_ctx = nullptr;
 
-  if (format != AxVideoFormat::RGB && format != AxVideoFormat::BGR) {
-    throw std::invalid_argument("Unsupported video format for OpenCVVideoDecoder");
+  if (format != AxVideoFormat::RGB && format != AxVideoFormat::BGR
+      && format != AxVideoFormat::I420 && format != AxVideoFormat::NV12) {
+    throw std::invalid_argument("Unsupported video format for FFMpegVideoDecoder");
   }
   // Set RTSP options
   AVDictionary *opts = nullptr;
@@ -84,6 +85,8 @@ Ax::FFMpegVideoDecoder::~FFMpegVideoDecoder()
 const std::map<AxVideoFormat, AVPixelFormat> Ax::FFMpegVideoDecoder::format_map = {
   { AxVideoFormat::RGB, AV_PIX_FMT_RGB24 },
   { AxVideoFormat::BGR, AV_PIX_FMT_BGR24 },
+  { AxVideoFormat::I420, AV_PIX_FMT_YUV420P },
+  { AxVideoFormat::NV12, AV_PIX_FMT_NV12 },
 };
 void
 Ax::FFMpegVideoDecoder::reader_func()
@@ -98,20 +101,70 @@ Ax::FFMpegVideoDecoder::reader_func()
         break;
       }
       while (avcodec_receive_frame(codec_ctx, frame) >= 0) {
-        framemat.create(frame->height, frame->width, CV_8UC3);
+        AVPixelFormat target_format = Ax::FFMpegVideoDecoder::format_map.at(format);
 
-        const int cvLinesizes[1] = { static_cast<int>(framemat.step) };
+        // Determine cv::Mat type and size based on format
+        int mat_type;
+        int mat_height;
+        if (format == AxVideoFormat::I420) {
+          // I420: Y plane + U plane + V plane (each U/V is 1/4 size of Y)
+          // Total height = height * 3/2
+          mat_type = CV_8UC1;
+          mat_height = frame->height + frame->height / 2;
+        } else if (format == AxVideoFormat::NV12) {
+          // NV12: Y plane + UV interleaved plane
+          // Total height = height * 3/2
+          mat_type = CV_8UC1;
+          mat_height = frame->height + frame->height / 2;
+        } else {
+          // RGB/BGR formats
+          mat_type = CV_8UC3;
+          mat_height = frame->height;
+        }
+
+        framemat.create(mat_height, frame->width, mat_type);
+
         // Create sws context for format conversion or reuse existing context as needed
         sws_ctx = sws_getCachedContext(sws_ctx, frame->width, frame->height,
             static_cast<AVPixelFormat>(frame->format), frame->width,
-            frame->height, Ax::FFMpegVideoDecoder::format_map.at(format),
-            SWS_POINT, nullptr, nullptr, nullptr);
+            frame->height, target_format, SWS_POINT, nullptr, nullptr, nullptr);
         if (!sws_ctx) {
           throw std::runtime_error("Could not create sws context");
         }
 
-        sws_scale(sws_ctx, frame->data, frame->linesize, 0, frame->height,
-            &framemat.data, cvLinesizes);
+        // For planar formats, we need to set up plane pointers
+        if (format == AxVideoFormat::I420) {
+          uint8_t *dst_data[3];
+          int dst_linesize[3];
+
+          dst_data[0] = framemat.data; // Y plane
+          dst_data[1] = framemat.data + frame->width * frame->height; // U plane
+          dst_data[2] = dst_data[1] + (frame->width / 2) * (frame->height / 2); // V plane
+
+          dst_linesize[0] = frame->width;
+          dst_linesize[1] = frame->width / 2;
+          dst_linesize[2] = frame->width / 2;
+
+          sws_scale(sws_ctx, frame->data, frame->linesize, 0, frame->height,
+              dst_data, dst_linesize);
+        } else if (format == AxVideoFormat::NV12) {
+          uint8_t *dst_data[2];
+          int dst_linesize[2];
+
+          dst_data[0] = framemat.data; // Y plane
+          dst_data[1] = framemat.data + frame->width * frame->height; // UV plane
+
+          dst_linesize[0] = frame->width;
+          dst_linesize[1] = frame->width; // UV is interleaved, same width as Y
+
+          sws_scale(sws_ctx, frame->data, frame->linesize, 0, frame->height,
+              dst_data, dst_linesize);
+        } else {
+          // RGB/BGR formats
+          const int cvLinesizes[1] = { static_cast<int>(framemat.step) };
+          sws_scale(sws_ctx, frame->data, frame->linesize, 0, frame->height,
+              &framemat.data, cvLinesizes);
+        }
         frame_callback(std::move(framemat));
       }
     }

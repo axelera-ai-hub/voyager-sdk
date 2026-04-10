@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2026
+// Copyright Axelera AI, 2025
 // collection of utils taken from axstreamer
 #pragma once
 #include <functional>
@@ -71,6 +71,8 @@ void add_uint_property(GObjectClass *object_klass, int id, const std::string &na
     const std::string &blurb, uint32_t min, uint32_t max, uint32_t def);
 void add_boolean_property(GObjectClass *object_class, int id,
     const std::string &name, const std::string &blurb);
+void add_float_property(GObjectClass *object_klass, int id, const std::string &name,
+    const std::string &blurb, float min, float max, float def);
 
 void add_inference_properties(GObjectClass *object_class,
     bool include_dmabuf_outputs, bool include_inference_skip_rate);
@@ -78,5 +80,14 @@ void add_inference_properties(GObjectClass *object_class,
 // raise runtime_error if the tensors from gst are not compatible with the ax tensors
 void ensure_input_tensors_compatible(
     GstTensorsConfig &nn_config, const AxTensorsInterface &ax_tensors);
+
+struct BufferRequirements {
+  uint32_t num_buffers;
+  bool supports_opencl;
+};
+
+BufferRequirements query_downstream_buffers(GstPad *pad);
+void gst_query_set_ax_buffer_requirements(
+    GstQuery *query, guint num_buffers, gboolean supports_opencl);
 
 } // namespace Ax

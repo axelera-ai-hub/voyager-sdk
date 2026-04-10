@@ -28,6 +28,11 @@
     - [One-shot Command Execution (-c option)](#one-shot-command-execution--c-option)
     - [Topics](#topics)
       - [Device Topics](#device-topics)
+  - [Warnings and Threshold Events](#warnings-and-threshold-events)
+  - [Recording and Export](#recording-and-export)
+    - [Recording](#recording)
+    - [Export](#export)
+    - [Replay](#replay)
   - [Communication Architecture](#communication-architecture)
   - [Troubleshooting](#troubleshooting)
     - [No Data Displayed in axmonitor](#no-data-displayed-in-axmonitor)
@@ -40,6 +45,25 @@
 - SDK installed and virtual environment activated
 - Hardware connected and detected (`axdevice`)
 - `axsystemserver` service running (automatically starts with SDK)
+
+### Installing after pip installation guide
+
+> [!Note] In case you followed [Pip Installation Guide](./install_pip.md) follow the below steps.
+> If you followed [SDK Installer guide](./install.md) you can skip these steps
+
+```bash
+# Step 1: Download and add the public key to the system keyring
+sudo sh -c "curl -fsSL https://software.axelera.ai/artifactory/api/security/keypair/axelera/public | gpg --dearmor -o /etc/apt/keyrings/axelera.gpg"
+# Step 2: Add the repository to apt list
+# Ubuntu 22.04
+sudo sh -c "echo 'deb [signed-by=/etc/apt/keyrings/axelera.gpg] https://software.axelera.ai/artifactory/axelera-apt-source ubuntu22 main' > /etc/apt/sources.list.d/axelera.list"
+# Ubuntu 24.04
+sudo sh -c "echo 'deb [signed-by=/etc/apt/keyrings/axelera.gpg] https://software.axelera.ai/artifactory/axelera-apt-source ubuntu24 main' > /etc/apt/sources.list.d/axelera.list"
+# Step3: Update the list of packages
+sudo apt-get update
+sudo apt-get install -y axelera-voyager-sdk-base-1.6.0
+source /opt/axelera/sdk/1.6.0/axelera_activate.sh
+```
 
 ## Level
 **Beginner** - Simple monitoring tool, no coding required
@@ -54,6 +78,7 @@ The `axmonitor` application enables users to monitor key metrics from Axelera AI
   - Kernels on Axelera accelerators are always a number of fused compute operations together. They can refer to an inference or inference and a few mathematical functions combined. This parameter shows the number of these fused kernels executed per second on the hardware. For vision pipelines it is often the same as frames per second.
 - **Power Usage**: Real-time power consumption from board sensors
 - **DDR Memory Usage**: DDR utilization per context in MB, showing memory allocation across active application contexts
+- **DDR Memory Bandwidth**: Real-time DDR memory bandwidth in GB/s, displaying read, write, and total bandwidth utilization
 - **PCIe Bandwidth**: PCIe DMA bandwidth per channel in MB/s
 - **Process Monitoring**: Running processes with PIDs, arguments, and container IDs (Linux only)
 - **Timestamps**: System and device timestamps in milliseconds
@@ -197,9 +222,6 @@ Allowed options:
 
 Global options:
   -h [ --help ]                         Produce help message
-  -l [ --log-level ] arg (=error)       Logging level (trace, debug, info, 
-                                        warning, error, fatal)
-  --log-file arg                        Redirect log messages to a file
   --server-address arg (=127.0.0.1:5555)
                                         Server address to connect to for 
                                         receiving metrics, in the format 
@@ -207,6 +229,15 @@ Global options:
   --ui arg (=auto)                      ui mode: auto, console, gui
   -c [ --command ] arg                  Commands are read from string
   -t [ --topics ] arg                   List of topics to subscribe to
+  --record                              Enable recording of received data to a
+                                        .raw file (always needed for replay)
+  --replay                              Enable replaying data from a recorded
+                                        .raw file
+  --data-file arg (=axmonitor.data)     Base path for data files ('.raw' and/or
+                                        '.json' will be appended)
+  --export arg                          Export formats: json (structured),
+                                        pretty (human-readable). Multiple
+                                        allowed.
 ```
 
 ## User Interface modes
@@ -282,6 +313,65 @@ axmonitor --server-address "127.0.0.1:5555" --topics DEV0 DEV1
 
 This will restrict the monitoring to only the devices `DEV0` and `DEV1`.
 
+## Warnings and Threshold Events
+
+`axmonitor` displays current temperatures and highlights active thermal thresholds visually, but does not emit event-based messages when thresholds are crossed. Threshold crossing events, such as SW throttling activating or frequency downscaling engaging, are only visible in the device firmware log stream.
+
+To capture these events in real time, stream the firmware log using `axlogdevice`:
+
+```bash
+axlogdevice --slog-level inf:service_monitor
+axlogdevice --slog
+```
+
+> [!NOTE]
+> These events are not surfaced in `axmonitor` output or in the `axmonitor --export` data files. If you need to correlate thermal events with performance data, run `axlogdevice` alongside `axmonitor` in a separate terminal.
+
+## Recording and Export
+
+`axmonitor` can record incoming metrics to disk and export them in human-readable or structured formats for offline analysis.
+
+### Recording
+
+Use `--record` to save all received measurements to a `.raw` binary file:
+
+```bash
+axmonitor --server-address "127.0.0.1:5555" --record
+```
+
+By default the file is written to `axmonitor.data.raw`. Use `--data-file` to change the base path:
+
+```bash
+axmonitor --server-address "127.0.0.1:5555" --record --data-file my_axmonitor_session
+```
+
+This writes to `my_axmonitor_session.raw`.
+
+### Export
+
+Use `--export` together with `--record` to write metrics in one or more text formats alongside the `.raw` file:
+
+| Format   | Output file extension | Description                        |
+|----------|-----------------------|------------------------------------|
+| `json`   | `.json`               | Structured JSON, suited for scripting and post-processing |
+| `pretty` | `.pretty`             | Human-readable text output         |
+
+Multiple formats can be specified at once:
+
+```bash
+axmonitor --server-address "127.0.0.1:5555" --record --export json pretty
+```
+
+This produces `axmonitor.data.raw`, `axmonitor.data.json`, and `axmonitor.data.pretty`.
+
+### Replay
+
+Use `--replay` to replay a previously recorded `.raw` file through the normal UI without a live device or server connection:
+
+```bash
+axmonitor --replay --data-file my_axmonitor_session
+```
+
 ## Communication Architecture
 
 axmonitor acts as a TCP client, subscribing to a specific address/port opened by axsystemservice. This connection is used to fetch live data every second, ensuring an up-to-date monitoring experience.
@@ -308,13 +398,10 @@ First, check if the service is running and review the logs if needed. See the [V
 
 **Check if axmonitor is receiving messages:**
 
-You can verify whether `axmonitor` is receiving messages from the service by running it with the info log level:
+- **GUI mode**: if the GUI shows no data or metrics are not updating, the tool is not receiving messages from the service.
+- **Console mode**: run `axmonitor` with `--ui console` and use the `print` command. If measurements are shown, the tool is receiving data from the service.
 
-```bash
-axmonitor --server-address "IP:PORT" -l info
-```
-
-Replace `IP:PORT` with your server address (e.g., 127.0.0.1:5555 for the default). If you see logs indicating that no messages are being received from the host, this confirms that the service is either not running or failed to start.
+If neither mode shows data after a few seconds, the service is either not running or failed to start.
 
 **Check if the port is in use:**
 
@@ -364,7 +451,7 @@ Then:
 
 ## Next Steps
 - **Monitor during benchmarks**: Run axmonitor while executing [Benchmarking Tutorial](benchmarking.md)
-- **Understand thermal behavior**: Read [Thermal Guide](../reference/thermal_guide.md) for threshold details
+- **Understand thermal behavior**: Read [Thermal and Power Guide](../reference/thermal_and_power_guide.md) for threshold details
 - **Optimize performance**: Use metrics to identify bottlenecks in your application
 
 ## Related Documentation
@@ -373,9 +460,11 @@ Then:
 - [Application Integration](application.md) - Monitor your applications in real-time
 
 **References:**
-- [Thermal Guide](../reference/thermal_guide.md) - Understanding temperature thresholds and thermal management
+- [Thermal and Power Guide](../reference/thermal_and_power_guide.md) - Understanding temperature thresholds and thermal management
 - [AxDevice API](../reference/axdevice.md) - Programmatic device enumeration and management
 
 ## Further support
-- For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
-- For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).
+
+For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
+
+For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).

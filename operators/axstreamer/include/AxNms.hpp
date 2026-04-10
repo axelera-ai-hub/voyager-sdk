@@ -70,3 +70,7 @@ AxMetaSegmentsDetection non_max_suppression(AxMetaSegmentsDetection &meta,
 ///
 AxMetaPoseSegmentsDetection non_max_suppression(const AxMetaPoseSegmentsDetection &meta,
     float threshold, bool class_agnostic, int max_boxes, bool merge);
+
+
+std::unique_ptr<AxMetaSegmentsDetection> non_max_suppression(
+    std::span<AxMetaBase *> metas, float threshold, bool class_agnostic, int max_boxes);

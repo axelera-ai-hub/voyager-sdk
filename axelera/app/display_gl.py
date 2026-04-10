@@ -1,10 +1,10 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 from __future__ import annotations
 
 import collections
 import contextlib
 import ctypes
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import functools
 import math
 import operator
@@ -18,6 +18,28 @@ import weakref
 
 import numpy as np
 import pyglet
+from pyglet.gl import (
+    glBindTexture,
+    GL_TEXTURE_2D,
+    GL_RED,
+    GL_RG,
+    glTexParameteri,
+    GL_TEXTURE_MIN_FILTER,
+    GL_TEXTURE_MAG_FILTER,
+    GL_LINEAR,
+    GL_NEAREST,
+    glTexImage2D,
+    GL_UNSIGNED_BYTE,
+    glActiveTexture,
+    GL_TEXTURE0,
+    GL_TEXTURE1,
+    GL_TEXTURE2,
+    GL_TEXTURE3,
+    GL_RGBA,
+    GL_RGB,
+    glPixelStorei,
+    GL_UNPACK_ROW_LENGTH,
+)
 
 from axelera import types
 
@@ -48,6 +70,7 @@ _RENDER_FPS = config.env.render_fps
 _SHOW_BUFFER_STATUS = config.env.render_show_buffer_status
 _SHOW_RENDER_FPS = config.env.render_show_fps
 _STREAM_QUEUE_SIZE = config.env.render_queue_size
+_BOX_KEYPOINTS = config.env.render_box_keypoints
 
 # Soft as won't fail, but may have visual glitches if exceeded
 SOFT_MAX_STREAMS = 100
@@ -106,37 +129,258 @@ _label_argnames = (
 )
 
 
-grayscale_fragment_source: str = """#version 150 core
-    in vec4 vertex_colors;
-    in vec3 texture_coords;
-    out vec4 final_colors;
-    uniform sampler2D sprite_texture;
-    void main()
-    {{
-        vec4 color = texture(sprite_texture, texture_coords.xy) * vertex_colors;
-        float grey = dot(color.rgb, vec3(0.299, 0.587, 0.114));
-        vec4 grey_color = vec4(grey, grey, grey, color.a);
-        final_colors = mix(color, grey_color, {grayness}); // 1.0 totally grayscale, 0.0 original color
-    }}
-"""
+# ============================================================================
+# GLSL SHADER FUNCTION LIBRARY - Composable color conversion and effects
+# ============================================================================
+# Format: {function_name: (function_body, uniforms, tex_size_expr)}
+# All functions share: in vec4 vertex_colors; in vec3 texture_coords; out vec4 final_colors;
+
+_shader_functions = {
+    "yuv_to_rgb": (
+        """
+vec4 yuv_to_rgb(float y, float u, float v) {
+    float y_scaled = 1.164 * (y - 0.0627);
+    float u_shifted = u - 0.5020;
+    float v_shifted = v - 0.5020;
+
+    float r = y_scaled + 1.596 * v_shifted;
+    float g = y_scaled - 0.391 * u_shifted - 0.813 * v_shifted;
+    float b = y_scaled + 2.018 * u_shifted;
+    return vec4(r, g, b, 1.0);
+}""",
+        [],
+        "",
+    ),
+    "convert_nv12": (
+        """
+vec4 convert_nv12(vec2 coords) {
+    float y = texture(y_tex, coords).r;
+    vec2 uv = texture(uv_tex, coords).rg;
+    return yuv_to_rgb(y, uv.x, uv.y);
+}""",
+        ["uniform sampler2D y_tex;", "uniform sampler2D uv_tex;"],
+        "vec2(textureSize(y_tex, 0))",
+    ),
+    "convert_i420": (
+        """
+vec4 convert_i420(vec2 coords) {
+    float y = texture(y_tex, coords).r;
+    float u = texture(u_tex, coords).r;
+    float v = texture(v_tex, coords).r;
+    return yuv_to_rgb(y, u, v);
+}""",
+        ["uniform sampler2D y_tex;", "uniform sampler2D u_tex;", "uniform sampler2D v_tex;"],
+        "vec2(textureSize(y_tex, 0))",
+    ),
+    "convert_nv16": (
+        """
+vec4 convert_nv16(vec2 coords) {
+    float y = texture(y_tex, coords).r;
+    vec2 uv = texture(uv_tex, coords).rg;
+    return yuv_to_rgb(y, uv.x, uv.y);
+}""",
+        ["uniform sampler2D y_tex;", "uniform sampler2D uv_tex;"],
+        "vec2(textureSize(y_tex, 0))",
+    ),
+    "convert_yuy2": (
+        """
+vec4 convert_yuy2(vec2 coords) {
+    vec2 pixel_pos = coords * tex_size;
+    float x_mod = mod(floor(pixel_pos.x), 2.0);
+    vec2 sample_pos = vec2(floor(pixel_pos.x * 0.5) + 0.5, floor(pixel_pos.y) + 0.5);
+    vec2 sample_coord = sample_pos / vec2(tex_size.x * 0.5, tex_size.y);
+    vec4 yuv_packed = texture(tex, sample_coord);
+    float y = mix(yuv_packed.r, yuv_packed.b, x_mod);
+    float u = yuv_packed.g;
+    float v = yuv_packed.a;
+    return yuv_to_rgb(y, u, v);
+}""",
+        ["uniform sampler2D tex;", "uniform vec2 tex_size;"],
+        "tex_size",
+    ),
+    "convert_gray8": (
+        """
+vec4 convert_gray8(vec2 coords) {
+    float gray = texture(tex, coords).r;
+    return vec4(gray, gray, gray, 1.0);
+}""",
+        ["uniform sampler2D tex;"],
+        "vec2(textureSize(tex, 0))",
+    ),
+    "convert_rgb": (
+        """
+vec4 convert_rgb(vec2 coords) {{
+    return vec4(texture(tex, coords).{swizzle}, 1.0);
+}}""",
+        ["uniform sampler2D tex;"],
+        "vec2(textureSize(tex, 0))",
+    ),
+    "convert_rgba": (
+        """
+vec4 convert_rgba(vec2 coords) {{
+    return texture(tex, coords).{swizzle};
+}}""",
+        ["uniform sampler2D tex;"],
+        "vec2(textureSize(tex, 0))",
+    ),
+    "convert_fallback": (
+        """
+vec4 convert_fallback(vec2 coords) {
+    return texture(tex, coords);
+}""",
+        ["uniform sampler2D tex;"],
+        "vec2(textureSize(tex, 0))",
+    ),
+    "apply_pixelate": (
+        """
+vec2 apply_pixelate(vec2 coords, vec2 tex_size, float factor) {
+    vec2 pixel_size = vec2(factor) / tex_size;
+    return floor(coords / pixel_size) * pixel_size;
+}""",
+        [],
+        "",
+    ),
+    "apply_grayscale": (
+        """
+vec4 apply_grayscale(vec4 color, float amount) {{
+    float grey = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+    vec4 grey_color = vec4(grey, grey, grey, color.a);
+    return mix(color, grey_color, {grayness});
+}}""",
+        [],
+        "",
+    ),
+}
 
 
-@functools.lru_cache(maxsize=10)
-def _get_grayscale_shader(grayness: float, area: str) -> pyglet.program.ShaderProgram:
-    """Create and return a grayscale sprite shader."""
-    if grayness == 0.0:
-        return None
-    expr = {
-        'all': grayness,
-        'left': f'texture_coords.x < 0.5 ? {grayness} : 0.0',
-        'right': f'texture_coords.x > 0.5 ? {grayness} : 0.0',
-        'top': f'texture_coords.y < 0.5 ? {grayness} : 0.0',
-        'bottom': f'texture_coords.y > 0.5 ? {grayness} : 0.0',
-    }[area]
+def _compose_shader(
+    format_name: str,
+    blur: float | None = None,
+    grayscale: float | None = None,
+    grayscale_area: str = 'all',
+) -> str:
+    """Compose a complete shader from color conversion and effect functions."""
 
+    format_key = format_name.upper()
+
+    # Determine converter function and any format-specific substitutions
+    if format_key in ['RGB', 'BGR']:
+        swizzle = 'bgr' if format_key == 'BGR' else 'rgb'
+        converter_name = "convert_rgb"
+        func_body, uniforms, tex_size_expr = _shader_functions[converter_name]
+        converter_body = func_body.format(swizzle=swizzle)
+    elif format_key in ['RGBA', 'BGRA', 'RGBX', 'BGRX']:
+        swizzle = 'bgra' if format_key in ['BGRA', 'BGRX'] else 'rgba'
+        converter_name = "convert_rgba"
+        func_body, uniforms, tex_size_expr = _shader_functions[converter_name]
+        converter_body = func_body.format(swizzle=swizzle)
+    else:
+        # Direct lookup for NV12, I420, etc.
+        converter_name = f"convert_{format_key.lower()}"
+        if converter_name in _shader_functions:
+            converter_body, uniforms, tex_size_expr = _shader_functions[converter_name]
+        else:
+            converter_name = "convert_fallback"
+            converter_body, uniforms, tex_size_expr = _shader_functions[converter_name]
+
+    # Collect function bodies
+    functions = []
+
+    # Add yuv_to_rgb helper if using a YUV format
+    yuv_formats = {'convert_nv12', 'convert_i420', 'convert_nv16', 'convert_yuy2'}
+    if converter_name in yuv_formats:
+        functions.append(_shader_functions["yuv_to_rgb"][0])
+
+    functions.append(converter_body)
+
+    if blur is not None:
+        functions.append(_shader_functions["apply_pixelate"][0])
+    if grayscale is not None and grayscale > 0.0:
+        # Format grayscale function with area-based expression like the original
+        grayscale_expr = {
+            'all': str(grayscale),
+            'left': f'texture_coords.x < 0.5 ? {grayscale} : 0.0',
+            'right': f'texture_coords.x > 0.5 ? {grayscale} : 0.0',
+            'top': f'texture_coords.y < 0.5 ? {grayscale} : 0.0',
+            'bottom': f'texture_coords.y > 0.5 ? {grayscale} : 0.0',
+        }[grayscale_area]
+        grayscale_func = _shader_functions["apply_grayscale"][0].format(grayness=grayscale_expr)
+        functions.append(grayscale_func)
+
+    # Build main() function body
+    main_body = []
+
+    # Apply pixelation if needed
+    if blur is not None:
+        main_body.append(
+            f"    vec2 coords = apply_pixelate(texture_coords.xy, {tex_size_expr}, {blur});"
+        )
+    else:
+        main_body.append("    vec2 coords = texture_coords.xy;")
+
+    # Convert color
+    main_body.append(f"    vec4 color = {converter_name}(coords);")
+
+    # Apply grayscale if needed
+    if grayscale is not None and grayscale > 0.0:
+        main_body.append("    color = apply_grayscale(color, 0.0);")
+
+    # Final output
+    main_body.append("    final_colors = color * vertex_colors;")
+
+    # Assemble complete shader
+    shader_parts = (
+        [
+            "#version 150 core",
+            "",
+            "// Uniforms",
+        ]
+        + uniforms
+        + [
+            "",
+            "// Varyings",
+            "in vec4 vertex_colors;",
+            "in vec3 texture_coords;",
+            "out vec4 final_colors;",
+            "",
+            "// Functions",
+        ]
+        + functions
+        + [
+            "",
+            "void main() {",
+        ]
+        + main_body
+        + [
+            "}",
+        ]
+    )
+
+    return "\n".join(shader_parts)
+
+
+@functools.lru_cache(maxsize=100)
+def _get_shader(
+    format_name: str,
+    blur: float | None = None,
+    grayscale: float | None = None,
+    grayscale_area: str = 'all',
+) -> pyglet.program.ShaderProgram:
+    """Get a shader with color conversion and optional effects.
+
+    Args:
+        format_name: Color format (NV12, I420, RGB, etc.)
+        blur: Pixelation factor (None = no blur)
+        grayscale: Grayscale amount 0.0-1.0 (None = no grayscale)
+        grayscale_area: Area to apply grayscale ('all', 'left', 'right', 'top', 'bottom')
+
+    Returns:
+        Compiled shader program
+    """
+    shader_source = _compose_shader(format_name, blur, grayscale, grayscale_area)
     return pyglet.gl.current_context.create_program(
         (pyglet.sprite.vertex_source, 'vertex'),
-        (grayscale_fragment_source.format(grayness=expr), 'fragment'),
+        (shader_source, 'fragment'),
     )
 
 
@@ -240,7 +484,9 @@ class LabelPool:
 @functools.lru_cache(maxsize=1)
 def _load_fonts():
     # Barlow Regular:
-    pyglet.font.add_file(os.path.join(os.path.dirname(__file__), "axelera-sans.ttf"))
+    pyglet.font.add_file(
+        os.path.join(os.path.dirname(__file__), "render_assets", "axelera-sans.ttf")
+    )
 
 
 @functools.lru_cache(maxsize=10000)
@@ -312,26 +558,6 @@ class ProgressDraw:
         self._p.draw()
 
 
-def _new_sprite_from_image(
-    image: types.Image,
-    canvas: GLCanvas,
-    batch=None,
-    group=None,
-    grayscale=False,
-    grayscale_area='all',
-):
-    w, h = image.size
-    fmt = image.color_format.name
-    with image.as_c_void_p() as ptr:
-        glimg = pyglet.image.ImageData(w, h, fmt, ptr, pitch=image.pitch)
-        pt = canvas.glp((0, 0))
-        pr = _get_grayscale_shader(grayscale, grayscale_area)
-        sprite = pyglet.sprite.Sprite(glimg, *pt, batch=batch, group=group, program=pr)
-        sprite.scale_x = canvas.scale
-        sprite.scale_y = -canvas.scale
-        return sprite
-
-
 def _move_sprite(sprite: pyglet.sprite.Sprite, canvas: GLCanvas):
     sprite.scale_x = canvas.scale
     sprite.scale_y = -canvas.scale
@@ -363,7 +589,6 @@ class MasterDraw:
     def __init__(self, window: pyglet.window.Window, label_pool: LabelPool):
         self._label_pool = label_pool
         self._batch = pyglet.graphics.Batch()
-        self._keypoint_cache = functools.cache(_keypoint_image)
         self._window = window
         self._draws = {}
         self._progresses = {}
@@ -371,6 +596,16 @@ class MasterDraw:
         self._speedometer_smoothing = display.SpeedometerSmoothing()
         self._options: dict[int, GLOptions] = collections.defaultdict(GLOptions)
         self._layers: dict[uuid.UUID, display._Layer] = collections.defaultdict()
+        self._render_state: dict[int, dict[Any, Any]] = collections.defaultdict(dict)
+
+    def clear_state(self, source_id: int):
+        if 'grid_sprites' in self._render_state[source_id]:
+            for sprite in self._render_state[source_id]['grid_sprites'].values():
+                sprite.delete()
+
+        # `_` denotes keys which are internally managed and should not be user clear-able
+        preserved = {k: v for k, v in self._render_state[source_id].items() if k.startswith('_')}
+        self._render_state[source_id] = preserved
 
     def _num_sources(self, new_source_id: int) -> int:
         return (
@@ -386,8 +621,7 @@ class MasterDraw:
         return bool(self._draws) or bool(self._progresses)
 
     def draw(self):
-        for d in self._draws.values():
-            d.draw()
+        self._batch.draw()
         for p in self._progresses.values():
             p.draw()
 
@@ -396,14 +630,32 @@ class MasterDraw:
         self._progresses.pop(source_id, None)
 
     def new_frame(
-        self, stream_id: int, image: types.Image, axmeta: Optional[meta.AxMeta], buf_state: float
+        self,
+        stream_id: int,
+        image: types.Image,
+        axmeta: Optional[meta.AxMeta],
+        buf_state: float,
     ):
         cached, meta_map = self._meta_cache.get(stream_id, axmeta)
-        cached  # TODO we should optimise by updating the image and leaving the rest of the draw
         layers = display.get_layers(self._layers, stream_id)
         speedometer_smoothing = (
             self._speedometer_smoothing if self._options[-1].speedometer_smoothing else None
         )
+
+        # Only allow Grid and SideBySide frame styles when there is one source
+        if (
+            self._options[stream_id].style
+            in (
+                display.FrameStyle.GRID,
+                display.FrameStyle.SIDE_BY_SIDE,
+            )
+            and self._num_sources(stream_id) > 1
+        ):
+            self._options[stream_id].style = display.FrameStyle.NORMAL
+            LOG.warning(
+                f"Stream {stream_id}: Grid and SideBySide frame styles are only supported when "
+                "there is one source. Defaulting to Normal frame style."
+            )
 
         self._draws[stream_id] = GLDraw(
             stream_id,
@@ -411,13 +663,13 @@ class MasterDraw:
             self._window.size,
             self._label_pool,
             self._batch,
-            self._keypoint_cache,
             image,
             meta_map,
+            self._render_state[stream_id],
             self._options[stream_id],
             self._options[-1],  # window options is stream_id -1
             layers,
-            speedometer_smoothing=speedometer_smoothing,
+            speedometer_smoothing,
         )
         if _SHOW_BUFFER_STATUS:
             self.set_buffering(stream_id, buf_state)
@@ -454,6 +706,800 @@ class MasterDraw:
             draw.new_label_pool(label_pool)
 
 
+warned_style = False
+
+
+def _find_frame_class(style: display.FrameStyle):
+    global warned_style
+    if style == display.FrameStyle.NORMAL:
+        return NormalFrame
+    elif style == display.FrameStyle.GRID:
+        return GridFrame
+    elif style == display.FrameStyle.SIDE_BY_SIDE:
+        return SideBySideFrame
+    if not warned_style:
+        LOG.warning(f"Unknown frame style {style}, defaulting to NormalFrame")
+        warned_style = True
+    return NormalFrame
+
+
+def get_ptr(data, offset):
+    base_address = ctypes.cast(data, ctypes.c_void_p).value
+    return base_address + offset
+
+
+def _upload_nv12(width, height, data, sprite, textures, strides, offsets):
+    """Handle NV12 format: Y plane + interleaved UV plane (4:2:0)"""
+    if 'y' not in textures:
+        textures['y'] = pyglet.image.Texture.create(width, height, GL_TEXTURE_2D, GL_RED)
+        textures['uv'] = pyglet.image.Texture.create(width // 2, height // 2, GL_TEXTURE_2D, GL_RG)
+
+        # Y plane: linear filtering for smooth luma
+        glBindTexture(GL_TEXTURE_2D, textures['y'].id)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+
+        # UV plane: nearest-neighbor to avoid color bleeding at sharp transitions
+        glBindTexture(GL_TEXTURE_2D, textures['uv'].id)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+
+    y_stride = strides[0]
+    y_offset = offsets[0]
+    uv_stride = strides[1]
+    uv_offset = offsets[1]
+
+    glBindTexture(GL_TEXTURE_2D, textures['y'].id)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, y_stride)
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RED,
+        width,
+        height,
+        0,
+        GL_RED,
+        GL_UNSIGNED_BYTE,
+        get_ptr(data, y_offset),
+    )
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
+
+    glBindTexture(GL_TEXTURE_2D, textures['uv'].id)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, uv_stride // 2)
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RG,
+        width // 2,
+        height // 2,
+        0,
+        GL_RG,
+        GL_UNSIGNED_BYTE,
+        get_ptr(data, uv_offset),
+    )
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
+
+    _configure_sprite_uniforms(sprite, 'NV12', width, height)
+
+
+def _bind_nv12(textures):
+    glActiveTexture(GL_TEXTURE1)
+    glBindTexture(GL_TEXTURE_2D, textures['y'].id)
+    glActiveTexture(GL_TEXTURE2)
+    glBindTexture(GL_TEXTURE_2D, textures['uv'].id)
+
+
+def _upload_i420(width, height, data, sprite, textures, strides, offsets):
+    """Handle I420 format: Y plane + separate U and V planes (4:2:0)"""
+    if 'y' not in textures:
+        textures['y'] = pyglet.image.Texture.create(width, height, GL_TEXTURE_2D, GL_RED)
+        textures['u'] = pyglet.image.Texture.create(width // 2, height // 2, GL_TEXTURE_2D, GL_RED)
+        textures['v'] = pyglet.image.Texture.create(width // 2, height // 2, GL_TEXTURE_2D, GL_RED)
+
+        # Y plane: linear filtering for smooth luma
+        glBindTexture(GL_TEXTURE_2D, textures['y'].id)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+
+        # U and V planes: nearest-neighbor to avoid color bleeding at sharp transitions
+        for tex in [textures['u'], textures['v']]:
+            glBindTexture(GL_TEXTURE_2D, tex.id)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+
+    y_stride = strides[0]
+    y_offset = offsets[0]
+    u_stride = strides[1]
+    u_offset = offsets[1]
+    v_stride = strides[2]
+    v_offset = offsets[2]
+
+    glBindTexture(GL_TEXTURE_2D, textures['y'].id)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, y_stride)
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RED,
+        width,
+        height,
+        0,
+        GL_RED,
+        GL_UNSIGNED_BYTE,
+        get_ptr(data, y_offset),
+    )
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
+
+    glBindTexture(GL_TEXTURE_2D, textures['u'].id)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, u_stride)
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RED,
+        width // 2,
+        height // 2,
+        0,
+        GL_RED,
+        GL_UNSIGNED_BYTE,
+        get_ptr(data, u_offset),
+    )
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
+
+    glBindTexture(GL_TEXTURE_2D, textures['v'].id)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, v_stride)
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RED,
+        width // 2,
+        height // 2,
+        0,
+        GL_RED,
+        GL_UNSIGNED_BYTE,
+        get_ptr(data, v_offset),
+    )
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
+
+    _configure_sprite_uniforms(sprite, 'I420', width, height)
+
+
+def _bind_i420(textures):
+    glActiveTexture(GL_TEXTURE1)
+    glBindTexture(GL_TEXTURE_2D, textures['y'].id)
+    glActiveTexture(GL_TEXTURE2)
+    glBindTexture(GL_TEXTURE_2D, textures['u'].id)
+    glActiveTexture(GL_TEXTURE3)
+    glBindTexture(GL_TEXTURE_2D, textures['v'].id)
+
+
+def _upload_nv16(width, height, data, sprite, textures, strides, offsets):
+    """Handle NV16 format: Y plane + interleaved UV plane (4:2:2)"""
+    if 'y' not in textures:
+        textures['y'] = pyglet.image.Texture.create(width, height, GL_TEXTURE_2D, GL_RED)
+        textures['uv'] = pyglet.image.Texture.create(width // 2, height, GL_TEXTURE_2D, GL_RG)
+
+        # Y plane: linear filtering for smooth luma
+        glBindTexture(GL_TEXTURE_2D, textures['y'].id)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+
+        # UV plane: nearest-neighbor to avoid color bleeding at sharp transitions
+        glBindTexture(GL_TEXTURE_2D, textures['uv'].id)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+
+    y_stride = strides[0]
+    y_offset = offsets[0]
+    uv_stride = strides[1]
+    uv_offset = offsets[1]
+
+    glBindTexture(GL_TEXTURE_2D, textures['y'].id)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, y_stride)
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RED,
+        width,
+        height,
+        0,
+        GL_RED,
+        GL_UNSIGNED_BYTE,
+        get_ptr(data, y_offset),
+    )
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
+
+    glBindTexture(GL_TEXTURE_2D, textures['uv'].id)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, uv_stride)
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RG,
+        width // 2,
+        height,
+        0,
+        GL_RG,
+        GL_UNSIGNED_BYTE,
+        get_ptr(uv_offset),
+    )
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
+
+    _configure_sprite_uniforms(sprite, 'NV16', width, height)
+
+
+def _bind_nv16(textures):
+    glActiveTexture(GL_TEXTURE1)
+    glBindTexture(GL_TEXTURE_2D, textures['y'].id)
+    glActiveTexture(GL_TEXTURE2)
+    glBindTexture(GL_TEXTURE_2D, textures['uv'].id)
+
+
+def _upload_yuy2(width, height, data, sprite, textures, strides, offsets):
+    """Handle YUY2 format: Packed 4:2:2 (Y0 U Y1 V pattern)"""
+    if 'tex' not in textures:
+        textures['tex'] = pyglet.image.Texture.create(width // 2, height, GL_TEXTURE_2D, GL_RGBA)
+
+        # Use nearest-neighbor filtering to avoid interpolation artifacts
+        glBindTexture(GL_TEXTURE_2D, textures['tex'].id)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+
+        print(f"Created YUY2 texture: {width//2}x{height} (RGBA)")
+
+    y_stride = strides[0]
+    y_offset = offsets[0]
+
+    glBindTexture(GL_TEXTURE_2D, textures['tex'].id)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, y_stride // 2)  # Each texel is 2 bytes in YUY2
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RGBA,
+        width // 2,
+        height,
+        0,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        get_ptr(data, y_offset),
+    )
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
+
+    _configure_sprite_uniforms(sprite, 'YUY2', width, height)
+
+
+def _bind_yuy2(textures):
+    glActiveTexture(GL_TEXTURE1)
+    glBindTexture(GL_TEXTURE_2D, textures['tex'].id)
+
+
+def _upload_gray8(width, height, data, sprite, textures, strides, offsets):
+    """Handle GRAY8 format: single channel grayscale"""
+    if 'tex' not in textures:
+        textures['tex'] = pyglet.image.Texture.create(width, height, GL_TEXTURE_2D, GL_RED)
+        print(f"Created GRAY8 texture: {width}x{height}")
+
+    y_stride = strides[0]
+    y_offset = offsets[0]
+
+    glBindTexture(GL_TEXTURE_2D, textures['tex'].id)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, y_stride)
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RED,
+        width,
+        height,
+        0,
+        GL_RED,
+        GL_UNSIGNED_BYTE,
+        get_ptr(data, y_offset),
+    )
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
+
+    glActiveTexture(GL_TEXTURE1)
+    glBindTexture(GL_TEXTURE_2D, textures['tex'].id)
+
+    _configure_sprite_uniforms(sprite, 'GRAY8', width, height)
+
+
+def _bind_gray8(textures):
+    glActiveTexture(GL_TEXTURE1)
+    glBindTexture(GL_TEXTURE_2D, textures['tex'].id)
+
+
+def _upload_rgb(width, height, data, sprite, textures, strides, offsets):
+    """Handle RGB/BGR format"""
+    if 'tex' not in textures:
+        textures['tex'] = pyglet.image.Texture.create(width, height, GL_TEXTURE_2D, GL_RGB)
+
+    stride = strides[0]
+    offset = offsets[0]
+    glBindTexture(GL_TEXTURE_2D, textures['tex'].id)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, stride // 3)  # Each pixel is 3 bytes in RGB/BGR
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RGB,
+        width,
+        height,
+        0,
+        GL_RGB,
+        GL_UNSIGNED_BYTE,
+        get_ptr(data, offset),
+    )
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
+
+    _configure_sprite_uniforms(sprite, 'RGB', width, height)
+
+
+def _bind_rgb(textures):
+    glActiveTexture(GL_TEXTURE1)
+    glBindTexture(GL_TEXTURE_2D, textures['tex'].id)
+
+
+def _upload_rgba(width, height, data, sprite, textures, strides, offsets):
+    """Handle RGBA/BGRA/RGBx/BGRx format"""
+    if 'tex' not in textures:
+        textures['tex'] = pyglet.image.Texture.create(width, height, GL_TEXTURE_2D, GL_RGBA)
+        LOG.debug(f"Created RGBA texture: {width}x{height}")
+
+    glBindTexture(GL_TEXTURE_2D, textures['tex'].id)
+    glPixelStorei(
+        GL_UNPACK_ROW_LENGTH, strides[0] // 4
+    )  # Each pixel is 4 bytes in RGBA/BGRA/RGBx/BGRx
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RGBA,
+        width,
+        height,
+        0,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        get_ptr(data, offsets[0]),
+    )
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
+
+    _configure_sprite_uniforms(sprite, 'RGBA', width, height)
+
+
+def _bind_rgba(textures):
+    glActiveTexture(GL_TEXTURE1)
+    glBindTexture(GL_TEXTURE_2D, textures['tex'].id)
+
+
+def _configure_sprite_uniforms(sprite, format_name: str, width: int, height: int):
+    """Configure shader uniforms for a sprite based on the color format.
+
+    This is needed for grid cell sprites and other sprites that share textures
+    but have their own shader program instances.
+    """
+    format_key = format_name.upper()
+
+    if format_key in ['NV12', 'NV16']:
+        sprite.program['y_tex'] = 1
+        sprite.program['uv_tex'] = 2
+    elif format_key == 'I420':
+        sprite.program['y_tex'] = 1
+        sprite.program['u_tex'] = 2
+        sprite.program['v_tex'] = 3
+    elif format_key == 'YUY2':
+        sprite.program['tex'] = 1
+        sprite.program['tex_size'] = (float(width), float(height))
+    elif format_key in ['GRAY8', 'RGB', 'BGR', 'RGBA', 'BGRA', 'RGBX', 'BGRX']:
+        sprite.program['tex'] = 1
+    # Fallback formats also use 'tex'
+    else:
+        sprite.program['tex'] = 1
+
+
+def _new_sprite_from_image(
+    image,
+    texture,
+    canvas: GLCanvas,
+    batch,
+    bind_group,
+    grayscale,
+    grayscale_area,
+    opacity,
+    render_state=None,
+):
+    pt = canvas.glp((0, 0))
+
+    format_name = image.color_format.name
+    width, height = image.size
+
+    shader = _get_shader(
+        format_name, blur=None, grayscale=1.0 if grayscale else None, grayscale_area=grayscale_area
+    )
+    sprite = pyglet.sprite.Sprite(texture, *pt, batch=batch, group=bind_group, program=shader)
+    sprite.scale_x = canvas.scale
+    sprite.scale_y = -canvas.scale
+    sprite.opacity = opacity
+
+    textures = render_state.get("_textures", {})
+
+    with image.as_c_void_p() as data:
+        if format_name == 'NV12':
+            _upload_nv12(width, height, data, sprite, textures, image.strides, image.offsets)
+        elif format_name == 'I420':
+            _upload_i420(width, height, data, sprite, textures, image.strides, image.offsets)
+        elif format_name == 'NV16':
+            _upload_nv16(width, height, data, sprite, textures, image.strides, image.offsets)
+        elif format_name == 'YUY2':
+            _upload_yuy2(width, height, data, sprite, textures, image.strides, image.offsets)
+        elif format_name == 'GRAY8':
+            _upload_gray8(width, height, data, sprite, textures, image.strides, image.offsets)
+        elif format_name in ['RGB', 'BGR']:
+            _upload_rgb(width, height, data, sprite, textures, image.strides, image.offsets)
+        elif format_name in ['RGBA', 'BGRA', 'RGBx', 'BGRx']:
+            _upload_rgba(width, height, data, sprite, textures, image.strides, image.offsets)
+
+    if "_textures" not in render_state:
+        render_state["_textures"] = textures
+
+    return sprite
+
+
+class BindGroup(pyglet.graphics.Group):
+    def __init__(self, render_state, format_name, order=0, parent=None):
+        super().__init__(order, parent)
+        self._render_state = render_state
+        self.format_name = format_name
+
+    def set_state(self):
+        textures = self._render_state.get('_textures', {})
+        if self.format_name == 'NV12':
+            _bind_nv12(textures)
+        elif self.format_name == 'I420':
+            _bind_i420(textures)
+        elif self.format_name == 'NV16':
+            _bind_nv16(textures)
+        elif self.format_name == 'YUY2':
+            _bind_yuy2(textures)
+        elif self.format_name == 'GRAY8':
+            _bind_gray8(textures)
+        elif self.format_name in ['RGB', 'BGR']:
+            _bind_rgb(textures)
+        elif self.format_name in ['RGBA', 'BGRA', 'RGBx', 'BGRx']:
+            _bind_rgba(textures)
+        glActiveTexture(GL_TEXTURE0)
+
+
+class Frame:
+    def __init__(self, image, canvas, batch, group, render_state, bind_group):
+        self._image = image
+        self._canvas = canvas
+        self._batch = batch
+        self._group = group
+        self._render_state = render_state
+        self._bind_group = bind_group
+
+    def resize(self, canvas):
+        self._canvas = canvas
+
+    @property
+    def canvas(self) -> GLCanvas:
+        return self._canvas
+
+    @property
+    def layer_canvas(self) -> GLCanvas:
+        return self.canvas
+
+    @property
+    def _main_texture(self):
+        """Get or create the main texture from render_state."""
+        if "_main_texture" not in self._render_state:
+            width, height = self._image.size
+            self._render_state["_main_texture"] = pyglet.image.Texture.create(
+                width, height, GL_TEXTURE_2D, GL_RGBA
+            )
+        return self._render_state["_main_texture"]
+
+
+class NormalFrame(Frame):
+    def __init__(
+        self,
+        image,
+        canvas,
+        batch,
+        group,
+        foreground,
+        shapes,
+        render_state,
+        bind_group,
+        grayscale=False,
+        grayscale_area='all',
+        opacity=255,
+        **style_opts,
+    ):
+        del style_opts, foreground, shapes
+        super().__init__(image, canvas, batch, group, render_state, bind_group)
+        self._sprite = _new_sprite_from_image(
+            self._image,
+            self._main_texture,
+            self._canvas,
+            self._batch,
+            self._bind_group,
+            grayscale,
+            grayscale_area,
+            opacity,
+            self._render_state,
+        )
+
+    def resize(self, canvas):
+        super().resize(canvas)
+        _move_sprite(self._sprite, self._canvas)
+
+
+class GridFrame(Frame):
+    PIXELATE_FACTOR = 10.0
+
+    def __init__(
+        self,
+        texture,
+        canvas,
+        batch,
+        group,
+        foreground,
+        shapes,
+        render_state,
+        bind_group,
+        crops={},
+        grid_dims=(8, 8),
+        blurs=set(),
+        fades=dict(),
+        left=0,
+        source_sprite=None,
+        **style_opts,
+    ):
+        del style_opts, foreground, shapes
+        super().__init__(
+            texture,
+            GLCanvas(left, 0, *canvas.window_size, 1.0, *canvas.window_size),
+            batch,
+            group,
+            render_state,
+            bind_group,
+        )
+
+        if source_sprite is None:
+            source_sprite = _new_sprite_from_image(
+                texture,
+                self._main_texture,
+                self._canvas,
+                None,  # No batch - invisible sprite just for texture upload
+                self._bind_group,
+                False,
+                'all',
+                255,
+                self._render_state,
+            )
+        self._source_sprite = source_sprite
+
+        self._rows, self._cols = grid_dims
+
+        self._batch = batch
+        self._group = group
+
+        if blurs == 'all':
+            self._blurs = set(range(self._rows * self._cols))
+        else:
+            self._blurs = blurs
+
+        if "grid_sprites" not in self._render_state:
+            self._render_state['grid_sprites'] = {}
+            self._render_state['last_dims'] = grid_dims
+            self._render_state['last_blurs'] = self._blurs
+            self._render_state['last_left'] = left
+        self._sprites = self._render_state['grid_sprites']
+
+        self._cell_width = self._canvas.width // self._cols
+        self._cell_height = self._canvas.height // self._rows
+
+        new_blurs = self._blurs - self._render_state.get('last_blurs', set())
+        manual_blurs = new_blurs - set(crops.keys())  # sprites not being overwritten automatically
+
+        for cell_id in manual_blurs:
+            sprite = self._sprites.get(cell_id)
+            if sprite is not None:
+                format_name = self._image.color_format.name
+                sprite.program = _get_shader(
+                    format_name, blur=self.PIXELATE_FACTOR, grayscale=None
+                )
+
+        self._render_state['last_blurs'] = self._blurs
+
+        # Set opacity for fading sprites, and delete fully faded ones (opacity=0)
+        for cell_id, opacity in fades.items():
+            if opacity == 0:
+                if sprite := self._sprites.pop(cell_id, None):
+                    sprite.delete()
+            elif sprite := self._sprites.get(cell_id):
+                sprite.opacity = opacity
+
+        for cell_id, crop_rect in crops.items():
+            self._create_cell_sprite(cell_id, crop_rect)
+        if self._render_state['last_dims'] != grid_dims or self._render_state['last_left'] != left:
+            # Move existing sprites if dims have changed
+            cell_count = self._rows * self._cols
+            deleted_cells = [cell_id for cell_id in self._sprites if cell_id >= cell_count]
+            for cell_id in deleted_cells:
+                sprite = self._sprites.pop(cell_id)
+                sprite.delete()
+            for cell_id, sprite in self._sprites.items():
+                pt, scale_x, scale_y = self._get_pt_and_scale(
+                    cell_id, sprite.image.width, sprite.image.height
+                )
+
+                sprite.x = pt[0]
+                sprite.y = pt[1]
+
+                sprite.scale_x = scale_x
+                sprite.scale_y = scale_y
+            self._render_state['last_dims'] = grid_dims
+            self._render_state['last_left'] = left
+
+    def _get_pt_and_scale(self, cell_id, w, h):
+        cell_row = cell_id // self._cols
+        cell_col = cell_id % self._cols
+        pt = self._canvas.glp(
+            (
+                (cell_col / self._cols) * self._canvas.width,
+                (cell_row / self._rows) * self._canvas.height,
+            )
+        )
+        scale_x = self._cell_width / w
+        scale_y = -(self._cell_height / h)
+        return pt, scale_x, scale_y
+
+    def _create_cell_sprite(self, cell_id: int, crop_rect: tuple[int, int, int, int]):
+        x0, y0, x1, y1 = crop_rect
+        w, h = x1 - x0, y1 - y0
+
+        pt, scale_x, scale_y = self._get_pt_and_scale(cell_id, w, h)
+
+        cell_texture_region = self._main_texture.get_region(x0, y0, w, h)
+
+        format_name = self._image.color_format.name
+        img_width, img_height = self._image.size
+
+        shader = _get_shader(
+            format_name,
+            blur=self.PIXELATE_FACTOR if cell_id in self._blurs else None,
+            grayscale=None,
+        )
+
+        sprite = pyglet.sprite.Sprite(
+            cell_texture_region, *pt, batch=self._batch, group=self._bind_group, program=shader
+        )
+        sprite.scale_x = scale_x
+        sprite.scale_y = scale_y
+
+        # Configure shader uniforms to point to the correct texture units
+        _configure_sprite_uniforms(sprite, format_name, img_width, img_height)
+
+        self._sprites[cell_id] = sprite
+
+    def resize(self, canvas):
+        pass
+
+
+class SideBySideFrame(Frame):
+    LINE_COLOR = (255, 255, 255, 255)
+    HIGHLIGHTED_LINE_COLOR = (0, 255, 0, 255)
+    LINE_WIDTH = _RENDER_LINE_WIDTH
+    HIGHLIGHTED_LINE_WIDTH = _RENDER_LINE_WIDTH * 2
+
+    def __init__(
+        self,
+        texture,
+        canvas,
+        batch,
+        group,
+        foreground,
+        shapes,
+        render_state,
+        bind_group,
+        **style_opts,
+    ):
+        super().__init__(texture, canvas, batch, group, render_state, bind_group)
+        lines = style_opts.pop("lines", None)
+        highlighted_lines = style_opts.pop("highlighted_lines", None)
+        split_pct = style_opts.pop("split_pct", 0.5)
+
+        img_w = self._canvas.width / self._canvas.scale
+        img_h = self._canvas.height / self._canvas.scale
+        self._main_frame = NormalFrame(
+            texture,
+            _create_canvas(
+                0,
+                1,
+                (img_w, img_h),
+                (int(self._canvas.window_width * split_pct), self._canvas.window_height),
+            ),
+            batch,
+            group,
+            foreground,
+            shapes,
+            render_state,
+            bind_group,
+            **style_opts,
+        )
+
+        self._grid_frame = GridFrame(
+            texture,
+            GLCanvas(
+                left=None,
+                bottom=None,
+                width=None,
+                height=None,
+                scale=None,
+                window_width=int(self._canvas.window_width * (1 - split_pct)),
+                window_height=self._canvas.window_height,
+            ),  # This is a mock canvas - only window_width/height are important
+            batch,
+            group,
+            foreground,
+            shapes,
+            render_state,
+            bind_group,
+            left=int(self._canvas.window_width * split_pct),
+            source_sprite=self._main_frame._sprite,
+            **style_opts,
+        )
+
+        # for cell_id, real_point in lines.items, draw line from midpoint of cell to real_point
+        if lines is not None:
+            parsed_lines = [(cell_id, real_point, False) for cell_id, real_point in lines.items()]
+            if highlighted_lines is not None:
+                parsed_lines += [
+                    (cell_id, real_point, True)
+                    for cell_id, real_point in highlighted_lines.items()
+                ]
+            for cell_id, real_point, highlighted in parsed_lines:
+                cell_row = cell_id // self._grid_frame._cols
+                cell_col = cell_id % self._grid_frame._cols
+                cell_x0 = (
+                    (cell_col / self._grid_frame._cols)
+                    * self._canvas.window_width
+                    * (1 - split_pct)
+                )
+                cell_y0 = (cell_row / self._grid_frame._rows) * self._canvas.window_height
+                cell_x1 = (
+                    ((cell_col + 1) / self._grid_frame._cols)
+                    * self._canvas.window_width
+                    * (1 - split_pct)
+                )
+                cell_y1 = ((cell_row + 1) / self._grid_frame._rows) * self._canvas.window_height
+                mid_x = (cell_x0 + cell_x1) / 2
+                mid_y = (cell_y0 + cell_y1) / 2
+
+                p1 = self._grid_frame.canvas.glp((mid_x, mid_y))
+                p2 = self._main_frame.canvas.glp(real_point)
+                shapes.append(
+                    pyglet.shapes.Line(
+                        p1[0],
+                        p1[1],
+                        p2[0],
+                        p2[1],
+                        self.HIGHLIGHTED_LINE_WIDTH if highlighted else self.LINE_WIDTH,
+                        color=self.HIGHLIGHTED_LINE_COLOR if highlighted else self.LINE_COLOR,
+                        batch=batch,
+                        group=foreground,
+                    )
+                )
+
+    def resize(self, canvas):
+        pass
+
+    @property
+    def canvas(self) -> GLCanvas:
+        return self._main_frame.canvas
+
+    @property
+    def layer_canvas(self) -> GLCanvas:
+        return self._grid_frame.canvas
+
+
 class GLDraw(display.Draw):
     def __init__(
         self,
@@ -462,9 +1508,9 @@ class GLDraw(display.Draw):
         window_size: tuple[int, int],
         label_pool: LabelPool,
         batch: pyglet.graphics.Batch,
-        keypoint_cache,
         image: types.Image,
         meta_map: Mapping[str, meta.AxTaskMeta],
+        render_state: dict[Any, Any],
         options: GLOptions,
         window_options: GLOptions,
         layers: list[display._Layer],
@@ -474,36 +1520,59 @@ class GLDraw(display.Draw):
         self._window_size = window_size
         self._label_pool = label_pool
         self._batch = batch
-        self._keypoint_cache = keypoint_cache
         self._shapes = []
-        self._canvas = _create_canvas(self._source_id, num_streams, image.size, window_size)
         self._back = pyglet.graphics.Group(GR_BACK_OFFSET + self._source_id)
         self._fore = pyglet.graphics.Group(GR_FORE_OFFSET + self._source_id)
         self._speedo0 = pyglet.graphics.Group(GR_SPEEDO_OFFSET + 0)
         self._speedo1 = pyglet.graphics.Group(GR_SPEEDO_OFFSET + 1)
         self._layer_gr = pyglet.graphics.Group(GR_LAYER_OFFSET + self._source_id)
-        self._sprite = _new_sprite_from_image(
-            image, self._canvas, self._batch, self._back, options.grayscale, options.grayscale_area
-        )
         self._speedometer_index = 0
         self._meta_map = meta_map
+        self._render_state = render_state
         self._speedometer_smoothing = speedometer_smoothing
         self._options = options
         self._image_size = image.size
-        self._render_meta()
+
+        format_name = image.color_format.name
+        bind_group = BindGroup(
+            self._render_state,
+            format_name,
+            self._back.order if hasattr(self._back, 'order') else 0,
+            self._back,
+        )
+
+        self._frame = _find_frame_class(self._options.style)(
+            image,
+            _create_canvas(self._source_id, num_streams, self._image_size, window_size),
+            self._batch,
+            self._back,
+            self._fore,
+            self._shapes,
+            self._render_state,
+            bind_group,
+            grayscale=options.grayscale,
+            grayscale_area=options.grayscale_area,
+            **self._options.style_opts,
+        )
+        self._canvas = self._frame.canvas
+
+        if self._options.show_metadata:
+            self._render_meta()
 
         if options.title:
             layers.append(display.gen_title_message(self._source_id, options))
         if window_options.title and self._source_id == 0:
             layers.append(display.gen_title_message(-1, window_options))
 
+        layer_canvas = self._frame.layer_canvas
+
         for x in layers:
             if x.stream_id == -1:
                 pt_transform = lambda pt: (pt[0], window_size[1] - pt[1])
                 canvas_size = window_size
             else:
-                pt_transform = self._canvas.glp
-                canvas_size = image.size
+                pt_transform = layer_canvas.glp
+                canvas_size = layer_canvas.size
             opacity = int(255 * x.visibility)  # TODO: 255 should be x.opacity once added
             if isinstance(x, display._Text):
                 self._text(
@@ -532,6 +1601,16 @@ class GLDraw(display.Draw):
                 elif x.anchor_y == 'top':
                     s.y -= s.height
                 self._shapes.append(s)
+            elif isinstance(x, display._Rectangle):
+                p1 = pt_transform(x.position.as_px(canvas_size))
+                p2 = pt_transform(x.bottom_right.as_px(canvas_size))
+                self._rectangle(
+                    p1,
+                    p2,
+                    self._layer_gr,
+                    outline=x.color,
+                    width=1,
+                )
             else:
                 LOG.debug(f"Unknown layer type {x.__class__.__name__} ignoring...")
 
@@ -540,18 +1619,14 @@ class GLDraw(display.Draw):
         return self._options
 
     def _render_meta(self):
-        self._shapes.clear()
         if self._meta_map:
             for m in self._meta_map.values():
                 m.visit(lambda m: m.draw(self))
 
     def resize(self, num_streams: int, window_size: Tuple[int, int]):
         self._window_size = window_size
-        tex = self._sprite.image
-        self._canvas = _create_canvas(
-            self._source_id, num_streams, (tex.width, tex.height), window_size
-        )
-        _move_sprite(self._sprite, self._canvas)
+        self._canvas = _create_canvas(self._source_id, num_streams, self._image_size, window_size)
+        self._frame.resize(self._canvas)
         self._render_meta()
 
     def new_label_pool(self, label_pool: LabelPool):
@@ -586,9 +1661,9 @@ class GLDraw(display.Draw):
                 )
             )
 
-    def rectangle(self, p1, p2, fill=None, outline=None, width=1):
-        x0, y0 = self._canvas.glp(p1)
-        x1, y1 = self._canvas.glp(p2)
+    def _rectangle(self, p1, p2, group, fill=None, outline=None, width=1):
+        x0, y0 = p1
+        x1, y1 = p2
         w, h = x1 - x0, y1 - y0
         if fill and outline:
             kwargs = dict(border=width, color=fill, border_color=outline)
@@ -599,17 +1674,38 @@ class GLDraw(display.Draw):
         elif outline:
             kwargs = dict(color=outline)
             cls = Box
-        self._shapes.append(cls(x0, y0, w, h, **kwargs, batch=self._batch, group=self._fore))
+        self._shapes.append(cls(x0, y0, w, h, **kwargs, batch=self._batch, group=group))
+
+    def rectangle(self, p1, p2, fill=None, outline=None, width=1):
+        self._rectangle(
+            self._canvas.glp(p1),
+            self._canvas.glp(p2),
+            self._fore,
+            fill=fill,
+            outline=outline,
+            width=width,
+        )
 
     def keypoint(
-        self, p: display.Point, color: display.Color = (255, 255, 255, 255), size=2
+        self, p: display.Point, color: display.Color = (255, 255, 255, 255), size=0.003
     ) -> None:
-        size = round(size * self._canvas.scale)
-        image = self._keypoint_cache(size, *color)
+        size = round(max(self.canvas_size) / 2 * size)
         x, y = self._canvas.glp(p)
-        o = image.width // 2
-        spr = pyglet.sprite.Sprite(image, x - o, y - o, batch=self._batch, group=self._fore)
-        self._shapes.append(spr)
+        if _BOX_KEYPOINTS:
+            point = pyglet.shapes.Rectangle(
+                x - size,
+                y - size,
+                size * 2,
+                size * 2,
+                color=color,
+                batch=self._batch,
+                group=self._fore,
+            )
+        else:
+            point = pyglet.shapes.Circle(
+                x=x, y=y, radius=size, color=color, batch=self._batch, group=self._fore
+            )
+        self._shapes.append(point)
 
     def textsize(self, text, font=display.Font()):
         w, h = _textsize(text, *_determine_font_params(font))
@@ -716,7 +1812,7 @@ class GLDraw(display.Draw):
         self._speedometer_index += 1
 
     def draw(self):
-        self._batch.draw()
+        pass  # Drawing is handled by the batch
 
     def heatmap(self, data: np.ndarray, color_map: np.ndarray) -> None:
         indices = np.clip((data * len(color_map) - 1).astype(int), 0, len(color_map) - 1)
@@ -770,25 +1866,10 @@ class GLDraw(display.Draw):
         pass
 
 
-def _keypoint_image(size, r, g, b, alpha=255):
-    if size >= 6:
-        corner = KEYPOINT_6
-    elif size >= 4:
-        corner = KEYPOINT_4
-    else:
-        corner = KEYPOINT_2
-    left = np.concatenate((corner, np.flipud(corner)))
-    mask = np.concatenate((left, np.fliplr(left)), axis=1)
-    h, w = mask.shape
-    i = np.full((h, w, 4), (r, g, b, 0), np.uint8)
-    i[:, :, 3] = (mask * alpha).astype(np.uint8)
-    return pyglet.image.ImageData(w, h, "RGBA", i.ctypes.data_as(ctypes.c_void_p))
-
-
 @functools.lru_cache
 def _get_speedometer():
     here = os.path.dirname(__file__)
-    return pyglet.image.load(f'{here}/speedo-alpha-transparent.png')
+    return pyglet.image.load(f'{here}/render_assets/speedo-alpha-transparent.png')
 
 
 _to_radians = functools.partial(operator.mul, math.pi / 180)
@@ -854,12 +1935,24 @@ class GLOptions(display.Options):
     the screen for example.
     '''
 
+    show_metadata: bool = True
+    '''Global toggle whether to show any metadata at all on the surface.'''
+
+    style: display.FrameStyle = display.FrameStyle.NORMAL
+    '''The frame style to use when rendering the image.'''
+
+    style_opts: dict = field(default_factory=dict)
+    '''Additional style options passed to the frame style.'''
+
 
 class GLWindow(pyglet.window.Window):
-    def __init__(self, q: queue.Queue, title, size, buffering, frame_sink):
+    def __init__(
+        self, q: queue.Queue, title, size, buffering, frame_sink, hard_stop=True, borderless=False
+    ):
         self._master = None
         self._gles = False
         self._frame_sink = frame_sink
+        self._hard_stop = hard_stop
         w, h = (None, None) if size == display.FULL_SCREEN else size
 
         _display = pyglet.display.get_display()
@@ -879,6 +1972,7 @@ class GLWindow(pyglet.window.Window):
             resizable=True,
             config=gl_config,
             visible=bool(title),
+            style='default' if not borderless else 'borderless',
         )
         w = w or self.width
         h = h or self.height
@@ -907,7 +2001,12 @@ class GLWindow(pyglet.window.Window):
     def on_key_press(self, symbol, modifiers):
         del modifiers
         if symbol in (pyglet.window.key.Q, pyglet.window.key.ESCAPE, pyglet.window.key.SPACE):
-            pyglet.app.platform_event_loop.post_event(self, "on_close")
+            # Just calling pyglet.app.exit() stops the pyglet event loop but doesn't destroy
+            # anything. Allowing execution to be resumed.
+            if self._hard_stop:
+                pyglet.app.platform_event_loop.post_event(self, "on_close")
+            else:
+                pyglet.app.exit()
 
     @noexcept
     def on_update(self, dt):
@@ -941,10 +2040,13 @@ class GLWindow(pyglet.window.Window):
                             self._closed_sources.add(msg.stream_id)
                         self._stream_queues.pop(msg.stream_id, None)
                         self._master.pop_source(msg.stream_id)
+                        self._master.clear_state(msg.stream_id)
                     elif isinstance(msg, display._SetOptions):
                         self._master.options(msg.stream_id, msg.options)
                     elif isinstance(msg, display._Layer):
                         self._master.layer(msg)
+                    elif isinstance(msg, display._ClearState):
+                        self._master.clear_state(msg.stream_id)
                     elif isinstance(msg, display._Frame):
                         pyglet.clock.unschedule(self._redraw)
                         try:
@@ -989,7 +2091,7 @@ class GLWindow(pyglet.window.Window):
         self.dispatch_event('on_draw')
         self.flip()
 
-    def on_resize(self, width, height):
+    def on_resize(self, width: int, height: int):
         # on a resize we need to redo all the scale calculations
         if self._master:
             self._master.on_resize(width, height)

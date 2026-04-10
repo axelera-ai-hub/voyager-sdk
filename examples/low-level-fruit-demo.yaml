@@ -20,9 +20,6 @@
     lib: libinplace_addstreamid.so
     mode: meta
     options: stream_id:0
-  - instance: axtransform
-    lib: libtransform_colorconvert_cl.so
-    options: format:rgb
   - instance: queue
     connections:
       src: inference-task0.sink_%u
@@ -31,19 +28,18 @@
     max-size-bytes: 0
   - instance: axinferencenet
     name: inference-task0
-    model: /home/ubuntu/sam/software-platform/host/application/framework/build/fruit-demo/yolov8lpose-coco-onnx/1/model.json
-    devices: metis-0:1:0,metis-0:4:0
+    model: build/fruit-demo/yolov8lpose-coco-onnx/1/model.json
+    devices: metis-0:1:0
     double_buffer: true
     dmabuf_inputs: true
     dmabuf_outputs: true
     num_children: 0
     preprocess0_lib: libtransform_resize_cl.so
-    preprocess0_options: width:640;height:640;padding:114;letterbox:1;scale_up:1;to_tensor:1;mean:0.,0.,0.;std:1.,1.,1.;quant_scale:0.003921568859368563;quant_zeropoint:-128.0
+    preprocess0_options: width:640;height:640;padding:114;letterbox:1;scale_up:1;to_tensor:1;mean:0.,0.,0.;std:1.,1.,1.;quant_scale:0.003921568859368563;quant_zeropoint:-128.0;format:rgba
     preprocess1_lib: libtransform_padding.so
-    preprocess1_options: padding:0,0,1,1,1,15,0,0;fill:0
-    preprocess1_batch: 1
+    preprocess1_options: padding:0,0,1,1,1,15,0,0;fill:-128
     postprocess0_lib: libdecode_yolov8.so
-    postprocess0_options: meta_key:master_detections;confidence_threshold:0.25;scales:0.05196806415915489,0.05954041704535484,0.055831149220466614,0.1206929162144661,0.17178687453269958,0.128541961312294,0.04205865412950516,0.057312075048685074,0.055938731878995895;padding:0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,63|0,0,0,0,0,0,0,63|0,0,0,0,0,0,0,63|0,0,0,0,0,0,0,13|0,0,0,0,0,0,0,13|0,0,0,0,0,0,0,13;zero_points:-65,-59,-63,107,108,95,17,6,6;classes:1;kpts_shape:17,3;model_width:640;model_height:640;scale_up:1;decoder_name:CocoBodyKeypointsMeta;
+    postprocess0_options: meta_key:master_detections;confidence_threshold:0.25;scales:0.052997201681137085,0.0598900243639946,0.05537347495555878,0.11817990243434906,0.17854636907577515,0.12545649707317352,0.04230864346027374,0.05723569914698601,0.061366353183984756;padding:0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,63|0,0,0,0,0,0,0,63|0,0,0,0,0,0,0,63|0,0,0,0,0,0,0,13|0,0,0,0,0,0,0,13|0,0,0,0,0,0,0,13;zero_points:-66,-62,-63,105,106,103,12,2,8;classes:1;kpts_shape:17,3;dfl_size:16;model_width:640;model_height:640;scale_up:1;decoder_name:CocoBodyKeypointsMeta;
     postprocess0_mode: read
     postprocess1_lib: libinplace_nms.so
     postprocess1_options: meta_key:master_detections;max_boxes:300;nms_threshold:0.45;class_agnostic:1;location:CPU;
@@ -52,40 +48,38 @@
     options: input_meta_key:master_detections;output_meta_key:master_detections_adapted_as_input_for_segmentations;hide_output_meta:1;which:AREA;top_k:5;min_width:0;min_height:0
   - instance: axinferencenet
     name: inference-task1
-    model: /home/ubuntu/sam/software-platform/host/application/framework/build/fruit-demo/yolov8sseg-coco-onnx/1/model.json
-    devices: metis-0:1:0,metis-0:4:0
+    model: build/fruit-demo/yolov8sseg-coco-onnx/1/model.json
+    devices: metis-0:1:0
     double_buffer: true
     dmabuf_inputs: true
     dmabuf_outputs: true
     num_children: 2
     meta: master_detections_adapted_as_input_for_segmentations
-    preprocess0_lib: libtransform_roicrop.so
-    preprocess0_options: meta_key:master_detections_adapted_as_input_for_segmentations
+    preprocess0_lib: libtransform_roicrop_cl.so
+    preprocess0_options: meta_key:master_detections_adapted_as_input_for_segmentations;format:rgba
     preprocess1_lib: libtransform_resize_cl.so
-    preprocess1_options: width:640;height:640;padding:114;letterbox:1;scale_up:1;to_tensor:1;mean:0.,0.,0.;std:1.,1.,1.;quant_scale:0.003921568859368563;quant_zeropoint:-128.0
+    preprocess1_options: width:640;height:640;padding:114;letterbox:1;scale_up:1;to_tensor:1;mean:0.,0.,0.;std:1.,1.,1.;quant_scale:0.003921568859368563;quant_zeropoint:-128.0;format:rgba
     preprocess2_lib: libtransform_padding.so
-    preprocess2_options: padding:0,0,1,1,1,15,0,0;fill:0
-    preprocess2_batch: 1
-    postprocess0_lib: libdecode_yolov8seg.so
-    postprocess0_options: meta_key:segmentations;decoder_name:InstanceSegmentationMeta;master_meta:master_detections;association_meta:master_detections_adapted_as_input_for_segmentations;classes:80;confidence_threshold:0.25;scales:0.07754725962877274,0.06464468687772751,0.06458348780870438,0.09174417704343796,0.13210946321487427,0.1300065666437149,0.016546472907066345,0.017846718430519104,0.01850968599319458,0.02449675463140011;zero_points:-66,-65,-59,147,113,98,31,30,46,-116;padding:0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,48|0,0,0,0,0,0,0,48|0,0,0,0,0,0,0,48|0,0,0,0,0,0,0,32|0,0,0,0,0,0,0,32|0,0,0,0,0,0,0,32|0,0,0,0,0,0,0,32;multiclass:0;classlabels_file:/tmp/tmpc39jxt9d;model_width:640;model_height:640;;label_filter:46,47,49
+    preprocess2_options: padding:0,0,1,1,1,15,0,0;fill:-128
+    postprocess0_lib: libdecode_yolov8.so
+    postprocess0_options: meta_key:segmentations;decoder_name:InstanceSegmentationMeta;master_meta:master_detections;association_meta:master_detections_adapted_as_input_for_segmentations;classes:80;num_seg_masks:32;confidence_threshold:0.25;scales:0.08338894695043564,0.06571979820728302,0.06451278924942017,0.09570981562137604,0.13075175881385803,0.1378321349620819,0.016572412103414536,0.017952965572476387,0.01662466861307621,0.022753236815333366;zero_points:-53,-63,-57,136,113,99,31,29,40,-115;padding:0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,48|0,0,0,0,0,0,0,48|0,0,0,0,0,0,0,48|0,0,0,0,0,0,0,32|0,0,0,0,0,0,0,32|0,0,0,0,0,0,0,32|0,0,0,0,0,0,0,32;multiclass:0;dfl_size:16;classlabels_file:/tmp/tmpx5l0y3p2;model_width:640;model_height:640;;label_filter:46,47,49
     postprocess0_mode: read
     postprocess1_lib: libinplace_nms.so
     postprocess1_options: meta_key:segmentations;master_meta:master_detections;max_boxes:300;nms_threshold:0.45;class_agnostic:0;location:CPU;
   - instance: axinferencenet
     name: inference-task2
-    model: /home/ubuntu/sam/software-platform/host/application/framework/build/fruit-demo/yolov8s-fruit/1/model.json
-    devices: metis-0:1:0,metis-0:4:0
+    model: build/fruit-demo/yolov8s-fruit/1/model.json
+    devices: metis-0:1:0
     double_buffer: true
     dmabuf_inputs: true
     dmabuf_outputs: true
     num_children: 0
     preprocess0_lib: libtransform_resize_cl.so
-    preprocess0_options: width:640;height:640;padding:114;letterbox:1;scale_up:1;to_tensor:1;mean:0.,0.,0.;std:1.,1.,1.;quant_scale:0.003921568859368563;quant_zeropoint:-128.0
+    preprocess0_options: width:640;height:640;padding:114;letterbox:1;scale_up:1;to_tensor:1;mean:0.,0.,0.;std:1.,1.,1.;quant_scale:0.003921568859368563;quant_zeropoint:-128.0;format:rgba
     preprocess1_lib: libtransform_padding.so
-    preprocess1_options: padding:0,0,1,1,1,15,0,0;fill:0
-    preprocess1_batch: 1
+    preprocess1_options: padding:0,0,1,1,1,15,0,0;fill:-128
     postprocess0_lib: libdecode_yolov8.so
-    postprocess0_options: meta_key:object_detections;classes:80;confidence_threshold:0.25;scales:0.07285504788160324,0.06671176105737686,0.07106465846300125,0.10055512189865112,0.15698717534542084,0.16728559136390686;padding:0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,48|0,0,0,0,0,0,0,48|0,0,0,0,0,0,0,48;zero_points:-61,-60,-44,133,104,110;topk:30000;multiclass:0;classlabels_file:/tmp/tmp5d9cb82p;model_width:640;model_height:640;scale_up:1;letterbox:1;label_filter:46,47,49
+    postprocess0_options: meta_key:object_detections;classes:80;confidence_threshold:0.25;scales:0.07029646635055542,0.06694432348012924,0.07082880288362503,0.09611538797616959,0.14905913174152374,0.17819227278232574;padding:0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,48|0,0,0,0,0,0,0,48|0,0,0,0,0,0,0,48;zero_points:-69,-60,-45,145,114,99;topk:30000;multiclass:0;classlabels_file:/tmp/tmpudc_g8bv;model_width:640;model_height:640;scale_up:1;letterbox:1;label_filter:46,47,49
     postprocess0_mode: read
     postprocess1_lib: libinplace_nms.so
     postprocess1_options: meta_key:object_detections;max_boxes:300;nms_threshold:0.45;class_agnostic:1;location:CPU

@@ -41,7 +41,6 @@
     preprocess3_mode: write
     preprocess4_lib: libtransform_padding.so
     preprocess4_options: padding:{{pads}};fill:-14
-    preprocess4_batch: 4
     postprocess0_lib: libtransform_dequantize.so
     postprocess0_options: dequant_scale:{{dequant_scale}};dequant_zeropoint:{{dequant_zeropoint}};transpose:0;dequant_lut:1
     postprocess1_lib: libdecode_classification.so

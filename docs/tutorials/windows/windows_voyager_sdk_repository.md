@@ -58,7 +58,7 @@ git branch
 To checkout a specific SDK release, run a command such as:
 
 ```
-git checkout release/v1.2.5
+git checkout release/v1.6.0
 git rebase
 ```
 
@@ -96,5 +96,7 @@ git rebase
 - [Installation Guide](../install.md) - Linux installation (recommended for full SDK experience)
 
 ## Further support
-- For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
-- For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).
+
+For blog posts, projects and technical support please visit [Axelera AI Community](https://community.axelera.ai/).
+
+For technical documents and guides please visit [Customer Portal](https://support.axelera.ai/).

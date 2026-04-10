@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Define network object containing YAML pipeline, models and datasets
 from __future__ import annotations
 
@@ -210,7 +210,17 @@ def initialize_model(class_obj: Type[types.Model], arguments: Dict[str, Any]) ->
 
 
 def _call_init_model_deploy(model: types.Model, arguments):
-    return _call_method(model.__class__.init_model_deploy, model.init_model_deploy, arguments)
+    try:
+        return _call_method(model.__class__.init_model_deploy, model.init_model_deploy, arguments)
+    except Exception as e:
+        msg = "Failed to initialize model for deployment:"
+        # if it doesn't look like a weights/anchors problem, give a hint about class mismatch
+        if 'url"' not in str(e).lower():
+            model_name = arguments['model_info'].name
+            class_name = model.__class__.__name__
+            class_name = class_name.replace('Dynamic', '')
+            msg += f"\nPerhaps check {class_name} is the appropriate class for {model_name}?"
+        raise RuntimeError(f"{msg}\n{e}") from e
 
 
 def _load_labels_and_filter(model_info: types.ModelInfo, dataset: dict, trimmed_labels: bool):
@@ -285,6 +295,9 @@ class ModelInfos:
         self._compiler_overrides: Dict[str, Dict[str, Any]] = {}
         self._classical_cv_models: List[str] = []
         self._enum_cache = {}
+        self._yaml_dir: Optional[Path] = (
+            None  # Directory of the YAML file for TOML path resolution
+        )
 
     def __eq__(self, rhs):
         return (
@@ -344,13 +357,25 @@ class ModelInfos:
             raise ValueError(f"Model {model_name} not found in models section in YAML file")
         return self._models[model_name]
 
+    def set_yaml_dir(self, yaml_dir: Path) -> None:
+        """Set the YAML directory for TOML path resolution."""
+        self._yaml_dir = yaml_dir
+
+    def yaml_dir(self) -> Optional[Path]:
+        """Get the YAML directory for TOML path resolution."""
+        return self._yaml_dir
+
     def model_compiler_overrides(self, model_name: str, metis: config.Metis) -> Dict[str, Any]:
         if self.is_classical_cv_model(model_name):
             return {}
         if model_name not in self._compiler_overrides:
             raise ValueError(f"Model {model_name} not found in models")
 
-        return _collapse_compiler_overrides(self._compiler_overrides[model_name], metis)
+        overrides = _collapse_compiler_overrides(self._compiler_overrides[model_name], metis)
+        # Add yaml_dir to help with TOML path resolution (only if set)
+        if self._yaml_dir is not None:
+            overrides['_yaml_dir'] = self._yaml_dir
+        return overrides
 
     def _hw_option(
         self,
@@ -977,6 +1002,9 @@ def _parse_network(
         raise ValueError(f'No models defined in network {path}')
 
     model_infos = ModelInfos()
+    # Set YAML directory for TOML config path resolution
+    model_infos.set_yaml_dir(Path(path).parent.resolve())
+
     for name, v in models.items():
         manifest_path = None  # Note we do not know this yet
         model_info_from_yaml = _provisional_model_info_from_yaml(name, v)
@@ -1176,6 +1204,10 @@ def _collapse_compiler_overrides(
             obj['compilation_config'] = {}
             for key, value in extra_kwargs['compilation_config'].items():
                 obj['compilation_config'][key] = value
+
+        # Also extract compiler_config_file if present
+        if "compiler_config_file" in extra_kwargs:
+            obj['compiler_config_file'] = extra_kwargs['compiler_config_file']
 
     return obj
 

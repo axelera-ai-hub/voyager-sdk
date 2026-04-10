@@ -1,0 +1,57 @@
+axelera-model-format: 1.0.0
+
+name: yolo26npose-coco-onnx
+
+description: yolo26n pose estimation, 640x640 (COCO), NMS free model
+
+pipeline:
+  - keypoint_detections:
+      model_name: yolo26npose-coco-onnx
+      input:
+        type: image
+      preprocess:
+        - letterbox:
+            height: ${{input_height}}
+            scaleup: true
+            width: ${{input_width}}
+        - torch-totensor:
+      inference:
+        handle_all: false
+      postprocess:
+        - decodeyolopose:
+            box_format: xyxy
+            conf_threshold: 0.25
+            dfl_size: 1
+            nms_free: true
+            nms_top_k: 300
+            normalized_coord: false
+            eval:
+              conf_threshold: 0.001
+
+models:
+  yolo26npose-coco-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: yolo26n-pose.onnx
+    weight_url: https://media.axelera.ai/artifacts/model_cards/weights/yolo/keypoint_detection/yolo26n-pose-202602-official.onnx
+    weight_md5: 373c6c15ec5f405c7f7c923e8d97aa36
+    task_category: KeypointDetection
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 640, 640]
+    input_color_format: RGB
+    num_classes: 1
+    dataset: CocoDataset-keypoint-COCO2017
+    extra_kwargs:
+      compiler_config_file: yolo26.toml
+
+datasets:
+  CocoDataset-keypoint-COCO2017:
+    class: KptDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
+    data_dir_name: coco
+    label_type: COCO2017
+
+operators:
+  decodeyolopose:
+    class: DecodeYoloPose
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/yolopose.py

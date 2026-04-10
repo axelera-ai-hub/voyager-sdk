@@ -1,10 +1,16 @@
 #!/usr/bin/env python
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 # Sample demo application of counting vehicles crossing a line
 # The tracker metadata usage is demonstrated in this example
 # FIXME: change this example as async mode and remove from .gitattributes
-
+import os
+import sys
 import cv2
+
+if __name__ == '__main__':
+    # Application Framework is not a package, so add it to the path to import it
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
 
 from axelera import types
 from axelera.app import config, logging_utils
@@ -49,7 +55,7 @@ def main(window, stream):
     for frame_result in stream:
         frame_count += 1  # Increment frame counter for each new frame
 
-        image = frame_result.image.asarray().copy()  # Make a writable copy
+        image = frame_result.image.asarray(types.ColorFormat.BGR).copy()
         if mid_line_slope is None or mid_line_intercept is None:
             height, width, _ = image.shape
             mid_line_start = (0, (3 * height) // 4)
@@ -115,7 +121,7 @@ def main(window, stream):
             f"Vehicles Crossed Down: {crossed_car_down} ({', '.join([str(id) for id, _ in crossed_ids_down_the_last_nframes])})"
         )
         window.show(
-            types.Image.fromarray(image, frame_result.image.color_format),
+            types.Image.fromarray(image, types.ColorFormat.BGR),
             frame_result.meta,
             frame_result.stream_id,
         )

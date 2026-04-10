@@ -1,0 +1,38 @@
+axelera-model-format: 1.0.0
+
+name: sbs-s50-dancetrack-onnx
+
+description: SBS-S50 person re-identification model used by Deep-OC-SORT on the DanceTrack dataset. Weight from https://drive.google.com/drive/folders/1cCOx_fadIOmeU4XRrHgQ_B5D7tEwJOPx. Model repository is https://github.com/JDAI-CV/fast-reid/tree/master
+
+pipeline:
+  - reid:
+      model_name: sbs-s50-dancetrack-onnx
+      input:
+          type: image
+      preprocess:
+        - resize:
+            width: 128
+            height: 384
+        - torch-totensor:
+            scale: False
+      postprocess:
+        - decodeembeddings:
+
+models:
+  sbs-s50-dancetrack-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/dance_sbs_S50.onnx
+    weight_url: https://media.axelera.ai/artifacts/model_cards/weights/others/re-id/dance_sbs_S50.onnx
+    weight_md5: 7c6d79ea046c1eecd83e5249ed1027d7
+    task_category: ReIdentification
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1,3,384,128]
+    input_color_format: RGB
+    dataset: DanceTrackReIdDataset
+
+datasets:
+  DanceTrackReIdDataset:
+    class: DanceTrackReIdDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/reid.py
+    data_dir_name: reid

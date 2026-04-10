@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 import os
 
 import yaml
@@ -40,6 +40,9 @@ model_name_to_card_name_dict = {
 'facenet-lfw-onnx'                        : 'FaceNet - InceptionResnetV1',
 'fake_cfg'                                : 'NO CARD NAME',
 'fastdepth-nyudepthv2-onnx'               : 'FastDepth',
+'gelan-c-coco-onnx'                       : 'GELAN-c',
+'gelan-m-coco-onnx'                       : 'GELAN-m',
+'gelan-s-coco-onnx'                       : 'GELAN-s',
 'dinov2-depth-nyudepth2-onnx'             : 'DINOv2-DPT Depth',
 'inception_v3-imagenet'                   : 'Inception V3',
 'inception_v3-imagenet-onnx'              : 'Inception V3',
@@ -96,6 +99,7 @@ model_name_to_card_name_dict = {
 'resnext50_32x4d-imagenet-onnx'           : 'ResNeXt50_32x4d',
 'retinaface-mobilenet0.25-widerface-onnx' : 'RetinaFace - mb0.25',
 'retinaface-resnet50-widerface-onnx'      : 'RetinaFace - Resnet50',
+'sbs-s50-market1501-onnx'                 : 'SBS50',
 'squeezenet1.0-imagenet'                  : 'SqueezeNet 1.0',
 'squeezenet1.0-imagenet-onnx'             : 'SqueezeNet 1.0',
 'squeezenet1.1-imagenet'                  : 'SqueezeNet 1.1',
@@ -218,9 +222,24 @@ model_name_to_card_name_dict = {
 'yolo11n-obb-dotav1-onnx'                 : 'YOLO11n-obb',
 'yolo26x-coco-onnx'                       : 'YOLO26x',
 'yolo26l-coco-onnx'                       : 'YOLO26l',
+'yolo26l-obb-dotav1-onnx'                 : 'YOLO26l-obb',
+'yolo26lpose-coco-onnx'                   : 'YOLO26l-pose',
+'yolo26lseg-coco-onnx'                    : 'YOLO26l-seg',
 'yolo26m-coco-onnx'                       : 'YOLO26m',
+'yolo26m-obb-dotav1-onnx'                 : 'YOLO26m-obb',
+'yolo26mpose-coco-onnx'                   : 'YOLO26m-pose',
+'yolo26mseg-coco-onnx'                    : 'YOLO26m-seg',
 'yolo26s-coco-onnx'                       : 'YOLO26s',
+'yolo26s-obb-dotav1-onnx'                 : 'YOLO26s-obb',
+'yolo26spose-coco-onnx'                   : 'YOLO26s-pose',
+'yolo26sseg-coco-onnx'                    : 'YOLO26s-seg',
 'yolo26n-coco-onnx'                       : 'YOLO26n',
+'yolo26n-obb-dotav1-onnx'                 : 'YOLO26n-obb',
+'yolo26npose-coco-onnx'                   : 'YOLO26n-pose',
+'yolo26nseg-coco-onnx'                    : 'YOLO26n-seg',
+'yolo26x-obb-dotav1-onnx'                 : 'YOLO26x-obb',
+'yolo26xpose-coco-onnx'                   : 'YOLO26x-pose',
+'yolo26xseg-coco-onnx'                    : 'YOLO26x-seg',
 'yolox-x-crowdhuman-onnx'                 : 'YOLOX-x Human',
 'yolox-m-coco-onnx'                       : 'YOLOX-m',
 'yolox-s-coco-onnx'                       : 'YOLOX-s',

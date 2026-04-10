@@ -67,7 +67,8 @@ template <typename Plugin, typename Ret, typename... Args> class TrackerCallback
   TrackerCallback(TrackerCallback &&) = delete;
   TrackerCallback &operator=(TrackerCallback &&) = delete;
   TrackerCallback(const std::string &lib_name, const Ax::StringMap &options, Ax::Logger &l)
-      : logger(l), lib(logger, lib_name)
+      : logger(l),
+        lib(logger, lib_name)
   {
     Ax::load_v1_plugin(lib, plugin);
     if (!plugin.init_and_set_static_properties) {
@@ -123,7 +124,8 @@ struct TrackingElement {
   BboxXyxy bbox;
   std::unordered_map<uint8_t, std::unique_ptr<AxMetaBase>> frame_data_map;
 
-  explicit TrackingElement(BboxXyxy bbox) : bbox{ bbox }
+  explicit TrackingElement(BboxXyxy bbox)
+      : bbox{ bbox }
   {
   }
   TrackingElement(TrackingElement &&) = default;
@@ -143,8 +145,10 @@ class TrackingCollection
       float detection_score, int history_length,
       const std::unordered_map<std::string, DetermineObjectAttributeCallback> &determine_object_attribute_map)
       : track_string{ "track_" + std::to_string(track_id) },
-        detection_class_id{ detection_class_id }, detection_score{ detection_score },
-        history_length{ history_length }, determine_object_attribute_map{ determine_object_attribute_map }
+        detection_class_id{ detection_class_id },
+        detection_score{ detection_score },
+        history_length{ history_length },
+        determine_object_attribute_map{ determine_object_attribute_map }
   {
     if (history_length < 1) {
       throw std::runtime_error("history_length must be at least 1");
@@ -292,9 +296,9 @@ struct TrackingDescriptor {
   TrackingDescriptor(int track_id, int detection_class_id,
       float detection_score, int history_length,
       const std::unordered_map<std::string, DetermineObjectAttributeCallback> &determine_object_attribute_map)
-      : frame_id{ 0 }, collection{ std::make_shared<TrackingCollection>(track_id,
-                           detection_class_id, detection_score, history_length,
-                           determine_object_attribute_map) }
+      : frame_id{ 0 },
+        collection{ std::make_shared<TrackingCollection>(track_id, detection_class_id,
+            detection_score, history_length, determine_object_attribute_map) }
   {
   }
   TrackingDescriptor(const TrackingDescriptor &) = default;

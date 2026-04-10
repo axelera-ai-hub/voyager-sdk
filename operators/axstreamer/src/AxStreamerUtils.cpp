@@ -1,9 +1,10 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #include "AxStreamerUtils.hpp"
 
 #include "AxOpUtils.hpp"
 
 #include <algorithm>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -26,6 +27,7 @@ using namespace std::string_literals;
   AX_VIDEO_FORMAT_REGISTER(BGRx, 4)                \
   AX_VIDEO_FORMAT_REGISTER(GRAY8, 1)               \
   AX_VIDEO_FORMAT_REGISTER(NV12, 3)                \
+  AX_VIDEO_FORMAT_REGISTER(NV16, 3)                \
   AX_VIDEO_FORMAT_REGISTER(I420, 3)                \
   AX_VIDEO_FORMAT_REGISTER(YUY2, 3)
 
@@ -143,7 +145,7 @@ AxVideoFormatToString(AxVideoFormat format)
 
 void
 Ax::validate_output_format(AxVideoFormat format, std::string_view prop_fmt,
-    std::string_view label, std::span<AxVideoFormat> valid_formats)
+    std::string_view label, std::span<const AxVideoFormat> valid_formats)
 {
   if (std::none_of(valid_formats.begin(), valid_formats.end(),
           [format](auto fmt) { return fmt == format; })) {
@@ -698,10 +700,12 @@ template <typename PluginType, typename PluginBase>
 Ax::LoadedPlugin<PluginType, PluginBase>::LoadedPlugin(Ax::Logger &logger,
     Ax::SharedLib &&shared, std::string options, AxAllocationContext *context,
     std::string mode)
-    : logger(logger), shared_(std::move(shared)),
-      name_(make_plugin_name(shared_.libname())), mode_(mode)
+    : logger(logger),
+      shared_(std::move(shared)),
+      name_(make_plugin_name(shared_.libname())),
+      mode_(mode)
 {
-  Ax::load_v1_plugin(shared_, fns);
+  Ax::load_v1_plugin(shared, fns);
   if (fns.allowed_properties) {
     allowed_ = fns.allowed_properties();
   }
@@ -754,7 +758,8 @@ Ax::create_roi(const AxVideoInterface &original, int x, int y, int width, int he
 
 Ax::BatchedBuffer::BatchedBuffer(int batch_size, const AxDataInterface &iface,
     DataInterfaceAllocator &allocator)
-    : batched(allocate_batched_buffer(batch_size, iface, allocator)), allocator(allocator)
+    : batched(allocate_batched_buffer(batch_size, iface, allocator)),
+      allocator(allocator)
 {
   for (int i = 0; i < batch_size; ++i) {
     views.push_back(batch_view(batched.data(), i));
@@ -874,5 +879,32 @@ Ax::BatchedBuffer::update_views()
     // TODO this is inefficient, we just need to init the data param
     view = batch_view(batched.data(), n);
     ++n;
+  }
+}
+
+std::unique_ptr<Ax::Plugin>
+Ax::load_plugin(Logger &logger, const std::string &name, const std::string &options,
+    AxAllocationContext *context, const std::string &mode)
+{
+  const auto plugin_path = Ax::get_env("AX_SUBPLUGIN_PATH", "");
+  auto libname = fs::path{ name };
+  if (libname.extension() != ".so") {
+    libname = libname.replace_filename("lib" + libname.filename().string() + ".so");
+  }
+  if (!libname.is_absolute() && !plugin_path.empty()) {
+    libname = fs::path{ plugin_path } / libname;
+  }
+  Ax::SharedLib shared(logger, Ax::libname(libname));
+  if (shared.has_symbol("transform")) {
+    return std::make_unique<LoadedTransform>(
+        logger, std::move(shared), options, context, mode);
+  } else if (shared.has_symbol("inplace")) {
+    return std::make_unique<LoadedInPlace>(logger, std::move(shared), options, context, mode);
+  } else if (shared.has_symbol("decode_to_meta")) {
+    return std::make_unique<LoadedDecode>(logger, std::move(shared), options, context, mode);
+  } else {
+    throw std::runtime_error(
+        "Unknown plugin type in library " + libname.string()
+        + ". Must contain 'transform', 'inplace', or 'decode_to_meta' symbol.");
   }
 }

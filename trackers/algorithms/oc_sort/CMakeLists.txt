@@ -1,20 +1,23 @@
-cmake_minimum_required(VERSION 3.10)
-project(OC_SORT)
+# OC-SORT tracking algorithm
+# Parent handles: find_package(OpenCV/Eigen3), C++17 standard, install
 
-# Specify the required C++ standard
-set(CMAKE_CXX_STANDARD 17)
+add_library(oc_sort SHARED
+  src/Association.cpp
+  src/KalmanBoxTracker.cpp
+  src/KalmanFilter.cpp
+  src/lapjv.cpp
+  src/OCSort.cpp
+  src/Utilities.cpp
+)
 
-find_package(OpenCV 4 REQUIRED)
-find_package(Eigen3 3.3 REQUIRED NO_MODULE)
+target_include_directories(oc_sort
+  PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
 
-# Include directories
-include_directories(${OpenCV_INCLUDE_DIRS} ${EIGEN3_INCLUDE_DIR} include)
+target_link_libraries(oc_sort PUBLIC Eigen3::Eigen ${OpenCV_LIBS})
+target_link_options(oc_sort PRIVATE -Wl,--exclude-libs,ALL)
 
-# Source files
-file(GLOB OC_SORT_SOURCES "src/*.cpp")
-
-# Add OC_SORT library
-add_library(oc_sort SHARED ${OC_SORT_SOURCES})
-
-# Link libraries
-target_link_libraries(oc_sort Eigen3::Eigen ${OpenCV_LIBS})
+set_target_properties(oc_sort PROPERTIES
+  INSTALL_RPATH "$ORIGIN"
+  BUILD_RPATH "$ORIGIN"
+)

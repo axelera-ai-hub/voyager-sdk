@@ -17,13 +17,20 @@ add_executable(axinferencenet_example axinferencenet_example.cpp)
 # Tensor output example
 add_executable(axinferencenet_tensor axinferencenet_tensor.cpp)
 
+# Tensor output using a locally defined custom plugin
+add_executable(axinferencenet_local_plugin axinferencenet_local_plugin.cpp)
+
 # Cascaded example
 add_executable(axinferencenet_cascaded axinferencenet_cascaded.cpp)
 
 # Tracker example
 add_executable(axinferencenet_tracker axinferencenet_tracker.cpp)
 
-foreach(target axinferencenet_example axinferencenet_tensor axinferencenet_cascaded axinferencenet_tracker)
+foreach(target axinferencenet_example
+               axinferencenet_tensor
+               axinferencenet_local_plugin
+               axinferencenet_cascaded
+               axinferencenet_tracker)
     target_compile_options(${target} PRIVATE
         -Wall
         -Werror
@@ -33,7 +40,7 @@ foreach(target axinferencenet_example axinferencenet_tensor axinferencenet_casca
         $<$<COMPILE_LANGUAGE:CXX>:-Wno-deprecated-declarations>
     )
     target_include_directories(${target} PRIVATE
-        ${axruntime_INCLUDE_DIRS}/include
+        ${axruntime_INCLUDE_DIRS}
         ${opencv4_INCLUDE_DIRS}
         ${axstreamer_INCLUDE_DIRS}
     )

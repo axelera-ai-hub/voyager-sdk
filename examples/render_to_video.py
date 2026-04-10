@@ -15,10 +15,14 @@ import threading
 import time
 
 from axelera import types
-from axelera.app import create_inference_stream, display
+from axelera.app import create_inference_stream, display, config
 
+framework = config.env.framework
 NETWORK = "yolov5m-v7-coco-tracker"
-SOURCES = ["media/traffic2_480p.mp4@60", "media/traffic3_480p.mp4@60"]
+SOURCES = [
+    str(framework / "media/traffic2_480p.mp4@60"),
+    str(framework / "media/traffic3_480p.mp4@60"),
+]
 SURFACE_SIZE = (848 * 2, 480)
 
 

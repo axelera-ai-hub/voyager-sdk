@@ -60,7 +60,8 @@ class AxLogger : public std::streambuf
   Logger::Sink log_sink;
 };
 
-AxLogger::AxLogger() noexcept : last_buffer_(nullptr)
+AxLogger::AxLogger() noexcept
+    : last_buffer_(nullptr)
 {
   std::clog.rdbuf(this);
   //  Initialise the first stream
@@ -178,7 +179,8 @@ operator<<(std::ostream &os, const Tag &tag)
   return os;
 }
 
-Logger::null_buffer::null_buffer() : std::streambuf()
+Logger::null_buffer::null_buffer()
+    : std::streambuf()
 {
   setp(nullptr, nullptr);
 }
@@ -188,13 +190,16 @@ Logger::null_buffer::overflow(int c)
 {
   return c;
 }
-Logger::null_stream::null_stream() : std::ostream(&m_sb)
+Logger::null_stream::null_stream()
+    : std::ostream(&m_sb)
 {
 }
 
 
 Logger::Logger(Severity severity, void *source, void *debug)
-    : severity_(severity), source_(source), debug_(debug)
+    : severity_(severity),
+      source_(source),
+      debug_(debug)
 {
 }
 

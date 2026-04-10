@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -214,6 +214,73 @@ def test_exec_torch_yolonas_merge_input(mock_organize_bboxes):
     _, _, o_meta = decoder.exec_torch(the_img, input_tensor, the_meta)
     assert 'task_name' in o_meta
     assert len(o_meta['task_name'].boxes) == 30
+
+
+@patch(
+    'ax_models.decoders.yolo.BBoxState.organize_bboxes',
+    side_effect=lambda boxes, scores, classes: (boxes, scores, classes),
+)
+def test_exec_torch_yolonas_merge_input_reversed(mock_organize_bboxes):
+    """YOLO-NAS outputs [classes, boxes] order - decoder should swap and merge."""
+    the_meta = meta.AxMeta(0)
+    the_img = types.img.frompil(PILImage.new('RGB', (640, 640)))
+    input_tensor = (torch.full((1, 30, 10), 0.6), torch.full((1, 30, 4), 0.6))
+
+    decoder = yolo.DecodeYolo(
+        box_format='xyxy',
+        normalized_coord=True,
+        conf_threshold=0.5,
+        use_multi_label=False,
+    )
+    model_info = types.ModelInfo(
+        name="yolo-nas-s",
+        task_category=types.TaskCategory.ObjectDetection,
+        input_tensor_shape=[1, 3, 640, 640],
+        num_classes=10,
+    )
+    model_info.manifest = MANIFEST
+    decoder.configure_model_and_context_info(
+        model_info=model_info,
+        context=operators.PipelineContext(),
+        task_name="task_name",
+        taskn=0,
+        compiled_model_dir=Path('.'),
+        task_graph=create_mock_task_graph(),
+    )
+    _, _, o_meta = decoder.exec_torch(the_img, input_tensor, the_meta)
+    assert 'task_name' in o_meta
+    assert len(o_meta['task_name'].boxes) == 30
+
+
+def test_exec_torch_dual_tensor_neither_has_4_channels():
+    """Two tensors where neither has 4 channels should raise ValueError."""
+    the_meta = meta.AxMeta(0)
+    the_img = types.img.frompil(PILImage.new('RGB', (640, 640)))
+    input_tensor = (torch.full((1, 30, 7), 0.6), torch.full((1, 30, 10), 0.6))
+
+    decoder = yolo.DecodeYolo(
+        box_format='xyxy',
+        normalized_coord=True,
+        conf_threshold=0.5,
+        use_multi_label=False,
+    )
+    model_info = types.ModelInfo(
+        name="yolo-nas-s",
+        task_category=types.TaskCategory.ObjectDetection,
+        input_tensor_shape=[1, 3, 640, 640],
+        num_classes=10,
+    )
+    model_info.manifest = MANIFEST
+    decoder.configure_model_and_context_info(
+        model_info=model_info,
+        context=operators.PipelineContext(),
+        task_name="task_name",
+        taskn=0,
+        compiled_model_dir=Path('.'),
+        task_graph=create_mock_task_graph(),
+    )
+    with pytest.raises(ValueError, match=r"Unexpected output shapes"):
+        decoder.exec_torch(the_img, input_tensor, the_meta)
 
 
 @pytest.mark.parametrize(

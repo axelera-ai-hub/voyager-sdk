@@ -1,17 +1,17 @@
 #!/usr/bin/env python
 # Copyright Axelera AI, 2025
+import alive_progress
 import cv2
 import numpy as np
+import os
+import sys
 
-from axelera.app import config, display
+if __name__ == '__main__':
+    # Application Framework is not a package, so add it to the path to import it
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+from axelera.app import config
 from axelera.app.stream import create_inference_stream
-
-stream = create_inference_stream(
-    network="yolov8n-output-tensor",
-    sources=[
-        str(config.env.framework / "media/traffic1_1080p.mp4"),
-    ],
-)
 
 
 def postprocess_yolov8(
@@ -20,6 +20,9 @@ def postprocess_yolov8(
     # YOLOv8 output: (1, 84, 8400) => (batch, channels, num_anchors)
     # Each anchor: [x, y, w, h, score_0, ..., score_79]
     # We'll use only the first batch
+    while data.ndim > 3:
+        data = np.squeeze(data, axis=1)
+    shape = data.shape
     num_classes = shape[1] - 4
     num_anchors = shape[2]
     detections = []
@@ -67,34 +70,42 @@ def render_detections(image, detections, labels=None):
     for x1, y1, x2, y2, class_id, score in detections:
         pt1 = (int(x1), int(y1))
         pt2 = (int(x2), int(y2))
-        cv2.rectangle(image, pt1, pt2, (0, 255, 255), 2)
+        cv2.rectangle(image, pt1, pt2, (255, 255, 0), 2)
         label = labels[class_id] if class_id < len(labels) else str(class_id)
         text = f"{label} {score:.2f}"
         cv2.putText(
-            image, text, (int(x1), int(y1) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2
+            image, text, (int(x1), int(y1) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2
         )
 
 
 def main(window, stream):
     display_w, display_h = 640, 360  # or any size you prefer
-    for frame_result in stream:
+    for frame_result in alive_progress.alive_it(stream):
         tensor_wrapper = frame_result.meta['detections']
         tensor = tensor_wrapper.tensors[0]  # numpy array
-        rgb_img = frame_result.image.asarray()
+        bgr_img = frame_result.image.asarray('BGR')
         # Resize image first for faster processing and display
-        rgb_img_small = cv2.resize(rgb_img, (display_w, display_h))
-        orig_h, orig_w = rgb_img_small.shape[:2]
+        bgr_img_small = cv2.resize(bgr_img, (display_w, display_h))
+        orig_h, orig_w = bgr_img_small.shape[:2]
         detections = postprocess_yolov8(
             tensor, tensor.shape, orig_w, orig_h, model_w=640, model_h=640, letterboxed=True
         )
-        bgr_img = cv2.cvtColor(rgb_img_small, cv2.COLOR_RGB2BGR)
-        render_detections(bgr_img, detections)
-        cv2.imshow('Detections', bgr_img)
+        render_detections(bgr_img_small, detections)
+        cv2.imshow('Detections', bgr_img_small)
         if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+        if cv2.getWindowProperty('Detections', cv2.WND_PROP_VISIBLE) < 1:
             break
 
 
-with display.App(renderer=False) as app:
-    app.start_thread(main, (None, stream), name='InferenceThread')
-    app.run()
-stream.stop()
+if __name__ == '__main__':
+    stream = create_inference_stream(
+        network="yolov8n-output-tensor",
+        sources=[
+            str(config.env.framework / "media/traffic1_1080p.mp4"),
+        ],
+    )
+    try:
+        main(None, stream)
+    finally:
+        stream.stop()

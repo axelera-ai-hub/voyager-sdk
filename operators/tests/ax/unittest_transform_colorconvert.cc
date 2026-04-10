@@ -276,4 +276,41 @@ TEST(Conversion, yuyv2gray)
   xform->transform(in, out, 0, 1, metadata);
   ASSERT_EQ(out_buf, expected);
 }
+
+// Test that NV16 input is rejected with clear error message
+TEST(Conversion, nv16_rejected)
+{
+  std::unordered_map<std::string, std::string> input = {
+    { "format", "rgba" },
+  };
+  auto xform = Ax::LoadTransform("colorconvert", input);
+
+  auto in_buf = std::vector<uint8_t>(640 * 480 * 2); // NV16 size
+  auto out_buf = std::vector<uint8_t>(640 * 480 * 4, 0);
+
+  std::vector<size_t> strides{ 640, 640 };
+  std::vector<size_t> offsets{ 0, 640 * 480 };
+
+  auto in = AxVideoInterface{ { 640, 480, int(strides[0]), 0, AxVideoFormat::NV16 },
+    in_buf.data(), strides, offsets, -1 };
+
+  auto out = AxVideoInterface{ { 640, 480, 640 * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { 640 * 4 }, { 0 }, -1 };
+
+  Ax::MetaMap metadata;
+
+  // Should throw an exception indicating NV16 is not supported
+  ASSERT_THROW(
+      {
+        try {
+          xform->transform(in, out, 0, 1, metadata);
+        } catch (const std::runtime_error &e) {
+          // Verify the error message mentions NV16 and suggests OpenCL
+          EXPECT_TRUE(std::string(e.what()).find("NV16") != std::string::npos);
+          EXPECT_TRUE(std::string(e.what()).find("colorconvert_cl") != std::string::npos);
+          throw;
+        }
+      },
+      std::runtime_error);
+}
 } // namespace

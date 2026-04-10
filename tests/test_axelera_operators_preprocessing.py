@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2024
+# Copyright Axelera AI, 2023
 import inspect
 import re
 from unittest.mock import ANY, patch
@@ -12,6 +12,7 @@ from axelera import types
 from axelera.app import gst_builder, operators
 
 torch = pytest.importorskip("torch")
+pytest.importorskip("torchvision")
 import torchvision.transforms as T
 import torchvision.transforms.functional as TF
 
@@ -110,10 +111,13 @@ def test_torch_to_tensor_defaults(input, output, datatype, scale, exp_gst):
         exp = exp / 255.0
     np.testing.assert_equal(out.numpy(), exp)
     assert out.numpy().flags['C_CONTIGUOUS']
-    with pytest.raises(
-        NotImplementedError, match=r"PermuteChannels is not implemented for gst pipeline"
-    ):
-        _gen_gst(op)
+    if input != 'NHWC':
+        with pytest.raises(
+            ValueError, match=r"PermuteChannels is only supported for NHWC layout in GStreamer"
+        ):
+            _gen_gst(op)
+    else:
+        _gen_gst(op)  # Should not raise for NHWC input
 
 
 def test_torch_to_tensor_greyscale():
@@ -268,10 +272,13 @@ def test_permute_channels(input, output, exp_gst):
     out = op.exec_torch(torch.from_numpy(i)).numpy()
     np.testing.assert_equal(out, exp)
     assert out.flags['C_CONTIGUOUS']
-    with pytest.raises(
-        NotImplementedError, match="PermuteChannels is not implemented for gst pipeline"
-    ):
-        _gen_gst(op)
+    if input != 'NHWC':
+        with pytest.raises(
+            ValueError, match="PermuteChannels is only supported for NHWC layout in GStreamer"
+        ):
+            _gen_gst(op)
+    else:
+        _gen_gst(op)  # Should not raise for NHWC input
 
 
 @pytest.mark.parametrize(
@@ -610,8 +617,7 @@ def test_type_cast():
     got = op.exec_torch(torch.from_numpy(data))
     np.testing.assert_equal(got.numpy(), data.astype('float32'))
     assert got.numpy().flags['C_CONTIGUOUS']
-    with pytest.raises(NotImplementedError, match=r"float32 is not supported in gst"):
-        _gen_gst(op)
+    assert _gen_gst(op) == []
 
 
 def test_type_cast_uint8():
@@ -854,3 +860,226 @@ def test_convert_color_invalid_input():
 def test_convert_color_invalid_format():
     with pytest.raises(ValueError, match="Unsupported conversion: INVALID2FORMAT"):
         operators.ConvertColor(format='INVALID2FORMAT')
+
+
+class TestNormalizeCombineNormalizations:
+    """Test suite for the combine_normalizations method of the Normalize operator."""
+
+    def test_combine_identity_normalizations(self):
+        """Test combining with identity normalization (mean=0, std=1)."""
+        # First normalization: (x - 128) / 255
+        norm1 = operators.Normalize(mean=[128.0, 128.0, 128.0], std=[255.0, 255.0, 255.0])
+
+        # Second normalization: identity (x - 0) / 1
+        mean2 = [0.0, 0.0, 0.0]
+        std2 = [1.0, 1.0, 1.0]
+
+        norm1.combine_normalizations(mean2, std2)
+
+        # Result should be the same as original
+        np.testing.assert_array_almost_equal(norm1.mean_values, [128.0, 128.0, 128.0])
+        np.testing.assert_array_almost_equal(norm1.std_values, [255.0, 255.0, 255.0])
+
+    def test_combine_two_normalizations(self):
+        """Test combining two non-trivial normalizations."""
+        # First normalization: (x - 0) / 255  (scale to [0, 1])
+        norm1 = operators.Normalize(mean=[0.0, 0.0, 0.0], std=[255.0, 255.0, 255.0])
+
+        # Second normalization: ImageNet normalization on [0, 1] input
+        # (x - mean) / std
+        mean2 = [0.485, 0.456, 0.406]
+        std2 = [0.229, 0.224, 0.225]
+
+        norm1.combine_normalizations(mean2, std2)
+
+        # Combined: ((x - 0) / 255 - mean2) / std2
+        # = (x - mean2 * 255) / (255 * std2)
+        expected_mean = [m * 255 for m in mean2]
+        expected_std = [s * 255 for s in std2]
+
+        np.testing.assert_array_almost_equal(norm1.mean_values, expected_mean, decimal=2)
+        np.testing.assert_array_almost_equal(norm1.std_values, expected_std, decimal=2)
+
+    def test_combine_with_different_means(self):
+        """Test combining normalizations with different mean values."""
+        # First normalization: (x - 100) / 50
+        norm1 = operators.Normalize(mean=[100.0, 100.0, 100.0], std=[50.0, 50.0, 50.0])
+
+        # Second normalization: (x - 0.5) / 0.5
+        mean2 = [0.5, 0.5, 0.5]
+        std2 = [0.5, 0.5, 0.5]
+
+        norm1.combine_normalizations(mean2, std2)
+
+        # Combined: ((x - 100) / 50 - 0.5) / 0.5
+        # = (x - 100 - 0.5 * 50) / (50 * 0.5)
+        # = (x - 125) / 25
+        expected_mean = [125.0, 125.0, 125.0]
+        expected_std = [25.0, 25.0, 25.0]
+
+        np.testing.assert_array_almost_equal(norm1.mean_values, expected_mean)
+        np.testing.assert_array_almost_equal(norm1.std_values, expected_std)
+
+    def test_combine_per_channel_values(self):
+        """Test combining normalizations with different values per channel."""
+        # RGB channels with different normalizations
+        norm1 = operators.Normalize(mean=[100.0, 110.0, 120.0], std=[50.0, 60.0, 70.0])
+
+        mean2 = [0.4, 0.5, 0.6]
+        std2 = [0.2, 0.3, 0.4]
+
+        norm1.combine_normalizations(mean2, std2)
+
+        # Combined per channel: (x - mean1 - mean2 * std1) / (std1 * std2)
+        expected_mean = [
+            100.0 + 0.4 * 50.0,  # 120.0
+            110.0 + 0.5 * 60.0,  # 140.0
+            120.0 + 0.6 * 70.0,  # 162.0
+        ]
+        expected_std = [
+            50.0 * 0.2,  # 10.0
+            60.0 * 0.3,  # 18.0
+            70.0 * 0.4,  # 28.0
+        ]
+
+        np.testing.assert_array_almost_equal(norm1.mean_values, expected_mean)
+        np.testing.assert_array_almost_equal(norm1.std_values, expected_std)
+
+    def test_combine_scalar_values(self):
+        """Test combining normalizations with scalar values."""
+        norm1 = operators.Normalize(mean=128.0, std=255.0)
+
+        mean2 = 0.5
+        std2 = 2.0
+
+        norm1.combine_normalizations(mean2, std2)
+
+        # Combined: (x - 128 - 0.5 * 255) / (255 * 2.0)
+        # = (x - 255.5) / 510.0
+        expected_mean = 128.0 + 0.5 * 255.0  # 255.5
+        expected_std = 255.0 * 2.0  # 510.0
+
+        # Check if values are close (accounting for scalar or array)
+        if isinstance(norm1.mean_values, (list, np.ndarray)):
+            np.testing.assert_array_almost_equal(norm1.mean_values, [expected_mean])
+            np.testing.assert_array_almost_equal(norm1.std_values, [expected_std])
+        else:
+            assert np.isclose(norm1.mean_values, expected_mean)
+            assert np.isclose(norm1.std_values, expected_std)
+
+    def test_combine_zero_std_second_normalization(self):
+        """Test combining when second normalization has zero std (edge case)."""
+        norm1 = operators.Normalize(mean=[100.0, 100.0, 100.0], std=[50.0, 50.0, 50.0])
+
+        # Second normalization with zero std
+        mean2 = [0.0, 0.0, 0.0]
+        std2 = [0.0, 0.0, 0.0]
+
+        norm1.combine_normalizations(mean2, std2)
+
+        # Result: std becomes 0 (division by zero case)
+        np.testing.assert_array_almost_equal(norm1.mean_values, [100.0, 100.0, 100.0])
+        np.testing.assert_array_almost_equal(norm1.std_values, [0.0, 0.0, 0.0])
+
+    def test_combine_negative_values(self):
+        """Test combining normalizations with negative values."""
+        norm1 = operators.Normalize(mean=[-10.0, -20.0, -30.0], std=[5.0, 10.0, 15.0])
+
+        mean2 = [-0.5, -0.3, -0.1]
+        std2 = [0.5, 0.7, 0.9]
+
+        norm1.combine_normalizations(mean2, std2)
+
+        # Combined: (x - mean1 - mean2 * std1) / (std1 * std2)
+        expected_mean = [
+            -10.0 + (-0.5) * 5.0,  # -12.5
+            -20.0 + (-0.3) * 10.0,  # -23.0
+            -30.0 + (-0.1) * 15.0,  # -31.5
+        ]
+        expected_std = [
+            5.0 * 0.5,  # 2.5
+            10.0 * 0.7,  # 7.0
+            15.0 * 0.9,  # 13.5
+        ]
+
+        np.testing.assert_array_almost_equal(norm1.mean_values, expected_mean)
+        np.testing.assert_array_almost_equal(norm1.std_values, expected_std)
+
+    def test_combine_grayscale_single_channel(self):
+        """Test combining normalizations for grayscale (single channel)."""
+        norm1 = operators.Normalize(mean=127.5, std=127.5)
+
+        mean2 = 0.5
+        std2 = 0.5
+
+        norm1.combine_normalizations(mean2, std2)
+
+        # Combined: (x - 127.5 - 0.5 * 127.5) / (127.5 * 0.5)
+        # = (x - 191.25) / 63.75
+        expected_mean = 127.5 + 0.5 * 127.5  # 191.25
+        expected_std = 127.5 * 0.5  # 63.75
+
+        if isinstance(norm1.mean_values, (list, np.ndarray)):
+            assert len(norm1.mean_values) == 1
+            assert np.isclose(norm1.mean_values[0], expected_mean)
+            assert np.isclose(norm1.std_values[0], expected_std)
+        else:
+            assert np.isclose(norm1.mean_values, expected_mean)
+            assert np.isclose(norm1.std_values, expected_std)
+
+    def test_combine_modifies_in_place(self):
+        """Test that combine_normalizations modifies the operator in place."""
+        original_mean = [100.0, 100.0, 100.0]
+        original_std = [50.0, 50.0, 50.0]
+        norm1 = operators.Normalize(mean=original_mean.copy(), std=original_std.copy())
+
+        mean2 = [0.5, 0.5, 0.5]
+        std2 = [2.0, 2.0, 2.0]
+
+        # Store original reference
+        norm1_ref = norm1
+
+        # Combine normalizations
+        result = norm1.combine_normalizations(mean2, std2)
+
+        # Should modify in place (return None or self)
+        assert norm1_ref is norm1
+
+        # Check expected values
+        expected_mean = [m1 + m2 * s1 for m1, m2, s1 in zip(original_mean, mean2, original_std)]
+        expected_std = [s1 * s2 for s1, s2 in zip(original_std, std2)]
+
+        # Convert to numpy arrays for comparison
+        result_mean = np.asarray(norm1.mean_values, dtype=float)
+        result_std = np.asarray(norm1.std_values, dtype=float)
+
+        # Values should be updated
+        assert not np.allclose(result_mean, original_mean)
+        assert not np.allclose(result_std, original_std)
+
+        np.testing.assert_array_almost_equal(result_mean, expected_mean)
+        np.testing.assert_array_almost_equal(result_std, expected_std)
+
+    def test_combine_imagenet_preprocessing(self):
+        """Test realistic ImageNet preprocessing scenario."""
+        # First: scale from [0, 255] to [0, 1]
+        norm1 = operators.Normalize(mean=[0.0, 0.0, 0.0], std=[255.0, 255.0, 255.0])
+
+        # Second: apply ImageNet normalization
+        imagenet_mean = [0.485, 0.456, 0.406]
+        imagenet_std = [0.229, 0.224, 0.225]
+
+        norm1.combine_normalizations(imagenet_mean, imagenet_std)
+
+        # Test with sample values
+        test_input = np.array([123.675, 116.28, 103.53])  # typical mean RGB values
+
+        # Apply combined normalization manually
+        result_combined = (test_input - norm1.mean_values) / norm1.std_values
+
+        # Apply two-step normalization
+        step1 = (test_input - 0.0) / 255.0
+        result_twostep = (step1 - imagenet_mean) / imagenet_std
+
+        # Should be equivalent
+        np.testing.assert_array_almost_equal(result_combined, result_twostep, decimal=5)

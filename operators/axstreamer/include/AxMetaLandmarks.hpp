@@ -21,7 +21,8 @@ class AxMetaLandmarks : public AxMetaBase
   using landmark = std::array<point, total_landmarks>;
   std::vector<landmark> all_landmarks;
 
-  AxMetaLandmarks(int num_landmarks) : all_landmarks(num_landmarks)
+  AxMetaLandmarks(int num_landmarks)
+      : all_landmarks(num_landmarks)
   {
   }
 

@@ -146,7 +146,7 @@ def main(window, stream, broadcaster: RemoteBroadcaster):
     frame_count = 0
     for frame_result in stream:
         frame_count += 1
-        image = frame_result.image.asarray().copy()
+        image = frame_result.image.asarray(types.ColorFormat.BGR).copy()
 
         if mid_line_start is None:
             height, width, _ = image.shape
@@ -210,7 +210,7 @@ def main(window, stream, broadcaster: RemoteBroadcaster):
         )
 
         window.show(
-            types.Image.fromarray(image, frame_result.image.color_format),
+            types.Image.fromarray(image, types.ColorFormat.BGR),
             frame_result.meta,
             frame_result.stream_id,
         )

@@ -685,6 +685,137 @@ class MSMT17(ImageDataset):
         return data
 
 
+class DanceTrackReId(ImageDataset):
+    dataset_dir = 'dancetrack-reid'
+    dataset_url = None
+
+    def __init__(self, root='', **kwargs):
+        self.root = osp.abspath(osp.expanduser(root))
+        self.data_dir = osp.join(self.root, self.dataset_dir)
+
+        self.train_dir = osp.join(self.data_dir, 'bounding_box_train')
+        self.query_dir = osp.join(self.data_dir, 'query')
+        self.gallery_dir = osp.join(self.data_dir, 'bounding_box_test')
+
+        required_files = [
+            self.data_dir,
+            self.train_dir,
+            self.query_dir,
+            self.gallery_dir,
+        ]
+        self.check_before_run(required_files)
+
+        train = self.process_dir(self.train_dir, relabel=True, split_name="train")
+        query = self.process_dir(self.query_dir, relabel=False, split_name="query")
+        gallery = self.process_dir(self.gallery_dir, relabel=False, split_name="gallery")
+
+        super(DanceTrackReId, self).__init__(train, query, gallery, **kwargs)
+
+    def process_dir(self, dir_path, relabel=False, split_name=""):
+        img_paths = glob.glob(osp.join(dir_path, '*.jpg'))
+
+        pid_container = set()
+        for img_path in img_paths:
+            base_name = osp.basename(img_path)
+            parts = base_name.split('_')
+            if len(parts) < 2:
+                continue
+
+            pid = int(parts[0])
+            pid_container.add(pid)
+        pid2label = {pid: label for label, pid in enumerate(pid_container)}
+
+        data = []
+        for img_path in img_paths:
+            base_name = osp.basename(img_path)
+            parts = base_name.split('_')
+            if len(parts) < 2:
+                continue
+            pid = int(parts[0])
+
+            # DanceTrack is effectively single-camera. ReID eval (Market1501-style) drops
+            # same-pid + same-cam matches, which would wipe out all positives. Force
+            # query/gallery into different camids so valid matches remain.
+            camid = 0
+            if split_name == "gallery":
+                # Must differ from query camid for the same reason above.
+                camid = 1
+
+            if relabel:
+                pid = pid2label[pid]
+
+            data.append((img_path, pid, camid, split_name))
+
+        return data
+
+
+class DanceTrackReIdDataAdapter(types.DataAdapter):
+    def __init__(self, dataset_config, model_info):
+        self.dump_embeddings_to = dataset_config.get('dump_embeddings_to', '')
+        self.dataset_config = dataset_config
+        self.model_info = model_info
+
+    def reformat_for_calibration(self, batched_data: Any):
+        return (
+            batched_data
+            if self.use_repr_imgs
+            else torch.stack([item['img'] for item in batched_data], 0)
+        )
+
+    def create_calibration_data_loader(self, transform, root, batch_size, **kwargs):
+        data_utils.check_and_download_dataset(
+            dataset_name='DanceTrack_ReId',
+            data_root_dir=root,
+            split='val',
+            is_private=True,
+        )
+
+        return torch.utils.data.DataLoader(
+            DanceTrackReId(root, mode='train', transform=transform),
+            batch_size=batch_size,
+            shuffle=True,
+            generator=kwargs.get('generator'),
+            collate_fn=lambda x: x,
+            num_workers=0,
+        )
+
+    def create_validation_data_loader(self, root, target_split, **kwargs):
+        data_utils.check_and_download_dataset(
+            dataset_name='DanceTrack_ReId',
+            data_root_dir=root,
+            split='val',
+            is_private=True,
+        )
+
+        return torch.utils.data.DataLoader(
+            DanceTrackReId(root, mode='query_and_gallery'),
+            batch_size=1,
+            shuffle=False,
+            collate_fn=lambda x: x,
+            num_workers=0,
+        )
+
+    def reformat_for_validation(self, batched_data):
+        return [
+            types.FrameInput.from_image(
+                img=item['img'],
+                color_format=types.ColorFormat.RGB,
+                ground_truth=eval_interfaces.ReIdGtSample(
+                    person_id=item['pid'], camera_id=item['camid'], split_name=item['split_name']
+                ),
+                img_id='',
+            )
+            for item in batched_data
+        ]
+
+    def evaluator(
+        self, dataset_root, dataset_config, model_info, custom_config, pair_validation=False
+    ):
+        from ax_evaluators.reid import ReIdEvaluator
+
+        return ReIdEvaluator(dump_embeddings_to=self.dump_embeddings_to)
+
+
 class MSMT17DataAdapter(types.DataAdapter):
     def __init__(self, dataset_config, model_info):
         self.dump_embeddings_to = dataset_config.get('dump_embeddings_to', '')

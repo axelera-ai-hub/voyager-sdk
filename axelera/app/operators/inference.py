@@ -1,8 +1,9 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Inference Operator Implementation
 from __future__ import annotations
 
 import dataclasses
+import zipfile
 import logging
 from pathlib import Path
 import re
@@ -315,7 +316,9 @@ def _determine_device(model):
     return 'aipu' if isinstance(model, types.Manifest) else torch_utils.device_name()
 
 
-def build_onnx_inferencer(model: str):
+def build_onnx_inferencer(
+    model: str, axm_path: str = ''
+) -> tuple[Any, list[str], list[str], list[list[int]]]:
     import onnxruntime as rt
 
     preferred_providers = [
@@ -333,8 +336,11 @@ def build_onnx_inferencer(model: str):
     providers = [provider for provider in preferred_providers if provider in available_providers]
     LOG.debug(f"Available ONNX runtime providers: {available_providers}")
 
-    # Create and return the session
-    session = rt.InferenceSession(model, providers=providers)
+    onnx_input: str | bytes = model
+    if axm_path:
+        with zipfile.ZipFile(axm_path, 'r') as axm:
+            onnx_input = axm.read(model)
+    session = rt.InferenceSession(onnx_input, providers=providers)
 
     post_input_names = [node.name for node in session.get_inputs()]
     post_output_names = [node.name for node in session.get_outputs()]
@@ -903,17 +909,11 @@ class Inference:
         if self.config.handle_preamble and self.check_focus_layer_on_host():
             # Currently, we only handle a single special case involving 'preamble.onnx'.
             # TODO: Refactor and generalize preamble handling, similar to our approach for postamble
-            gst.axtransform(
-                lib='libtransform_yolopreproc.so',
-                options=f'padding:{padding}',
-                batch=self._model_cores,
-            )
+            gst.axtransform(lib='libtransform_yolopreproc.so', options=f'padding:{padding}')
         else:
             _, zero = zip(*self._quant)
             gst.axtransform(
-                lib='libtransform_padding.so',
-                options=f'padding:{padding};fill:{zero[0]}',
-                batch=self._model_cores,
+                lib='libtransform_padding.so', options=f'padding:{padding};fill:{zero[0]}'
             )
 
     def build_inference_gst(self, gst: gst_builder.Builder, num_cores: int):
@@ -946,7 +946,7 @@ class Inference:
             dmabuf_outputs=config.env.UseDmaBuf.OUTPUTS in config.env.use_dmabuf,
             num_children=num_children,
         )
-        if gst.tiling:
+        if gst.tiling and gst.add_tiles:
             inf['meta'] = 'axelera-tiles-internal'
         if options:
             inf['options'] = options
