@@ -160,6 +160,19 @@ def mock_dataset_private_yaml():
                 ]
             },
         },
+        'TestOBBDataset': {
+            'description': 'Test OBB dataset (no check_files, like DOTAv1)',
+            'download_hint': 'Download OBB dataset and extract to data/',
+            'splits': {
+                'val': [
+                    {
+                        'url': 's3://bucket/obb.zip',
+                        'md5': 'md5hash',
+                        'drop_dirs': 0,
+                    }
+                ]
+            },
+        },
     }
 
 
@@ -194,6 +207,11 @@ def mock_dataset_prompt_yaml():
             'description': 'QNAP face recognition dataset',
             'download_hint': 'Please download QNAP dataset',
             'splits': {'val': [{'check_files': ['val/data.txt']}]},
+        },
+        'TestOBBDataset': {
+            'description': 'Test OBB dataset (no check_files, like DOTAv1)',
+            'download_hint': 'Download OBB dataset and extract to data/',
+            'splits': {'val': [{}]},
         },
     }
 
@@ -515,3 +533,98 @@ def test_imagenet_ignore_check_in_customer_environment(
             else:
                 assert status == DatasetStatus.INCOMPLETE
                 assert "Dataset directory is empty" in msg
+
+
+def test_customer_env_manual_download_creates_stamp(mock_filesystem, tmp_path):
+    """When user manually downloads a dataset with check_files satisfied, stamp is created."""
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    # Satisfy the check_files for ImageNet: val/n01641577
+    (data_root / "val" / "n01641577").mkdir(parents=True)
+
+    with patch.dict(
+        os.environ,
+        {'AXELERA_FRAMEWORK': str(mock_filesystem), 'AXELERA_S3_AVAILABLE': '0'},
+    ), patch('axelera.app.data_utils._check_dataset_status') as mock_check, patch(
+        'axelera.app.data_utils._create_completion_stamp'
+    ) as mock_stamp, patch(
+        'axelera.app.data_utils._print_hint'
+    ) as mock_hint:
+
+        mock_check.return_value = (DatasetStatus.INCOMPLETE, "No completion stamp found.")
+
+        check_and_download_dataset('ImageNet', data_root, is_private=True)
+        mock_stamp.assert_called_once()
+        mock_hint.assert_not_called()
+
+
+def test_customer_env_manual_download_no_check_files(mock_filesystem, tmp_path):
+    """Dataset without check_files (like DOTAv1): dir has content -> stamp created."""
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    # Some content present (user downloaded something)
+    (data_root / "images").mkdir()
+
+    with patch.dict(
+        os.environ,
+        {'AXELERA_FRAMEWORK': str(mock_filesystem), 'AXELERA_S3_AVAILABLE': '0'},
+    ), patch('axelera.app.data_utils._check_dataset_status') as mock_check, patch(
+        'axelera.app.data_utils._create_completion_stamp'
+    ) as mock_stamp, patch(
+        'axelera.app.data_utils._print_hint'
+    ) as mock_hint:
+
+        mock_check.return_value = (DatasetStatus.INCOMPLETE, "No completion stamp found.")
+
+        check_and_download_dataset('TestOBBDataset', data_root, is_private=True)
+        mock_stamp.assert_called_once()
+        mock_hint.assert_not_called()
+
+
+def test_customer_env_missing_check_files_still_errors(mock_filesystem, tmp_path):
+    """Dir has content but required check_files are missing -> error with details."""
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    # Some content, but NOT the required check_files (val/n01641577)
+    (data_root / "some_other_dir").mkdir()
+
+    with patch.dict(
+        os.environ,
+        {'AXELERA_FRAMEWORK': str(mock_filesystem), 'AXELERA_S3_AVAILABLE': '0'},
+    ), patch('axelera.app.data_utils._check_dataset_status') as mock_check, patch(
+        'axelera.app.data_utils._create_completion_stamp'
+    ) as mock_stamp, patch(
+        'axelera.app.data_utils._print_hint'
+    ) as mock_hint:
+
+        mock_check.return_value = (DatasetStatus.INCOMPLETE, "No completion stamp found.")
+
+        with pytest.raises(RuntimeError, match="Please follow the hint"):
+            check_and_download_dataset('ImageNet', data_root, is_private=True)
+        mock_hint.assert_called_once()
+        # Verify the hint mentions the missing file
+        hint_message = mock_hint.call_args[0][0]
+        assert "Missing required files" in hint_message
+        mock_stamp.assert_not_called()
+
+
+def test_customer_env_not_found_still_errors(mock_filesystem, tmp_path):
+    """Dataset status NOT_FOUND -> error even if dir somehow exists."""
+    with patch.dict(
+        os.environ,
+        {'AXELERA_FRAMEWORK': str(mock_filesystem), 'AXELERA_S3_AVAILABLE': '0'},
+    ), patch('axelera.app.data_utils._check_dataset_status') as mock_check, patch(
+        'axelera.app.data_utils._create_completion_stamp'
+    ) as mock_stamp, patch(
+        'axelera.app.data_utils._print_hint'
+    ) as mock_hint:
+
+        mock_check.return_value = (
+            DatasetStatus.NOT_FOUND,
+            "Dataset directory does not exist.",
+        )
+
+        with pytest.raises(RuntimeError, match="Please follow the hint"):
+            check_and_download_dataset('TestOBBDataset', tmp_path, is_private=True)
+        mock_hint.assert_called_once()
+        mock_stamp.assert_not_called()

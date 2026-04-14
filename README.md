@@ -30,7 +30,7 @@ This is a production-ready release of Voyager SDK. Software components and featu
 | Document | Description |
 | :--------------------- | :---------- |
 | [Installation guide - original `install.sh`](/docs/tutorials/install.md) | Explains how to set up the Voyager SDK repository and toolchain on your development system using `install.sh` |
-| [Installation guide - new standalone Python wheels](/docs/tutorials/install_new.md) | Explains how to set up the Voyager SDK repository and toolchain on your development system using new standalone Python wheels |
+| [Installation guide - new standalone Python wheels](/docs/tutorials/install_pip.md) | Explains how to set up the Voyager SDK repository and toolchain on your development system using new standalone Python wheels |
 | [Quick start guide](/docs/tutorials/quick_start_guide.md) | Explains how to deploy and run your first model |
 | [Windows getting started guide](/docs/tutorials/windows/windows_getting_started.md) | Explains how to install Voyager SDK and run a model in Windows 11|
 | [AxDevice manual](/docs/reference/axdevice.md) | AxDevice is a tool that lists all Metis boards connected to your system and can configure their settings |

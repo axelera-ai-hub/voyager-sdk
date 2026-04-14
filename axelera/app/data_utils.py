@@ -318,8 +318,12 @@ def _check_dataset_status(
     if not dataset_root.exists():
         return DatasetStatus.NOT_FOUND, f"Dataset directory {dataset_root} does not exist."
 
-    # In customer environments, skip validation for ImageNet and let torchvision handle extraction
-    # of manually placed tar files. Internal environments with S3 access still validate.
+    # ImageNet and Customer.* datasets bypass stamp validation entirely:
+    # - ImageNet: torchvision handles extraction of manually placed tar files,
+    #   so our stamp/download system doesn't apply.
+    # - Customer.*: custom datasets prepared by the customer, not managed by us.
+    # All other private datasets use the stamp system (manual download + verify + stamp
+    # in customer environments, auto-download + stamp in internal environments).
     if dataset_name == 'ImageNet' and env.s3_available == '0':
         return DatasetStatus.IGNORE_CHECK, "Ignore the check for ImageNet in customer environment."
     elif dataset_name.startswith('Customer.'):
@@ -370,6 +374,13 @@ def _check_dataset_status(
         )
 
 
+def _is_dataset_dir_empty(dataset_root: Path) -> bool:
+    if not dataset_root.exists():
+        return True
+    contents = [p for p in dataset_root.iterdir() if p.name not in ('.DS_Store', '__MACOSX')]
+    return len(contents) == 0
+
+
 def _download_dataset(dataset_dir: Path, dataset_name: str, split: str, config: DatasetConfig):
     files = config.get_files(dataset_name, split)
     if not files:
@@ -400,19 +411,14 @@ def _download_dataset(dataset_dir: Path, dataset_name: str, split: str, config: 
 
 def _print_hint(message: str):
     from rich.console import Console
-    from rich.panel import Panel
-    from rich.text import Text
+    from rich.rule import Rule
 
-    lines = message.split('\n')
-    formatted_text = Text()
-    for line in lines:
-        if line.strip():
-            formatted_text.append(line.strip() + "\n", style="bold red")
-        else:
-            formatted_text.append("\n")
-
-    panel = Panel(formatted_text, title="[bold red]HINT", expand=False, border_style="red")
-    Console().print(panel)
+    console = Console()
+    # Use horizontal rules instead of a box panel so that shell commands
+    # in the hint text are easy to copy-paste without border characters.
+    console.print(Rule("HINT", style="bold red"))
+    console.print(message.strip())
+    console.print(Rule(style="red"))
 
 
 def check_and_download_dataset(
@@ -478,11 +484,28 @@ def check_and_download_dataset(
     downloaded = False
     if dataset_status in [DatasetStatus.INCOMPLETE, DatasetStatus.NOT_FOUND]:
         if env.s3_available == '0' and is_private:
-            # dataset with license concern in a customer environment
-            hint = config.get_download_hint(dataset_name, split)
-            full_message = f"{status_message}\n\n{hint}"
-            _print_hint(full_message)
-            raise RuntimeError("Please follow the hint to download the dataset.")
+            # Customer environment: cannot auto-download private datasets.
+            # If the user already manually placed files, verify and stamp them.
+            if dataset_status == DatasetStatus.NOT_FOUND or _is_dataset_dir_empty(data_root_dir):
+                hint = config.get_download_hint(dataset_name, split)
+                full_message = f"{status_message}\n\n{hint}"
+                _print_hint(full_message)
+                raise RuntimeError("Please follow the hint to download the dataset.")
+            missing = config.verify_required_files(data_root_dir, dataset_name, split)
+            if missing:
+                hint = config.get_download_hint(dataset_name, split)
+                full_message = (
+                    f"{status_message}\n\n"
+                    f"Missing required files:\n"
+                    + "\n".join(f"  - {f}" for f in missing)
+                    + f"\n\n{hint}"
+                )
+                _print_hint(full_message)
+                raise RuntimeError("Please follow the hint to download the dataset.")
+            LOG.info(
+                f"Dataset '{dataset_name}' appears to have been manually downloaded. "
+                f"Creating completion stamp."
+            )
         else:
             _download_dataset(data_root_dir, dataset_name, split, config)
             downloaded = True

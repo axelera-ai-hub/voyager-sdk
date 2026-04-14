@@ -153,7 +153,7 @@ SBS-S50 is a Re-ID backbone used with the Deep-OC-SORT tracker, enabling the ful
 
 ### Installation
 
-This release introduces new installation options including standalone Python wheels and a unified PyPI index (see tutorials/install_new.md). The existing `install.sh` installer remains stable and available as a fallback.
+This release introduces new installation options including standalone Python wheels and a unified PyPI index (see tutorials/install_pip.md). The existing `install.sh` installer remains stable and available as a fallback.
 
 - **Python wheels:** The SDK is now split into runtime and compilation environments delivered as standalone Python wheels: `axelera-rt` and `axelera-devkit` respectively.
     - `axelera-rt` - runtime environment (inference, device management, monitoring).
@@ -186,6 +186,7 @@ New features have been added to the YAML Pipeline Builder:
 - **ONNX preamble integration**: Automatic extraction of preprocessing constants from ONNX graphs into pipeline operators. This ensures the pipeline exactly matches the original model's preprocessing without manual transcription.
 - **Buffer pool management**: Improved sizing for batched workloads, queue fixes for Nvidia Jetson Orin platforms.
 - **Performance optimizations** result in up to 50% end-to-end performance improvement for high-throughput model pipelines, as measured on an Intel Core-i5 platform.
+- **Loop and Frame Rate on images** `image_dir` inputs: Users can now enable looping and set a frame rate limit, making it easier to run continuous benchmarks on a fixed image dataset.
 
 #### \[Alpha\] Pipeline Builder API
 
@@ -222,7 +223,6 @@ A new Python-native API for building, running, and packaging ML inference pipeli
     - `axdevice` firmware flashing: `axdevice` now includes firmware flash subcommands (`axdevice interactive_flash_update`, `axdevice interactive_flash_downgrade`), integrating firmware flashing into the standard `axdevice` workflow.
     - `axdevice` power limit display improvements: `--set-power-limit` now accepts `off` or `0` to explicitly disable throttling. Relevant only for M.2 Max boards.
 - `axmonitor` improvements:
-    - `axmonitor` loop and frame rate throttling for `image_dir` inputs: Users can now enable looping and set a frame rate limit, making it easier to run continuous benchmarks on a fixed image dataset.
     - `axmonitor` DDR bandwidth measurement is now available with a plot in the OVERVIEW page, helping users understand whether workloads are DDR-bandwidth-bound vs. compute-bound.
     - `axmonitor` power measurements extended (M.2 Max and PCIe Rev2 boards only) with min, max, and average values over a 1-second window.
 
