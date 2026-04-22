@@ -46,7 +46,7 @@ decode_to_meta(const AxTensorsInterface &in_tensors, const semantic_seg::propert
         } else {
           std::span<float> vec(fdata + offset, tensor.sizes[3]);
           auto max_it = std::max_element(vec.begin(), vec.end());
-          *out_it++ = *max_it > prop->threshold ? std::distance(vec.begin(), max_it) : -1;
+          *out_it++ = std::distance(vec.begin(), max_it);
         }
         offset += tensor.sizes[3];
       }
