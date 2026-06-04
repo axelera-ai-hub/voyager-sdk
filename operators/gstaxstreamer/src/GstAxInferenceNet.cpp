@@ -11,6 +11,7 @@
 #include "AxLog.hpp"
 #include "AxMeta.hpp"
 #include "AxMetaStreamId.hpp"
+#include "AxOpenClExtensions.hpp"
 #include "AxStreamerUtils.hpp"
 #include "GstAxBufferPool.hpp"
 #include "GstAxDataUtils.hpp"
@@ -307,6 +308,7 @@ struct GstBufferHandle {
 
   GstBuffer *buffer;
   GstMapInfo map_info;
+  opencl_planes planes{};
 };
 
 static AxVideoInterface
@@ -374,9 +376,6 @@ gst_axinferencenet_sink_chain(GstPad *sinkpad, GstObject *parent, GstBuffer *buf
     }
 
     auto video = video_interface_from_caps_and_meta(sinkpad_caps.get(), buf);
-    if (gst_buffer_n_memory(buf) != 1) {
-      throw std::runtime_error("Buffer must have exactly one memory (for now)");
-    }
     auto handle = std::make_shared<GstBufferHandle>(buf);
 
     auto &infnet = net(inf);
@@ -393,7 +392,17 @@ gst_axinferencenet_sink_chain(GstPad *sinkpad, GstObject *parent, GstBuffer *buf
       video.data = nullptr;
       video.vaapi = nullptr;
       video.fd = -1;
+      auto n_mem = gst_buffer_n_memory(buf);
+      handle->planes.planes.push_back(video.ocl_buffer);
+      for (guint i = 1; i < n_mem; ++i) {
+        handle->planes.planes.push_back(
+            gst_opencl_mem_get_opencl_buffer(gst_buffer_peek_memory(buf, i)));
+      }
+      video.vaapi = &handle->planes;
     } else {
+      if (gst_buffer_n_memory(buf) != 1) {
+        throw std::runtime_error("Buffer must have exactly one memory for non-OpenCL buffers");
+      }
       if (FALSE == gst_buffer_map(buf, &handle->map_info, GST_MAP_READ)) {
         throw std::runtime_error("Unable to map GstBuffer");
       }

@@ -130,7 +130,10 @@ def main(window, stream):
             break
 
 
-with App(renderer=True, opengl=stream.hardware_caps.opengl) as app:
-    wnd = app.create_window("Directional Line Cross Count", (900, 600))
-    app.start_thread(main, (wnd, stream), name='InferenceThread')
-    app.run()
+try:
+    with App(renderer=True, opengl=stream.hardware_caps.opengl) as app:
+        wnd = app.create_window("Directional Line Cross Count", (900, 600))
+        app.start_thread(main, (wnd, stream), name='InferenceThread')
+        app.run()
+finally:
+    stream.stop()

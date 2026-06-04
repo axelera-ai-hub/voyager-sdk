@@ -411,7 +411,7 @@ CLProgram::create_buffers(int elem_size, int num_elems, int flags,
     const buffer_initializer &ptr, int num_planes) const
 {
   cl_int error = CL_SUCCESS;
-  if (auto *p = std::get_if<opencl_buffer *>(&ptr)) {
+  if (auto *p = std::get_if<opencl_buffer *>(&ptr); p && *p) {
     auto *p1 = *p;
     if (p1->event && p1->mapped) {
       //  If we get here then upstream has begun mappinng the buffer, so we
@@ -420,6 +420,14 @@ CLProgram::create_buffers(int elem_size, int num_elems, int flags,
           cl_details.commands, p1->buffer, p1->mapped, 1, &*p1->event, NULL);
       p1->event.reset();
       p1->mapped = nullptr;
+    }
+  } else if (auto *p = std::get_if<opencl_planes *>(&ptr); p && *p) {
+    //  For multi-plane input, flush any pending map on the Y plane
+    auto *y = (*p)->planes.empty() ? nullptr : (*p)->planes[0];
+    if (y && y->event && y->mapped) {
+      clEnqueueUnmapMemObject(cl_details.commands, y->buffer, y->mapped, 1, &*y->event, NULL);
+      y->event.reset();
+      y->mapped = nullptr;
     }
   }
   auto buffers = create_optimal_buffer(cl_details.context, cl_details.extensions,
@@ -562,7 +570,9 @@ typedef struct image_description {
 } image_description;
 
 
-uchar4 nv12_sampler(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+#define NV12_READ(x, y, p, stride) convert_float2(p[y * stride + x])
+
+uchar4 nv12_sampler_two_plane(__global const uchar *y_image, __global const uchar *uv_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
   if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
     return (uchar4)(16, 128, 128, 255);
   }
@@ -604,14 +614,13 @@ uchar4 nv12_sampler(__global const uchar *y_image, int out_x, int out_y, float f
 
   bool need_right = ux1 != ux2;
   bool need_bottom = uy1 != uy2;
-#define NV12_READ(x, y, p, stride) convert_float2(p[y * stride + x])
 
-  __global uchar2 *in_uv = (__global uchar2 *)(y_image + img->offsets.y);
+  __global uchar2 *in_uv2 = (__global uchar2 *)uv_image;
   int uvstride = img->strides.y / 2;
-  float2 uv00 = NV12_READ(ux1, uy1, in_uv, uvstride);
-  float2 uv01 = need_right ? NV12_READ(ux2, uy1, in_uv, uvstride) : uv00;
-  float2 uv10 = need_bottom ? NV12_READ(ux1, uy2, in_uv, uvstride) : uv00;
-  float2 uv11 = need_right ? (need_bottom ? NV12_READ(ux2, uy2, in_uv, uvstride) : uv01) : uv10;
+  float2 uv00 = NV12_READ(ux1, uy1, in_uv2, uvstride);
+  float2 uv01 = need_right ? NV12_READ(ux2, uy1, in_uv2, uvstride) : uv00;
+  float2 uv10 = need_bottom ? NV12_READ(ux1, uy2, in_uv2, uvstride) : uv00;
+  float2 uv11 = need_right ? (need_bottom ? NV12_READ(ux2, uy2, in_uv2, uvstride) : uv01) : uv10;
 
   float4 yuv0 = (float4)(y00, uv00, 255);
   float4 yuv1 = (float4)(y01, uv01, 255);
@@ -622,8 +631,12 @@ uchar4 nv12_sampler(__global const uchar *y_image, int out_x, int out_y, float f
   return convert_uchar4_sat(yuv);
 }
 
+uchar4 nv12_sampler(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+  return nv12_sampler_two_plane(y_image, y_image + img->offsets.y, out_x, out_y, fx, fy, img, fill);
+}
 
-uchar4 nv16_sampler(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+
+uchar4 nv16_sampler_two_plane(__global const uchar *y_image, __global const uchar *uv_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
   if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
     return (uchar4)(16, 128, 128, 255);
   }
@@ -663,14 +676,13 @@ uchar4 nv16_sampler(__global const uchar *y_image, int out_x, int out_y, float f
 
   bool need_right = ux1 != ux2;
   bool need_bottom = uy1 != uy2;
-#define NV12_READ(x, y, p, stride) convert_float2(p[y * stride + x])
 
-  __global uchar2 *in_uv = (__global uchar2 *)(y_image + img->offsets.y);
+  __global uchar2 *in_uv2 = (__global uchar2 *)uv_image;
   int uvstride = img->strides.y / 2;
-  float2 uv00 = NV12_READ(ux1, uy1, in_uv, uvstride);
-  float2 uv01 = need_right ? NV12_READ(ux2, uy1, in_uv, uvstride) : uv00;
-  float2 uv10 = need_bottom ? NV12_READ(ux1, uy2, in_uv, uvstride) : uv00;
-  float2 uv11 = need_right ? (need_bottom ? NV12_READ(ux2, uy2, in_uv, uvstride) : uv01) : uv10;
+  float2 uv00 = NV12_READ(ux1, uy1, in_uv2, uvstride);
+  float2 uv01 = need_right ? NV12_READ(ux2, uy1, in_uv2, uvstride) : uv00;
+  float2 uv10 = need_bottom ? NV12_READ(ux1, uy2, in_uv2, uvstride) : uv00;
+  float2 uv11 = need_right ? (need_bottom ? NV12_READ(ux2, uy2, in_uv2, uvstride) : uv01) : uv10;
 
   float4 yuv0 = (float4)(y00, uv00, 255);
   float4 yuv1 = (float4)(y01, uv01, 255);
@@ -681,7 +693,15 @@ uchar4 nv16_sampler(__global const uchar *y_image, int out_x, int out_y, float f
   return convert_uchar4_sat(yuv);
 }
 
-uchar4 i420_sampler(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+uchar4 nv16_sampler(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+  return nv16_sampler_two_plane(y_image, y_image + img->offsets.y, out_x, out_y, fx, fy, img, fill);
+}
+
+
+#define I420_READ(x, y, pu, pv, ustride, vstride) convert_float2((uchar2)(pu[y * ustride + x], pv[y * vstride + x]))
+
+// I420 three-plane: Y in y_image, U in u_image, V in v_image (all offsets = 0).
+uchar4 i420_sampler_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
   if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
     return (uchar4)(16, 128, 128, 255);
   }
@@ -700,8 +720,8 @@ uchar4 i420_sampler(__global const uchar *y_image, int out_x, int out_y, float f
 
   x1 = max(x1, 0);
   y1 = max(y1, 0);
-  int x2 = min(x1 + 1,img->image_dims.x - 1);
-  int y2 = min(y1 + 1,img->image_dims.y - 1);
+  int x2 = min(x1 + 1, img->image_dims.x - 1);
+  int y2 = min(y1 + 1, img->image_dims.y - 1);
   x1 += img->crop.x;
   y1 += img->crop.y;
   x2 += img->crop.x;
@@ -721,15 +741,10 @@ uchar4 i420_sampler(__global const uchar *y_image, int out_x, int out_y, float f
   bool need_right = ux1 != ux2;
   bool need_bottom = uy1 != uy2;
 
-  __global const uchar *u = y_image + img->offsets.y;
-  __global const uchar *v = y_image + img->offsets.z;
-
-#define I420_READ(x, y, pu, pv, ustride, vstride) convert_float2((uchar2)(pu[y * ustride + x], pv[y * vstride + x]))
-
-  float2 uv00 = I420_READ(ux1, uy1, u, v, img->strides.y, img->strides.z);
-  float2 uv01 = need_right ? I420_READ(ux2, uy1, u, v, img->strides.y, img->strides.z) : uv00;
-  float2 uv10 = need_bottom ? I420_READ(ux1, uy2, u, v, img->strides.y, img->strides.z) : uv00;
-  float2 uv11 = need_right ? (need_bottom ? I420_READ(ux2, uy2, u, v, img->strides.y, img->strides.z) : uv01) : uv10;
+  float2 uv00 = I420_READ(ux1, uy1, u_image, v_image, img->strides.y, img->strides.z);
+  float2 uv01 = need_right ? I420_READ(ux2, uy1, u_image, v_image, img->strides.y, img->strides.z) : uv00;
+  float2 uv10 = need_bottom ? I420_READ(ux1, uy2, u_image, v_image, img->strides.y, img->strides.z) : uv00;
+  float2 uv11 = need_right ? (need_bottom ? I420_READ(ux2, uy2, u_image, v_image, img->strides.y, img->strides.z) : uv01) : uv10;
 
   float4 yuv0 = (float4)(y00, uv00, 255);
   float4 yuv1 = (float4)(y01, uv01, 255);
@@ -740,7 +755,19 @@ uchar4 i420_sampler(__global const uchar *y_image, int out_x, int out_y, float f
   return convert_uchar4_sat(yuv);
 }
 
-uchar4  yuyv_sampler(__global const uchar4 *in, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+// I420 two-plane: Y in y_image, U+V back-to-back in uv_image.
+// U starts at offset 0; V starts at offsets.z within uv_image.
+uchar4 i420_sampler_two_plane(__global const uchar *y_image, __global const uchar *uv_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+  return i420_sampler_three_plane(y_image, uv_image, uv_image + img->offsets.z, out_x, out_y, fx, fy, img, fill);
+}
+
+uchar4 i420_sampler(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+  return i420_sampler_three_plane(y_image, y_image + img->offsets.y, y_image + img->offsets.z, out_x, out_y, fx, fy, img, fill);
+}
+
+
+uchar4  yuyv_sampler(__global const uchar *in, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+  __global const uchar4 *in4 = (__global const uchar4 *)in;
   if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
     return (uchar4)(16, 128, 128, 255);
   }
@@ -771,10 +798,10 @@ uchar4  yuyv_sampler(__global const uchar4 *in, int out_x, int out_y, float fx, 
   int idx3 = y2 * stride + (x1 >> 1);
   int idx4 = y2 * stride + (x2 >> 1);
 
-  float4 p00 = convert_float4(in[idx1]);
-  float4 p01 = convert_float4(in[idx2]);
-  float4 p10 = convert_float4(in[idx3]);
-  float4 p11 = convert_float4(in[idx4]);
+  float4 p00 = convert_float4(in4[idx1]);
+  float4 p01 = convert_float4(in4[idx2]);
+  float4 p10 = convert_float4(in4[idx3]);
+  float4 p11 = convert_float4(in4[idx4]);
 
   // Select correct Y and UV values based on even/odd position
   float4 in00 = (x1 & 1) ? (float4)(p00.z, p00.y, p00.w, 255) : (float4)(p00.x, p00.y, p00.w, 255);
@@ -827,7 +854,8 @@ uchar gray8_sampler_bl(__global const uchar *image, int out_x, int out_y, float 
     return convert_uchar_sat(value);
 }
 
-uchar4 rgba_sampler_bl(__global const uchar4 *image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+uchar4 rgba_sampler_bl(__global const uchar *image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+    __global const uchar4 *image4 = (__global const uchar4 *)image;
     //  Here we add in the offsets to the pixel from the crop meta
     if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
       return (uchar4)(fill, fill, fill, 255);
@@ -856,10 +884,10 @@ uchar4 rgba_sampler_bl(__global const uchar4 *image, int out_x, int out_y, float
     x2 += img->crop.x;
     y2 += img->crop.y;
     int stride = img->strides.x / sizeof(uchar4);
-    float4 p00 = convert_float4(image[y1 * stride + x1]);
-    float4 p01 = convert_float4(image[y1 * stride + x2]);
-    float4 p10 = convert_float4(image[y2 * stride + x1]);
-    float4 p11 = convert_float4(image[y2 * stride + x2]);
+    float4 p00 = convert_float4(image4[y1 * stride + x1]);
+    float4 p01 = convert_float4(image4[y1 * stride + x2]);
+    float4 p10 = convert_float4(image4[y2 * stride + x1]);
+    float4 p11 = convert_float4(image4[y2 * stride + x2]);
 
     //  Performs bilinear interpolation
     //  frac is the fraction of the pixel that is color2
@@ -927,47 +955,47 @@ get_rotation(int rotate_type)
   const char *urd = R"##(
   int new_x = (height - row) - 1;
   int new_y = (width - col) - 1;
-  int2 top_left = (int2)(new_x, new_y);
+  int2 corrected = (int2)(new_x, new_y);
 )##";
 
   const char *uld = R"##(
   int new_x = row;
   int new_y = col;
-  int2 top_left = (int2)(new_x, new_y);
+  int2 corrected = (int2)(new_x, new_y);
 )##";
 
   const char *clockwise = R"##(
   int new_x = row;
   int new_y = (width - col) - 1;
-  int2 top_left = (int2)(new_x, new_y);
+  int2 corrected = (int2)(new_x, new_y);
 )##";
 
   const char *counter_clockwise = R"##(
   int new_x = (height - row) - 1;
   int new_y = col;
-  int2 top_left = (int2)(new_x, new_y);
+  int2 corrected = (int2)(new_x, new_y);
 )##";
 
   const char *rotate180 = R"##(
   int new_x = (width - col) - 1;
   int new_y = (height - row) - 1;
-  int2 top_left = (int2)(new_x, new_y);
+  int2 corrected = (int2)(new_x, new_y);
 )##";
 
   const char *vertical = R"##(
   int new_x = col;
   int new_y = (height - row) - 1;
-  int2 top_left = (int2)(new_x, new_y);
+  int2 corrected = (int2)(new_x, new_y);
 )##";
 
   const char *horizontal = R"##(
   int new_x = (width - col) - 1;
   int new_y = row;
-  int2 top_left = (int2)(new_x, new_y);
+  int2 corrected = (int2)(new_x, new_y);
 )##";
 
   const char *none = R"##(
-  int2 top_left = (int2)(col, row);
+  int2 corrected = (int2)(col, row);
 )##";
 
   std::array flips = {
@@ -988,11 +1016,17 @@ exec_kernel(CLProgram &program, cl_kernel k, const buffer_details &in,
     const buffer_details &out, CLProgram::ax_buffer &outbuf, bool start_flush)
 {
   auto event = CLProgram::ax_event{ nullptr };
-  if (auto *p = std::get_if<opencl_buffer *>(&in.data)) {
+  if (auto *p = std::get_if<opencl_buffer *>(&in.data); p && *p) {
     auto *p1 = *p;
     if (p1->event && !p1->mapped) {
       //  This event synchronizes the kernel with the upstream kernel
       event = std::move(p1->event);
+    }
+  } else if (auto *p = std::get_if<opencl_planes *>(&in.data); p && *p) {
+    //  For multi-plane input, synchronize on the Y plane's upstream event
+    auto *y = (*p)->planes.empty() ? nullptr : (*p)->planes[0];
+    if (y && y->event && !y->mapped) {
+      event = std::move(y->event);
     }
   }
   size_t global_work_size[3] = { 1, 1, 1 };
@@ -1024,10 +1058,10 @@ run_kernel(CLProgram &program, cl_kernel k, const buffer_details &in,
       (*p)->mapped = details.mapped;
     } else {
       clWaitForEvents(1, &*details.event);
-      details.event.reset();
       if (details.mapped) {
-        program.unmap_buffer(std::move(details.event), outbuf, details.mapped);
+        program.unmap_buffer(CLProgram::ax_event{ {} }, outbuf, details.mapped);
       }
+      details.event.reset();
     }
   }
   return 0;
@@ -1195,23 +1229,28 @@ build_strides(const buffer_details &in, const buffer_details &out)
 }
 
 std::array<cl_int, 4>
-build_offsets(const buffer_details &in, const buffer_details &out)
+build_offsets(const buffer_details &in, const buffer_details &out, int num_planes)
 {
   if (in.format == AxVideoFormat::NV12 || in.format == AxVideoFormat::NV16) {
-    return {
-      0,
-      static_cast<cl_int>(in.offsets[1]),
-      0,
-      0,
-    };
+    if (num_planes == 2) {
+      //  Separate UV buffer: starts at byte 0.
+      return { 0, 0, 0, 0 };
+    }
+    //  Single buffer: UV at in.offsets[1].
+    return { 0, static_cast<cl_int>(in.offsets[1]), 0, 0 };
   }
   if (in.format == AxVideoFormat::I420) {
-    return {
-      0,
-      static_cast<cl_int>(in.offsets[1]),
-      static_cast<cl_int>(in.offsets[2]),
-      0,
-    };
+    if (num_planes == 2) {
+      //  UV combined buffer: U at offset 0, V at (offsets[2] - offsets[1]).
+      return { 0, 0,
+        static_cast<cl_int>(in.offsets[2]) - static_cast<cl_int>(in.offsets[1]), 0 };
+    }
+    if (num_planes == 3) {
+      //  Each plane is a separate buffer starting at byte 0.
+      return { 0, 0, 0, 0 };
+    }
+    return { 0, static_cast<cl_int>(in.offsets[1]),
+      static_cast<cl_int>(in.offsets[2]), 0 };
   }
   return { 0, 0, 0, 0 };
 }
@@ -1228,12 +1267,28 @@ const char *nv12_sampler = R"##(
     uchar4 pixel = nv12_sampler(in, col, row, corrected.x, corrected.y, &img, fill);
 )##";
 
+const char *nv12_sampler_two_plane = R"##(
+    uchar4 pixel = nv12_sampler_two_plane(in, in_uv, col, row, corrected.x, corrected.y, &img, fill);
+)##";
+
 const char *nv16_sampler = R"##(
     uchar4 pixel = nv16_sampler(in, col, row, corrected.x, corrected.y, &img, fill);
 )##";
 
+const char *nv16_sampler_two_plane = R"##(
+    uchar4 pixel = nv16_sampler_two_plane(in, in_uv, col, row, corrected.x, corrected.y, &img, fill);
+)##";
+
 const char *i420_sampler = R"##(
     uchar4 pixel = i420_sampler(in, col, row, corrected.x, corrected.y, &img, fill);
+)##";
+
+const char *i420_sampler_two_plane = R"##(
+    uchar4 pixel = i420_sampler_two_plane(in, in_uv, col, row, corrected.x, corrected.y, &img, fill);
+)##";
+
+const char *i420_sampler_three_plane = R"##(
+    uchar4 pixel = i420_sampler_three_plane(in, in_u, in_v, col, row, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *yuyv_sampler = R"##(
@@ -1245,45 +1300,69 @@ const char *gray8_sampler = R"##(
 )##";
 
 const char *nv12_nn_sampler = R"##(
-    uchar y = p_in[top_left.y * strides.x + top_left.x];
-    __global const uchar *inuv = advance_uchar_ptr(p_in, offsets.y);
-    int uv_idx = top_left.y / 2 * strides.y + (top_left.x & ~1);
+    uchar y = in[corrected.y * strides.x + corrected.x];
+    __global const uchar *inuv = advance_uchar_ptr(in, offsets.y);
+    int uv_idx = corrected.y / 2 * strides.y + (corrected.x & ~1);
     uchar4 pixel = (uchar4)(y, inuv[uv_idx], inuv[uv_idx + 1], 255);
 )##";
 
 const char *nv16_nn_sampler = R"##(
-    uchar y = p_in[top_left.y * strides.x + top_left.x];
-    __global const uchar *inuv = advance_uchar_ptr(p_in, offsets.y);
-    int uv_idx = top_left.y * strides.y + (top_left.x & ~1);
+    uchar y = in[corrected.y * strides.x + corrected.x];
+    __global const uchar *inuv = advance_uchar_ptr(in, offsets.y);
+    int uv_idx = corrected.y * strides.y + (corrected.x & ~1);
     uchar4 pixel = (uchar4)(y, inuv[uv_idx], inuv[uv_idx + 1], 255);
 )##";
 
 const char *i420_nn_sampler = R"##(
-    uchar y = p_in[top_left.y * strides.x + top_left.x];
-    __global const uchar *u = advance_uchar_ptr(p_in, offsets.y);
-    __global const uchar *v = advance_uchar_ptr(p_in, offsets.z);
-    uchar4 pixel = (uchar4)(y, u[top_left.y / 2 * strides.y + top_left.x / 2], v[top_left.y / 2 * strides.z + top_left.x / 2], 255);
+    uchar y = in[corrected.y * strides.x + corrected.x];
+    __global const uchar *u = advance_uchar_ptr(in, offsets.y);
+    __global const uchar *v = advance_uchar_ptr(in, offsets.z);
+    uchar4 pixel = (uchar4)(y, u[corrected.y / 2 * strides.y + corrected.x / 2], v[corrected.y / 2 * strides.z + corrected.x / 2], 255);
 )##";
 
 const char *yuyv_nn_sampler = R"##(
-    __global uchar4 *in4 = advance_uchar4_ptr(p_in, top_left.y * strides.x);
-    uchar4 i = in4[top_left.x / 2];
-    uchar y = top_left.x % 2 == 0 ? i.x : i.z;
+    __global uchar4 *in4 = advance_uchar4_ptr(in, corrected.y * strides.x);
+    uchar4 i = in4[corrected.x / 2];
+    uchar y = corrected.x % 2 == 0 ? i.x : i.z;
     uchar4 pixel = (uchar4)(y, i.y, i.w, 255);
 )##";
 
 const char *rgba_nn_sampler = R"##(
-    __global const uchar4 *row_ptr = advance_uchar4_ptr(p_in, top_left.y * strides.x);
-    uchar4 pixel = row_ptr[top_left.x];
+    __global const uchar4 *row_ptr = advance_uchar4_ptr(in, corrected.y * strides.x);
+    uchar4 pixel = row_ptr[corrected.x];
 )##";
 
 const char *rgb_nn_sampler = R"##(
-    __global const uchar *p = advance_uchar_ptr(p_in, top_left.y * strides.x);
-    uchar4 pixel = (uchar4)(vload3(top_left.x, p), 255);
+    __global const uchar *p = advance_uchar_ptr(in, corrected.y * strides.x);
+    uchar4 pixel = (uchar4)(vload3(corrected.x, p), 255);
 )##";
 
 const char *gray8_nn_sampler = R"##(
-    uchar pixel = p_in[top_left.y * strides.x + top_left.x];
+    uchar pixel = in[corrected.y * strides.x + corrected.x];
+)##";
+
+const char *nv12_nn_sampler_two_plane = R"##(
+    uchar y = in[corrected.y * strides.x + corrected.x];
+    int uv_idx = corrected.y / 2 * strides.y + (corrected.x & ~1);
+    uchar4 pixel = (uchar4)(y, in_uv[uv_idx], in_uv[uv_idx + 1], 255);
+)##";
+
+const char *nv16_nn_sampler_two_plane = R"##(
+    uchar y = in[corrected.y * strides.x + corrected.x];
+    int uv_idx = corrected.y * strides.y + (corrected.x & ~1);
+    uchar4 pixel = (uchar4)(y, in_uv[uv_idx], in_uv[uv_idx + 1], 255);
+)##";
+
+const char *i420_nn_sampler_two_plane = R"##(
+    uchar y = in[corrected.y * strides.x + corrected.x];
+    __global const uchar *inu = in_uv;
+    __global const uchar *inv = advance_uchar_ptr(in_uv, offsets.z);
+    uchar4 pixel = (uchar4)(y, inu[corrected.y / 2 * strides.y + corrected.x / 2], inv[corrected.y / 2 * strides.z + corrected.x / 2], 255);
+)##";
+
+const char *i420_nn_sampler_three_plane = R"##(
+    uchar y = in[corrected.y * strides.x + corrected.x];
+    uchar4 pixel = (uchar4)(y, in_u[corrected.y / 2 * strides.y + corrected.x / 2], in_v[corrected.y / 2 * strides.z + corrected.x / 2], 255);
 )##";
 
 const char *rgb_output_cl = R"##(
@@ -1358,84 +1437,91 @@ const char *gray_in_output_norm_cl = R"##(
 
 
 std::vector<kernel_arg_details> input_details_tab = {
-  { AxVideoFormat::NV12, "uchar", nv12_sampler },
-  { AxVideoFormat::NV16, "uchar", nv16_sampler },
-  { AxVideoFormat::I420, "uchar", i420_sampler },
-  { AxVideoFormat::YUY2, "uchar4", yuyv_sampler },
-  { AxVideoFormat::RGBA, "uchar4", rgba_sampler },
-  { AxVideoFormat::BGRA, "uchar4", rgba_sampler },
-  { AxVideoFormat::RGB, "uchar", rgb_sampler },
-  { AxVideoFormat::BGR, "uchar", rgb_sampler },
-  { AxVideoFormat::GRAY8, "uchar", gray8_sampler },
+  { AxVideoFormat::NV12, "uchar", { nv12_sampler, nv12_sampler_two_plane } },
+  { AxVideoFormat::NV16, "uchar", { nv16_sampler, nv16_sampler_two_plane } },
+  { AxVideoFormat::I420, "uchar",
+      { i420_sampler, i420_sampler_two_plane, i420_sampler_three_plane } },
+  { AxVideoFormat::YUY2, "uchar", { yuyv_sampler } },
+  { AxVideoFormat::RGBA, "uchar", { rgba_sampler } },
+  { AxVideoFormat::BGRA, "uchar", { rgba_sampler } },
+  { AxVideoFormat::RGB, "uchar", { rgb_sampler } },
+  { AxVideoFormat::BGR, "uchar", { rgb_sampler } },
+  { AxVideoFormat::GRAY8, "uchar", { gray8_sampler } },
 };
 
 std::vector<kernel_arg_details> nn_input_details_tab = {
-  { AxVideoFormat::NV12, "uchar", nv12_nn_sampler },
-  { AxVideoFormat::NV16, "uchar", nv16_nn_sampler },
-  { AxVideoFormat::I420, "uchar", i420_nn_sampler },
-  { AxVideoFormat::YUY2, "uchar4", yuyv_nn_sampler },
-  { AxVideoFormat::RGBA, "uchar4", rgba_nn_sampler },
-  { AxVideoFormat::BGRA, "uchar4", rgba_nn_sampler },
-  { AxVideoFormat::RGB, "uchar", rgb_nn_sampler },
-  { AxVideoFormat::BGR, "uchar", rgb_nn_sampler },
-  { AxVideoFormat::GRAY8, "uchar", gray8_nn_sampler },
+  { AxVideoFormat::NV12, "uchar", { nv12_nn_sampler, nv12_nn_sampler_two_plane } },
+  { AxVideoFormat::NV16, "uchar", { nv16_nn_sampler, nv16_nn_sampler_two_plane } },
+  { AxVideoFormat::I420, "uchar",
+      { i420_nn_sampler, i420_nn_sampler_two_plane, i420_nn_sampler_three_plane } },
+  { AxVideoFormat::YUY2, "uchar4", { yuyv_nn_sampler } },
+  { AxVideoFormat::RGBA, "uchar4", { rgba_nn_sampler } },
+  { AxVideoFormat::BGRA, "uchar4", { rgba_nn_sampler } },
+  { AxVideoFormat::RGB, "uchar", { rgb_nn_sampler } },
+  { AxVideoFormat::BGR, "uchar", { rgb_nn_sampler } },
+  { AxVideoFormat::GRAY8, "uchar", { gray8_nn_sampler } },
 };
 
-kernel_arg_details
-get_input_details(AxVideoFormat format, Interpolation interp)
+kernel_args
+get_input_details(AxVideoFormat format, Interpolation interp, int num_planes)
 {
   auto &tab = interp == Interpolation::nearest ? nn_input_details_tab : input_details_tab;
   for (const auto &details : tab) {
     if (details.in_format == format) {
-      return details;
+      auto idx = num_planes - 1;
+      const auto &sampler = (idx > 0 && !details.samplers[idx].empty()) ?
+                                details.samplers[idx] :
+                                details.samplers[0];
+      return { details.out_type, sampler,
+        std::string("__global const uchar *in, ") + uv_kernel_params(num_planes) };
     }
   }
-  throw std::runtime_error("Unsupported input format for barrel correction");
+  throw std::runtime_error("Unsupported input format");
 }
 
 std::vector<kernel_arg_details> out_details_tab = {
-  { AxVideoFormat::RGBA, "uchar4", rgba_output_cl },
-  { AxVideoFormat::BGRA, "uchar4", rgba_output_cl },
-  { AxVideoFormat::RGB, "uchar", rgb_output_cl },
-  { AxVideoFormat::BGR, "uchar", rgb_output_cl },
-  { AxVideoFormat::GRAY8, "uchar", gray_output_cl },
+  { AxVideoFormat::RGBA, "uchar4", { rgba_output_cl } },
+  { AxVideoFormat::BGRA, "uchar4", { rgba_output_cl } },
+  { AxVideoFormat::RGB, "uchar", { rgb_output_cl } },
+  { AxVideoFormat::BGR, "uchar", { rgb_output_cl } },
+  { AxVideoFormat::GRAY8, "uchar", { gray_output_cl } },
 };
 
 std::vector<kernel_arg_details> out_details_norm_tab = {
-  { AxVideoFormat::RGBA, "uchar4", rgba_output_norm_cl },
-  { AxVideoFormat::BGRA, "uchar4", rgba_output_norm_cl },
-  { AxVideoFormat::RGB, "uchar", rgb_output_norm_cl },
-  { AxVideoFormat::BGR, "uchar", rgb_output_norm_cl },
-  { AxVideoFormat::GRAY8, "uchar", gray_output_norm_cl },
+  { AxVideoFormat::RGBA, "uchar4", { rgba_output_norm_cl } },
+  { AxVideoFormat::BGRA, "uchar4", { rgba_output_norm_cl } },
+  { AxVideoFormat::RGB, "uchar", { rgb_output_norm_cl } },
+  { AxVideoFormat::BGR, "uchar", { rgb_output_norm_cl } },
+  { AxVideoFormat::GRAY8, "uchar", { gray_output_norm_cl } },
 };
 
 
-kernel_arg_details
+kernel_args
 get_output_details(AxVideoFormat in_format, AxVideoFormat out_format)
 {
   if (in_format == out_format && in_format == AxVideoFormat::GRAY8) {
-    return { in_format, "uchar", gray_in_output_cl };
+    return { "uchar", gray_in_output_cl };
   }
   for (const auto &details : out_details_tab) {
     if (details.in_format == out_format) {
-      return details;
+      return { details.out_type, details.samplers[0] };
     }
   }
-  throw std::runtime_error("Unsupported output format for barrel correction");
+  throw std::runtime_error("Unsupported output format");
 }
 
-kernel_arg_details
+kernel_args
 get_output_norm_details(AxVideoFormat in_format, AxVideoFormat out_format)
 {
   if (in_format == out_format && in_format == AxVideoFormat::GRAY8) {
-    return { in_format, "uchar", gray_in_output_norm_cl };
+    return { "uchar", gray_in_output_norm_cl };
   }
   for (const auto &details : out_details_norm_tab) {
     if (details.in_format == out_format) {
-      return details;
+      return { details.out_type, details.samplers[0] };
     }
   }
-  throw std::runtime_error("Unsupported output format for barrel correction");
+  throw std::runtime_error("Unsupported output format");
 }
 
 

@@ -90,14 +90,14 @@ parse_args(int argc, char **argv)
   }
   if (labels.empty()) {
     const auto root = std::getenv("AXELERA_FRAMEWORK");
-    labels = read_labels(root[0] == '\0' ? DEFAULT_LABELS : root + "/"s + DEFAULT_LABELS);
+    labels = read_labels(!root || root[0] == '\0' ? DEFAULT_LABELS : root + "/"s + DEFAULT_LABELS);
   }
 
   return { labels, input };
 }
 
 struct Frame {
-  cv::Mat rgb;
+  Ax::VideoBuffer buffer;
   Ax::MetaMap meta;
 };
 
@@ -135,18 +135,18 @@ main(int argc, char **argv)
   auto net0 = Ax::create_inference_net(
       props0, logger, Ax::filter_detections_to(*net1, filter));
 
-  auto frame_callback = [&net0](cv::Mat frame) {
-    if (frame.empty()) {
+  auto frame_callback = [&net0](Ax::VideoBuffer buffer) {
+    if (!buffer.is_valid()) {
       net0->end_of_input();
       return;
     }
     auto frame_data = std::make_shared<Frame>();
-    frame_data->rgb = std::move(frame);
-    auto video = Ax::video_from_cvmat(frame_data->rgb, AxVideoFormat::RGB);
+    frame_data->buffer = std::move(buffer);
+    auto video = frame_data->buffer.to_video_interface();
     net0->push_new_frame(frame_data, video, frame_data->meta);
   };
 
-  auto video_decoder = Ax::FFMpegVideoDecoder(input, frame_callback, AxVideoFormat::RGB);
+  auto video_decoder = Ax::FFMpegVideoDecoder(input, frame_callback);
   // auto video_decoder = Ax::OpenCVVideoDecoder(input, frame_callback, AxVideoFormat::RGB);
   video_decoder.start_decoding();
 
@@ -159,7 +159,10 @@ main(int argc, char **argv)
     if (!frame) {
       break;
     }
-    display->show(frame->rgb, frame->meta, AxVideoFormat::RGB, render_options, 0);
+    cv::Mat rgb_frame = Ax::cvmat_from_buffer(frame->buffer);
+
+    // Use the correct color conversion based on the buffer format
+    display->show(rgb_frame, frame->meta, frame->buffer.format(), render_options, 0);
   }
 
   // Wait for AxInferenceNet to complete and join its threads, before joining the reader thread

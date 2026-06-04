@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2023
 #include <gtest/gtest.h>
 
 #include <gmodule.h>
@@ -14,7 +14,9 @@
 #include "AxMeta.hpp"
 #include "AxMetaBBox.hpp"
 #include "AxMetaClassification.hpp"
+#include "AxOpenClExtensions.hpp"
 #include "AxStreamerUtils.hpp"
+
 
 namespace fs = std::filesystem;
 
@@ -118,4 +120,50 @@ LoadDecode(const std::string &name, const StringMap &input)
 {
   return LoadPlugin<Ax::Decode>("decode_" + name, input);
 }
+
+class buffer_planes
+{
+  public:
+  buffer_planes(std::vector<std::vector<uint8_t>> inmem_planes)
+      : planes(inmem_planes)
+  {
+    for (auto &p : planes) {
+      opencl_buffer cl_plane = { {}, ax_utils::cl_object<cl_event>{ nullptr },
+        { p.data(), p.size() }, p.data(), {} };
+      cl_planes.push_back(std::move(cl_plane));
+    }
+  }
+
+  buffer_planes(buffer_planes &&rhs)
+      : planes(std::move(rhs.planes)),
+        cl_planes(std::move(rhs.cl_planes))
+  {
+  }
+
+  opencl_planes get_planes()
+  {
+    opencl_planes result{};
+    for (auto &p : cl_planes) {
+      result.planes.push_back(&p);
+    }
+    return result;
+  }
+
+  ~buffer_planes()
+  {
+    for (auto &p : cl_planes) {
+      if (p.buffer) {
+        clReleaseMemObject(p.buffer);
+        p.buffer = nullptr;
+      }
+      p.event.reset();
+    }
+  }
+
+  private:
+  std::vector<std::vector<uint8_t>> planes;
+  std::vector<opencl_buffer> cl_planes;
+};
+
+
 } // namespace Ax

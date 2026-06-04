@@ -78,7 +78,7 @@ parse_args(int argc, char **argv)
   return input;
 }
 struct Frame {
-  cv::Mat rgb;
+  Ax::VideoBuffer buffer;
   Ax::MetaMap meta;
 };
 } // namespace
@@ -168,18 +168,18 @@ main(int argc, char **argv)
   auto net1 = Ax::create_inference_net(props1, logger, Ax::forward_to(ready));
   auto net0 = Ax::create_inference_net(props0, logger, Ax::forward_to(*net1));
 
-  auto frame_callback = [&net0](cv::Mat frame) {
-    if (frame.empty()) {
+  auto frame_callback = [&net0](Ax::VideoBuffer buffer) {
+    if (!buffer.is_valid()) {
       net0->end_of_input();
       return;
     }
     auto frame_data = std::make_shared<Frame>();
-    frame_data->rgb = std::move(frame);
-    auto video = Ax::video_from_cvmat(frame_data->rgb, AxVideoFormat::RGB);
+    frame_data->buffer = std::move(buffer);
+    auto video = frame_data->buffer.to_video_interface();
     net0->push_new_frame(frame_data, video, frame_data->meta);
   };
 
-  auto video_decoder = Ax::FFMpegVideoDecoder(input, frame_callback, AxVideoFormat::RGB);
+  auto video_decoder = Ax::FFMpegVideoDecoder(input, frame_callback, AxVideoFormat::I420);
   // auto video_decoder = Ax::OpenCVVideoDecoder(input, frame_callback, AxVideoFormat::RGB);
   video_decoder.start_decoding();
 
@@ -236,11 +236,25 @@ main(int argc, char **argv)
 
     const auto &activeTrackers = tracker->Update(convertedDetections, embeddings);
 
-    render_tracks(activeTrackers, frame->rgb);
+    // Convert from YUV to RGB for rendering
+    // cvmat_from_buffer handles both contiguous and strided buffers automatically
+    cv::Mat yuv_mat = Ax::cvmat_from_buffer(frame->buffer);
+    cv::Mat rgb_frame;
+
+    // Use the correct color conversion based on the buffer format
+    if (frame->buffer.format() == AxVideoFormat::NV12) {
+      cv::cvtColor(yuv_mat, rgb_frame, cv::COLOR_YUV2RGB_NV12);
+    } else if (frame->buffer.format() == AxVideoFormat::I420) {
+      cv::cvtColor(yuv_mat, rgb_frame, cv::COLOR_YUV2RGB_I420);
+    } else {
+      throw std::runtime_error("Unsupported video format for rendering");
+    }
+
+    render_tracks(activeTrackers, rgb_frame);
 
     // disable the default rendering of meta data, just show the already augmented image
     const Ax::MetaMap empty_meta;
-    display->show(frame->rgb, empty_meta, AxVideoFormat::RGB, {}, 0);
+    display->show(rgb_frame, empty_meta, AxVideoFormat::RGB, {}, 0);
 
     ++frame_num;
   }

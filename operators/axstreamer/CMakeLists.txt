@@ -29,6 +29,7 @@ set(SOURCE_FILES
     src/AxOpUtils.cpp
     src/AxStreamerUtils.cpp
     src/AxOpenCLAllocator.cpp
+    src/AxVideoBuffer.cpp
 )
 add_library(axstreamer SHARED ${SOURCE_FILES})
 

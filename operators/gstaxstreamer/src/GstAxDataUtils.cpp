@@ -1,6 +1,7 @@
 // Copyright Axelera AI, 2024
 #include "GstAxDataUtils.hpp"
 #include "AxLog.hpp"
+#include "AxOpenClExtensions.hpp"
 #include "AxStreamerUtils.hpp"
 
 #include <gst/allocators/gstfdmemory.h>
@@ -294,7 +295,7 @@ assign_vaapi_ptrs_to_interface(const std::vector<GstMapInfo> &info, AxDataInterf
 }
 
 void
-assign_opencl_ptrs_to_interface(AxDataInterface &input, GstBuffer *buffer)
+assign_opencl_ptrs_to_interface(AxDataInterface &input, GstBuffer *buffer, opencl_planes *planes)
 {
   auto *mem = gst_buffer_peek_memory(buffer, 0);
   if (!gst_is_opencl_memory(mem)) {
@@ -306,6 +307,15 @@ assign_opencl_ptrs_to_interface(AxDataInterface &input, GstBuffer *buffer)
     video->data = nullptr;
     video->vaapi = nullptr;
     video->fd = -1;
+    if (planes) {
+      auto n_mem = gst_buffer_n_memory(buffer);
+      planes->planes.push_back(video->ocl_buffer);
+      for (guint i = 1; i < n_mem; ++i) {
+        planes->planes.push_back(
+            gst_opencl_mem_get_opencl_buffer(gst_buffer_peek_memory(buffer, i)));
+      }
+      video->vaapi = planes;
+    }
   } else if (auto *tensors = std::get_if<AxTensorsInterface>(&input)) {
     auto &tensor = (*tensors)[0];
     if (tensors->size() != 1) {

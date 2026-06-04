@@ -54,7 +54,7 @@ uchar4 color_convert(uchar4 pixel, float16 matrix) {
     return convert_uchar4_sat(color);
 }
 
-__kernel void warpaffine(__global const uchar *in, __global uchar *out, int4 image_dims,
+__kernel void warpaffine(%s__global uchar *out, int4 image_dims,
                         int4 strides, int4 offsets, int crop_x, int crop_y,
                         float16 affine_matrix, float16 color_matrix, uchar fill) {
 
@@ -109,19 +109,24 @@ class CLWarpAffine
   }
 
   ax_utils::CLProgram::ax_kernel build_kernel(ax_utils::CLProgram &program,
-      AxVideoFormat in_format, AxVideoFormat out_format)
+      AxVideoFormat in_format, AxVideoFormat out_format, int num_planes)
   {
     std::string kernel_code = warpaffine_kernel;
 
-    auto [_, in_type, sampler_code] = ax_utils::get_input_details(in_format);
-    auto [__, out_type, output_code] = ax_utils::get_output_details(in_format, out_format);
+    auto input_details = ax_utils::get_input_details(
+        in_format, ax_utils::Interpolation::bilinear, num_planes);
+    auto output_details = ax_utils::get_output_details(in_format, out_format);
 
-    auto n = snprintf(nullptr, 0, kernel_code.c_str(), in_type.c_str(), out_type.c_str());
+    const auto &output_code = output_details.sampler;
+    const auto &sampler_code = input_details.sampler;
+
+    auto n = snprintf(
+        nullptr, 0, kernel_code.c_str(), input_details.input_params.c_str());
     std::vector<char> buffer(n + 1);
-    snprintf(buffer.data(), buffer.size(), kernel_code.c_str(), in_type.c_str(),
-        out_type.c_str());
+    snprintf(buffer.data(), buffer.size(), kernel_code.c_str(),
+        input_details.input_params.c_str());
     auto final_kernel = std::string(buffer.data());
-    final_kernel += ax_utils::get_rotation(0); // No flip for warpaffine
+
     final_kernel += sampler_code;
     final_kernel += output_code;
     final_kernel = ax_utils::get_kernel_utils(0) + final_kernel;
@@ -130,7 +135,7 @@ class CLWarpAffine
   }
 
   cl_kernel get_converter(ax_utils::CLProgram &program, AxVideoFormat in_format,
-      AxVideoFormat out_format)
+      AxVideoFormat out_format, int num_planes)
   {
     auto hash = (static_cast<int>(in_format) << 16)
                 + (static_cast<int>(out_format) << 8) + 0;
@@ -139,7 +144,7 @@ class CLWarpAffine
     if (it != all_kernels.end()) {
       return *it->cl_prog;
     }
-    auto k = build_kernel(program, in_format, out_format);
+    auto k = build_kernel(program, in_format, out_format, num_planes);
     return *all_kernels.emplace_back(hash, std::move(k)).cl_prog;
   }
 
@@ -147,21 +152,23 @@ class CLWarpAffine
   int run(const buffer_details &in, const buffer_details &out,
       const std::vector<cl_float> &matrix_3x4, bool downstream_supports_opencl)
   {
-    auto converter = get_converter(program, in.format, out.format);
+    auto num_planes = ax_utils::get_num_planes(in);
+    auto converter = get_converter(program, in.format, out.format, num_planes);
 
     bool start_flush = !downstream_supports_opencl;
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
 
     std::array<cl_int, 4> image_dims = { in.width, in.height, out.width, out.height };
     auto strides = ax_utils::build_strides(in, out);
-    auto offsets = ax_utils::build_offsets(in, out);
-    auto inbuf_y = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
+    auto offsets = ax_utils::build_offsets(in, out, num_planes);
+    auto in_bufs = program.create_buffers(1, ax_utils::determine_buffer_size(in),
+        CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, in.data, in.offsets.size());
     auto color_matrix = ax_utils::get_color_conversion_matrix(in.format, out.format);
-    cl_uchar fill = 0; // Border fill value (0, 0, 0, 255) -> 0 for most channels
+    cl_uchar fill = 0;
 
-    program.set_kernel_args(converter, 0, *inbuf_y, *outbuf, image_dims,
-        strides, offsets, in.crop_x, in.crop_y, matrix_3x4, color_matrix, fill);
-    return run_kernel(program, converter, in, out, inbuf_y, outbuf, start_flush);
+    program.set_kernel_args(converter, 0, in_bufs, *outbuf, image_dims, strides,
+        offsets, in.crop_x, in.crop_y, matrix_3x4, color_matrix, fill);
+    return run_kernel(program, converter, in, out, in_bufs[0], outbuf, start_flush);
   }
 
   bool can_use_dmabuf() const
@@ -179,7 +186,14 @@ class CLWarpAffine
   std::vector<kernels> all_kernels;
 };
 
-// Helper function to convert 2x3 affine matrix to 3x4 format for OpenCL
+// Helper function to convert 2x3 affine matrix to float16 format for OpenCL
+// Convert to float16 (4x4 row-major matrix) for OpenCL float16 type
+// Input:  [m00 m01 m02]
+//         [m10 m11 m12]
+// Output: [m00 m01 m02 0]  (row 0 of float16)
+//         [m10 m11 m12 0]  (row 1 of float16)
+//         [0   0   1   0]  (row 2 of float16)
+//         [0   0   0   0]  (row 3 of float16, padding)
 static std::vector<cl_float>
 convert_affine_matrix_to_3x4(const cv::Mat &M)
 {
@@ -190,33 +204,14 @@ convert_affine_matrix_to_3x4(const cv::Mat &M)
   if (M.type() != CV_32F) {
     throw std::runtime_error("Affine matrix must be CV_32F (float type)");
   }
-
-  std::vector<cl_float> matrix_3x4(12, 0.0f);
-
-  // Convert to 3x4 row-major matrix for float4 alignment
-  // Input:  [m00 m01 m02]
-  //         [m10 m11 m12]
-  // Output: [m00 m01 m02 0]
-  //         [m10 m11 m12 0]
-  //         [0   0   1   0]
-
-  // Extract float values (all utility functions return CV_32F)
-  matrix_3x4[0] = M.at<float>(0, 0);
-  matrix_3x4[1] = M.at<float>(0, 1);
-  matrix_3x4[2] = M.at<float>(0, 2);
-  matrix_3x4[3] = 0.0f;
-  matrix_3x4[4] = M.at<float>(1, 0);
-  matrix_3x4[5] = M.at<float>(1, 1);
-  matrix_3x4[6] = M.at<float>(1, 2);
-  matrix_3x4[7] = 0.0f;
-
-  // Third row (identity for homogeneous coordinates)
-  matrix_3x4[8] = 0.0f;
-  matrix_3x4[9] = 0.0f;
-  matrix_3x4[10] = 1.0f;
-  matrix_3x4[11] = 0.0f;
-
-  return matrix_3x4;
+  return {
+    // clang-format off
+    M.at<float>(0, 0), M.at<float>(0, 1), M.at<float>(0, 2), 0.0F,
+    M.at<float>(1, 0), M.at<float>(1, 1), M.at<float>(1, 2), 0.0F,
+    0.0F,              0.0F,              1.0F,              0.0F,
+    0.0F,              0.0F,              0.0F,              0.0F,
+    // clang-format on
+  };
 }
 
 extern "C" const std::unordered_set<std::string> &

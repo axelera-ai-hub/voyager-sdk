@@ -26,7 +26,8 @@ uchar4 color_convert(uchar4 pixel, float16 matrix) {
 
 // Utility functions for coordinate transformations
 __kernel void informat_to_outformat(int width, int height, int4 strides,
-    int4 offsets, int crop_x, int crop_y, float16 color_matrix, __global const %s *p_in, __global %s *out) {
+    int4 offsets, int crop_x, int crop_y, float16 color_matrix,
+    %s__global %s *out) {
     const int col = get_global_id(0);
     const int row = get_global_id(1);
     if (row >= height || col >= width) {
@@ -36,8 +37,8 @@ __kernel void informat_to_outformat(int width, int height, int4 strides,
 
 
 const char *crop_code = R"##(
-    top_left.x += crop_x;
-    top_left.y += crop_y;
+    corrected.x += crop_x;
+    corrected.y += crop_y;
 )##";
 
 class CLColorConvert;
@@ -57,18 +58,22 @@ using ax_utils::opencl_details;
 
 ax_utils::CLProgram::ax_kernel
 build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
-    AxVideoFormat out_format, int flip_type)
+    AxVideoFormat out_format, int flip_type, int num_planes)
 {
   std::string kernel_code = kernel_sig;
-  auto [unused, in_type, sampler_code]
-      = ax_utils::get_input_details(in_format, ax_utils::Interpolation::nearest);
-  auto [unused2, out_type, output_code]
-      = ax_utils::get_output_details(in_format, out_format);
+  auto input_details = ax_utils::get_input_details(
+      in_format, ax_utils::Interpolation::nearest, num_planes);
+  auto output_details = ax_utils::get_output_details(in_format, out_format);
+  const auto &out_type = output_details.out_type;
+  const auto &output_code = output_details.sampler;
 
-  auto n = snprintf(nullptr, 0, kernel_code.c_str(), in_type.c_str(), out_type.c_str());
+  const auto &sampler_code = input_details.sampler;
+
+  auto n = snprintf(nullptr, 0, kernel_code.c_str(),
+      input_details.input_params.c_str(), out_type.c_str());
   std::vector<char> buffer(n + 1);
-  snprintf(buffer.data(), buffer.size(), kernel_code.c_str(), in_type.c_str(),
-      out_type.c_str());
+  snprintf(buffer.data(), buffer.size(), kernel_code.c_str(),
+      input_details.input_params.c_str(), out_type.c_str());
   auto final_kernel = std::string(buffer.data());
   final_kernel += ax_utils::get_rotation(flip_type);
   final_kernel += crop_code;
@@ -91,7 +96,7 @@ class CLColorConvert
   }
 
   cl_kernel get_converter(ax_utils::CLProgram &program, AxVideoFormat in_format,
-      AxVideoFormat out_format, int flip_type)
+      AxVideoFormat out_format, int flip_type, int num_planes)
   {
     auto hash = (static_cast<int>(in_format) << 16)
                 + (static_cast<int>(out_format) << 8) + flip_type;
@@ -100,7 +105,7 @@ class CLColorConvert
     if (it != all_kernels.end()) {
       return *it->cl_prog;
     }
-    auto k = build_kernel(program, in_format, out_format, flip_type);
+    auto k = build_kernel(program, in_format, out_format, flip_type, num_planes);
     return *all_kernels.emplace_back(hash, std::move(k)).cl_prog;
   }
 
@@ -108,15 +113,20 @@ class CLColorConvert
       const std::string &format, const cc_properties *prop)
   {
     bool start_flush = prop && prop->downstream_supports_opencl == 0;
-    auto converter = get_converter(program, in.format, out.format, flip_type);
+    auto num_planes = ax_utils::get_num_planes(in);
+    auto converter = get_converter(program, in.format, out.format, flip_type, num_planes);
+
     auto strides = ax_utils::build_strides(in, out);
-    auto offsets = ax_utils::build_offsets(in, out);
+    auto offsets = ax_utils::build_offsets(in, out, num_planes);
     auto matrix = ax_utils::get_color_conversion_matrix(in.format, out.format);
-    auto inpbuf = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
+
+    auto in_bufs = program.create_buffers(1, ax_utils::determine_buffer_size(in),
+        CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, in.data, in.offsets.size());
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
+
     program.set_kernel_args(converter, 0, out.width, out.height, strides,
-        offsets, in.crop_x, in.crop_y, matrix, *inpbuf, *outbuf);
-    return run_kernel(program, converter, in, out, inpbuf, outbuf, start_flush);
+        offsets, in.crop_x, in.crop_y, matrix, in_bufs, *outbuf);
+    return run_kernel(program, converter, in, out, in_bufs[0], outbuf, start_flush);
   }
 
   bool can_use_dmabuf() const

@@ -115,7 +115,8 @@ void assign_data_ptrs_to_interface(
     const std::vector<GstMapInfo> &info, AxDataInterface &interface);
 void assign_vaapi_ptrs_to_interface(
     const std::vector<GstMapInfo> &info, AxDataInterface &interface);
-void assign_opencl_ptrs_to_interface(AxDataInterface &input, GstBuffer *buffer);
+void assign_opencl_ptrs_to_interface(
+    AxDataInterface &input, GstBuffer *buffer, opencl_planes *planes = nullptr);
 
 void assign_fds_to_interface(AxDataInterface &input, GstBuffer *buffer);
 void add_video_meta_from_interface_to_buffer(

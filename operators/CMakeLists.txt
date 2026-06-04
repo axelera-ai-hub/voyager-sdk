@@ -255,9 +255,8 @@ set(unittest_install_dir "${CMAKE_SOURCE_DIR}/tests")
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GMODULE gmodule-2.0 REQUIRED)
 
-# gtest
-find_package(GTest)
-
+# gtest/gmock via pkg-config to avoid picking up Conda-provided CMake packages.
+pkg_check_modules(GTEST gtest)
 pkg_check_modules(GMOCK gmock)
 if (GMODULE_FOUND AND GLIB_FOUND AND GST_FOUND AND GST_VIDEO_FOUND AND GTEST_FOUND AND GMOCK_FOUND)
     # For now the unit tests are gstreamer dependendent. Its not strictly necessary

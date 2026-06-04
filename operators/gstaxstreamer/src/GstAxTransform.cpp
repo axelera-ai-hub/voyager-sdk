@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include "AxDataInterface.h"
 #include "AxMeta.hpp"
+#include "AxOpenClExtensions.hpp"
 #include "AxPlugin.hpp"
 #include "AxStreamerUtils.hpp"
 #include "GstAxBufferPool.hpp"
@@ -615,6 +616,7 @@ gst_axtransform_sink_chain(GstPad *pad, GstObject *parent, GstBuffer *buffer)
   }
   AxDataInterface output = interface_from_caps_and_meta(current_caps.get(), nullptr);
 
+  opencl_planes input_planes{};
   std::vector<GstMapInfo> inmap;
   if (should_pass_fds(axtransform, buffer)) {
     assign_fds_to_interface(input, buffer);
@@ -624,7 +626,7 @@ gst_axtransform_sink_chain(GstPad *pad, GstObject *parent, GstBuffer *buffer)
     assign_vaapi_ptrs_to_interface(inmap, input);
   } else if (supports_opencl_buffers(axtransform)
              && gst_is_opencl_memory(gst_buffer_peek_memory(buffer, 0))) {
-    assign_opencl_ptrs_to_interface(input, buffer);
+    assign_opencl_ptrs_to_interface(input, buffer, &input_planes);
   } else {
     inmap = get_mem_map(buffer, GST_MAP_READ, G_OBJECT(parent));
     assign_data_ptrs_to_interface(inmap, input);

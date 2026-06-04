@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 // An example program showing how to use axruntime class to run inference on one
 // or more images with an imagenet classification network such as ResNet50.
 
@@ -128,7 +128,7 @@ parse_args(int argc, char **argv)
   }
   if (labels.empty()) {
     const auto root = std::getenv("AXELERA_FRAMEWORK");
-    labels = read_labels(root[0] == '\0' ? DEFAULT_LABELS : root + "/"s + DEFAULT_LABELS);
+    labels = read_labels(!root || root[0] == '\0' ? DEFAULT_LABELS : root + "/"s + DEFAULT_LABELS);
   }
   return { model_path, labels, images };
 }

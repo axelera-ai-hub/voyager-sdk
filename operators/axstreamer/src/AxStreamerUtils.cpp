@@ -290,7 +290,7 @@ Ax::to_string(const AxTensorInterface &tensor)
     s += std::to_string(size) + ",";
   }
   s.pop_back();
-  s += "[" + std::to_string(tensor.bytes) + " byte]";
+  s += std::string("[") + std::to_string(tensor.bytes) + " byte]";
   return s;
 }
 

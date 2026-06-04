@@ -167,7 +167,7 @@ cl_extensions init_extensions(cl_platform_id platform, void *display);
 
 std::vector<cl_mem> create_optimal_buffer(cl_context ctx,
     const cl_extensions extensions, int elem_size, int num_elems, int flags,
-    const std::variant<void *, int, VASurfaceID_proxy *, opencl_buffer *> &ptr,
+    const std::variant<void *, int, opencl_planes *, opencl_buffer *, VASurfaceID_proxy *> &ptr,
     int plane, cl_int &error);
 
 cl_context create_context(cl_platform_id platform, cl_device_id device,
@@ -195,4 +195,18 @@ struct opencl_buffer {
   //  executing.
   void *mapped{ nullptr };
   std::vector<void *> gst_memories{};
+};
+
+//  Wraps opencl_buffer pointers for multi-plane formats when planes arrive in
+//  separate GstMemory blocks. Stored in AxVideoInterface::vaapi as the base
+//  VASurfaceID_proxy*, identified by type == VASurfaceID_proxy::opencl.
+//
+//  planes.size() == 2: NV12/NV16 two-memory (Y, UV) or I420 two-memory (Y, U+V
+//  combined) planes.size() == 3: I420 three-memory (Y, U, V)
+struct opencl_planes : VASurfaceID_proxy {
+  opencl_planes()
+      : VASurfaceID_proxy{ VASurfaceID_proxy::opencl }
+  {
+  }
+  std::vector<opencl_buffer *> planes;
 };

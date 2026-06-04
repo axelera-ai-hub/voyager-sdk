@@ -198,9 +198,9 @@ vec4 convert_yuy2(vec2 coords) {
         ["uniform sampler2D tex;", "uniform vec2 tex_size;"],
         "tex_size",
     ),
-    "convert_gray8": (
+    "convert_gray": (
         """
-vec4 convert_gray8(vec2 coords) {
+vec4 convert_gray(vec2 coords) {
     float gray = texture(tex, coords).r;
     return vec4(gray, gray, gray, 1.0);
 }""",
@@ -908,7 +908,7 @@ def _upload_nv16(width, height, data, sprite, textures, strides, offsets):
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
 
     glBindTexture(GL_TEXTURE_2D, textures['uv'].id)
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, uv_stride)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, uv_stride // 2)
     glTexImage2D(
         GL_TEXTURE_2D,
         0,
@@ -918,7 +918,7 @@ def _upload_nv16(width, height, data, sprite, textures, strides, offsets):
         0,
         GL_RG,
         GL_UNSIGNED_BYTE,
-        get_ptr(uv_offset),
+        get_ptr(data, uv_offset),
     )
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
 
@@ -942,13 +942,14 @@ def _upload_yuy2(width, height, data, sprite, textures, strides, offsets):
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
 
-        print(f"Created YUY2 texture: {width//2}x{height} (RGBA)")
-
     y_stride = strides[0]
     y_offset = offsets[0]
 
     glBindTexture(GL_TEXTURE_2D, textures['tex'].id)
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, y_stride // 2)  # Each texel is 2 bytes in YUY2
+    glPixelStorei(
+        GL_UNPACK_ROW_LENGTH, y_stride // 4
+    )  # RGBA texels are 4 bytes each; YUY2 stride is 2 bytes/pixel
+
     glTexImage2D(
         GL_TEXTURE_2D,
         0,
@@ -974,7 +975,6 @@ def _upload_gray8(width, height, data, sprite, textures, strides, offsets):
     """Handle GRAY8 format: single channel grayscale"""
     if 'tex' not in textures:
         textures['tex'] = pyglet.image.Texture.create(width, height, GL_TEXTURE_2D, GL_RED)
-        print(f"Created GRAY8 texture: {width}x{height}")
 
     y_stride = strides[0]
     y_offset = offsets[0]
@@ -997,7 +997,7 @@ def _upload_gray8(width, height, data, sprite, textures, strides, offsets):
     glActiveTexture(GL_TEXTURE1)
     glBindTexture(GL_TEXTURE_2D, textures['tex'].id)
 
-    _configure_sprite_uniforms(sprite, 'GRAY8', width, height)
+    _configure_sprite_uniforms(sprite, 'GRAY', width, height)
 
 
 def _bind_gray8(textures):
@@ -1039,7 +1039,6 @@ def _upload_rgba(width, height, data, sprite, textures, strides, offsets):
     """Handle RGBA/BGRA/RGBx/BGRx format"""
     if 'tex' not in textures:
         textures['tex'] = pyglet.image.Texture.create(width, height, GL_TEXTURE_2D, GL_RGBA)
-        LOG.debug(f"Created RGBA texture: {width}x{height}")
 
     glBindTexture(GL_TEXTURE_2D, textures['tex'].id)
     glPixelStorei(
@@ -1084,7 +1083,7 @@ def _configure_sprite_uniforms(sprite, format_name: str, width: int, height: int
     elif format_key == 'YUY2':
         sprite.program['tex'] = 1
         sprite.program['tex_size'] = (float(width), float(height))
-    elif format_key in ['GRAY8', 'RGB', 'BGR', 'RGBA', 'BGRA', 'RGBX', 'BGRX']:
+    elif format_key in ['GRAY', 'RGB', 'BGR', 'RGBA', 'BGRA', 'RGBX', 'BGRX']:
         sprite.program['tex'] = 1
     # Fallback formats also use 'tex'
     else:
@@ -1126,7 +1125,7 @@ def _new_sprite_from_image(
             _upload_nv16(width, height, data, sprite, textures, image.strides, image.offsets)
         elif format_name == 'YUY2':
             _upload_yuy2(width, height, data, sprite, textures, image.strides, image.offsets)
-        elif format_name == 'GRAY8':
+        elif format_name == 'GRAY':
             _upload_gray8(width, height, data, sprite, textures, image.strides, image.offsets)
         elif format_name in ['RGB', 'BGR']:
             _upload_rgb(width, height, data, sprite, textures, image.strides, image.offsets)
@@ -1572,7 +1571,7 @@ class GLDraw(display.Draw):
                 canvas_size = window_size
             else:
                 pt_transform = layer_canvas.glp
-                canvas_size = layer_canvas.size
+                canvas_size = self._image_size
             opacity = int(255 * x.visibility)  # TODO: 255 should be x.opacity once added
             if isinstance(x, display._Text):
                 self._text(

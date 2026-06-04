@@ -11,6 +11,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <iostream>
 #include <mutex>
 #include <span>
@@ -36,6 +37,12 @@ struct AxAllocationContext {
 
 namespace ax_utils
 {
+
+// Type trait: true for any std::vector<U> specialisation.
+template <typename T> struct is_std_vector : std::false_type {
+};
+template <typename U> struct is_std_vector<std::vector<U>> : std::true_type {
+};
 
 using opencl_details = AxAllocationContext;
 
@@ -63,7 +70,7 @@ class CLProgram
   using ax_event = cl_object<cl_event>;
 
   using buffer_initializer
-      = std::variant<void *, int, VASurfaceID_proxy *, opencl_buffer *>;
+      = std::variant<void *, int, opencl_planes *, opencl_buffer *, VASurfaceID_proxy *>;
   // The class is not copyable
   CLProgram(const CLProgram &) = delete;
   CLProgram &operator=(const CLProgram &) = delete;
@@ -101,37 +108,48 @@ class CLProgram
   /// @param arg - The actual argument
   /// @return - Any status code
 
+  /// @brief  Single-argument kernel arg setter.  Uses if constexpr to dispatch:
+  ///   - std::vector<ax_buffer>  → expands each cl_mem as a separate argument
+  ///   - std::vector<U>          → sets the entire contiguous buffer as one argument
+  ///   - anything else           → sets sizeof(arg) bytes from &arg
   template <typename T>
-  void set_kernel_args(cl_kernel kernel, int arg_index, const std::vector<T> &arg)
+  int set_kernel_args(cl_kernel kernel, int arg_index, T &&arg)
   {
-    if (auto error
-        = clSetKernelArg(kernel, arg_index, sizeof(arg[0]) * arg.size(), arg.data());
-        error != CL_SUCCESS) {
-      throw std::runtime_error("Failed to set kernel argument " + std::to_string(arg_index)
-                               + ", error: " + ax_utils::cl_error_to_string(error));
+    using D = std::decay_t<T>;
+    if constexpr (std::is_same_v<D, std::vector<ax_buffer>>) {
+      for (const auto &buf : arg) {
+        arg_index = set_kernel_args(kernel, arg_index, *buf);
+      }
+      return arg_index;
+    } else if constexpr (is_std_vector<D>::value) {
+      if (auto error = clSetKernelArg(
+              kernel, arg_index, sizeof(arg[0]) * arg.size(), arg.data());
+          error != CL_SUCCESS) {
+        throw std::runtime_error("Failed to set kernel argument " + std::to_string(arg_index)
+                                 + ", error: " + ax_utils::cl_error_to_string(error));
+      }
+      return arg_index + 1;
+    } else {
+      if (auto error = clSetKernelArg(kernel, arg_index, sizeof arg, &arg); error != CL_SUCCESS) {
+        throw std::runtime_error("Failed to set kernel argument " + std::to_string(arg_index)
+                                 + ", error: " + ax_utils::cl_error_to_string(error));
+      }
+      return arg_index + 1;
     }
   }
 
-  template <typename T>
-  void set_kernel_args(cl_kernel kernel, int arg_index, T arg)
-  {
-    if (auto error = clSetKernelArg(kernel, arg_index, sizeof arg, &arg); error != CL_SUCCESS) {
-      throw std::runtime_error("Failed to set kernel argument " + std::to_string(arg_index)
-                               + ", error: " + ax_utils::cl_error_to_string(error));
-    }
-  }
 
-  /// @brief  Sets multiple kernel arguments of varying tyoes
+  /// @brief  Sets multiple kernel arguments of varying types
   /// @param kernel - The kernel handle
   /// @param arg_index - The index of the first argument
   /// @param arg - The first argument
   /// @param rest - The rest of the arguments
   /// @return - Any status code
   template <typename T, typename... Rest>
-  void set_kernel_args(cl_kernel kernel, int arg_index, T arg, Rest... rest)
+  int set_kernel_args(cl_kernel kernel, int arg_index, T &&arg, Rest &&...rest)
   {
-    set_kernel_args(kernel, arg_index, arg);
-    set_kernel_args(kernel, arg_index + 1, rest...);
+    arg_index = set_kernel_args(kernel, arg_index, std::forward<T>(arg));
+    return set_kernel_args(kernel, arg_index, std::forward<Rest>(rest)...);
   }
 
   /// @brief Execute a kernel
@@ -202,21 +220,59 @@ std::array<float, 16> get_color_conversion_matrix(
 
 std::array<cl_int, 4> build_strides(const buffer_details &in, const buffer_details &out);
 
-std::array<cl_int, 4> build_offsets(const buffer_details &in, const buffer_details &out);
+std::array<cl_int, 4> build_offsets(
+    const buffer_details &in, const buffer_details &out, int num_planes = 1);
 
 struct kernel_arg_details {
   AxVideoFormat in_format;
-  std::string in_type;
+  std::string out_type;
+  std::array<std::string, 3> samplers; // [0]=single-plane, [1]=two-plane, [2]=three-plane; "" → use [0]
+};
+
+struct kernel_args {
+  std::string out_type;
   std::string sampler;
+  std::string input_params;
 };
 
 enum class Interpolation { nearest, bilinear };
 
-kernel_arg_details get_input_details(
-    AxVideoFormat format, Interpolation interp = Interpolation::bilinear);
+kernel_args get_input_details(
+    AxVideoFormat format, Interpolation interp, int num_planes = 1);
 
-kernel_arg_details get_output_details(AxVideoFormat in_format, AxVideoFormat out_format);
-kernel_arg_details get_output_norm_details(AxVideoFormat in_format, AxVideoFormat out_format);
+inline int
+get_num_planes(const buffer_details &in)
+{
+  if (auto *p = std::get_if<opencl_planes *>(&in.data); p && *p) {
+    auto n = (*p)->planes.size();
+    if (0 < n && n <= 3) {
+      return n;
+    }
+    throw std::runtime_error(
+        "Invalid number of planes, should 1,2 or 3 but given " + std::to_string(n));
+  }
+  return 1;
+}
+
+// Returns the extra kernel parameter declaration(s) for multi-plane input.
+// 1 → ""
+// 2 → "__global const uchar *in_uv, "
+// 3 → "__global const uchar *in_u, __global const uchar *in_v, "
+inline const char *
+uv_kernel_params(int num_planes)
+{
+  switch (num_planes) {
+    case 2:
+      return "__global const uchar *in_uv, ";
+    case 3:
+      return "__global const uchar *in_u, __global const uchar *in_v, ";
+    default:
+      return "";
+  }
+}
+
+kernel_args get_output_details(AxVideoFormat in_format, AxVideoFormat out_format);
+kernel_args get_output_norm_details(AxVideoFormat in_format, AxVideoFormat out_format);
 
 
 } // namespace ax_utils

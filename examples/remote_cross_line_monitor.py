@@ -13,14 +13,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 import socket
 import socketserver
+import sys
 import threading
 from typing import Iterable
 
 import cv2
 
 from axelera import types
+
+
+if __name__ == '__main__':
+    # Application Framework is not a package, so add it to the path to import it
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
 from axelera.app import config, logging_utils
 from axelera.app.display import App
 from axelera.app.stream import create_inference_stream
@@ -228,4 +236,5 @@ with App(renderer=True, opengl=stream.hardware_caps.opengl) as app:
         app.start_thread(main, (wnd, stream, broadcaster), name='InferenceThread')
         app.run()
     finally:
+        stream.stop()
         broadcaster.shutdown()

@@ -89,14 +89,14 @@ parse_args(int argc, char **argv)
   }
   if (labels.empty()) {
     const auto root = std::getenv("AXELERA_FRAMEWORK");
-    labels = read_labels(root[0] == '\0' ? DEFAULT_LABELS : root + "/"s + DEFAULT_LABELS);
+    labels = read_labels(!root || root[0] == '\0' ? DEFAULT_LABELS : root + "/"s + DEFAULT_LABELS);
   }
 
   return { model_properties, labels, input };
 }
 
 struct Frame {
-  cv::Mat rgb;
+  Ax::VideoBuffer buffer;
   Ax::MetaMap meta;
 };
 
@@ -118,7 +118,6 @@ render(AxMetaObjDetection &detections, cv::Mat &buffer, const std::vector<std::s
         cv::Scalar(0, 0xff, 0xff), 2);
   }
 }
-
 } // namespace
 
 int
@@ -132,19 +131,19 @@ main(int argc, char **argv)
   auto props = Ax::read_inferencenet_properties(model_properties, logger);
   auto net = Ax::create_inference_net(props, logger, Ax::forward_to(ready));
 
-  auto frame_callback = [&net](cv::Mat frame) {
-    if (frame.empty()) {
+  auto frame_callback = [&net](Ax::VideoBuffer buffer) {
+    if (!buffer.is_valid()) {
       net->end_of_input();
       return;
     }
     auto frame_data = std::make_shared<Frame>();
-    frame_data->rgb = std::move(frame);
-    auto video = Ax::video_from_cvmat(frame_data->rgb, AxVideoFormat::RGB);
+    frame_data->buffer = std::move(buffer);
+    auto video = frame_data->buffer.to_video_interface();
     net->push_new_frame(frame_data, video, frame_data->meta);
   };
 
-  auto video_decoder = Ax::FFMpegVideoDecoder(input, frame_callback, AxVideoFormat::RGB);
-  // auto video_decoder = Ax::OpenCVVideoDecoder(input, frame_callback, AxVideoFormat::RGB);
+  auto video_decoder = Ax::FFMpegVideoDecoder(input, frame_callback);
+  // auto video_decoder = Ax::OpenCVVideoDecoder(input, frame_callback, AxVideoFormat::NV12);
   video_decoder.start_decoding();
 
   auto display = Ax::OpenCV::create_display("AxInferenceNet Demo");
@@ -155,12 +154,29 @@ main(int argc, char **argv)
     if (!frame) {
       break;
     }
+    // Convert from YUV to RGB for rendering
+    // cvmat_from_buffer handles both contiguous and strided buffers automatically
+    cv::Mat yuv_mat = Ax::cvmat_from_buffer(frame->buffer);
+    cv::Mat rgb_frame;
+
+    // Use the correct color conversion based on the buffer format
+    if (frame->buffer.format() == AxVideoFormat::NV12) {
+      cv::cvtColor(yuv_mat, rgb_frame, cv::COLOR_YUV2BGR_NV12);
+    } else if (frame->buffer.format() == AxVideoFormat::I420) {
+      cv::cvtColor(yuv_mat, rgb_frame, cv::COLOR_YUV2BGR_I420);
+    } else if (frame->buffer.format() == AxVideoFormat::RGB) {
+      cv::cvtColor(yuv_mat, rgb_frame,
+          cv::COLOR_RGB2BGR); // No conversion needed, but this will ensure the Mat is in the correct format
+    } else {
+      rgb_frame = yuv_mat; // Assume it's already BGR
+    }
+
     // Ax::OpenCV::Display will render all meta, but to demonstrate how the detections can be
     // accessed we render them here manually, and disable the default renderer.
     auto &detections = dynamic_cast<AxMetaObjDetection &>(*frame->meta["detections"]);
-    render(detections, frame->rgb, labels);
+    render(detections, rgb_frame, labels);
     const Ax::MetaMap empty_meta;
-    display->show(frame->rgb, empty_meta, AxVideoFormat::RGB, render_options, 0);
+    display->show(rgb_frame, empty_meta, AxVideoFormat::BGR, render_options, 0);
   }
 
   // Wait for AxInferenceNet to complete and join its threads, before joining the reader thread

@@ -861,7 +861,7 @@ use the source's native frame rate.
 
 For RTSP source, you can specify the username and password as normal like
 `rtsp://id:pwd@10.40.130.221/stream0/media.amp?videocodec=jpeg&resolution=1280x960`.
-Username and password can be encoded using the URI encoding protocol like P%40ssword.
+Username and password can be encoded using the URI encoding protocol like P%%40ssword.
 
 Sources can also be prefixed with one or more image preprocessing steps, separated by colons:
     rotate90:horizontalflip:input.mp4
@@ -1070,7 +1070,6 @@ is set to 0, the pipeline will use the frame rate of each individual input sourc
         default=0,
         type=int,
         help=argparse.SUPPRESS,
-        # "Enable tiled inference and specify the size of the tile. Default is (disabled).",
     )
 
     parser.add_argument(
@@ -1078,7 +1077,6 @@ is set to 0, the pipeline will use the frame rate of each individual input sourc
         default=0,
         type=int,
         help=argparse.SUPPRESS,
-        # "Specify minimum amount of overlap as a percentage. Default is 0.",
     )
 
     parser.add_argument(
@@ -1087,14 +1085,12 @@ is set to 0, the pipeline will use the frame rate of each individual input sourc
         type=str,
         choices=['none', 'left', 'right', 'bottom', 'top'],
         help=argparse.SUPPRESS,
-        # "Specify the position of the tile. Default is none.",
     )
 
     parser.add_argument(
         "--show-tiles",
         action='store_true',
         help=argparse.SUPPRESS,
-        # "Specify whether tiles should be shouwn. Default is False.",
     )
 
     parser.add_argument(
@@ -1102,7 +1098,6 @@ is set to 0, the pipeline will use the frame rate of each individual input sourc
         default="",
         type=str,
         help=argparse.SUPPRESS,
-        # "Enable tiled inference and specify the where to read the tile configuration from. Default is None.",
     )
 
     parser.add_argument(
@@ -2109,7 +2104,12 @@ def tile(
     show: bool = False,
     file: str = '',
 ):
-    '''Tile the image into smaller overlapping tiles.'''
+    '''Split input into overlapping tiles for inference (all keyword args are optional).
+    size=N    - tile size in pixels; enables tiling (default: 0 = disabled)
+    overlap=N - overlap between adjacent tiles in pixels (default: 0)
+    show=true - draw tile boundaries in the output (default: false)
+    file=PATH - load tile layout from a JSON file (cannot combine with size/overlap)
+    E.g.: tile[size=640]:input.mp4  or  tile[size=640,overlap=32]:usb'''
     return [ImagePreproc.from_tile_config(TilingConfig(size, overlap, position, show, file))]
 
 

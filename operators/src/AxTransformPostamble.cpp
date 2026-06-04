@@ -70,7 +70,7 @@ template <typename T>
 std::string
 shape_to_string(const std::vector<T> &shape)
 {
-  return "[" + Ax::Internal::join(shape, ",") + "]";
+  return std::string("[") + Ax::Internal::join(shape, ",") + "]";
 }
 
 void

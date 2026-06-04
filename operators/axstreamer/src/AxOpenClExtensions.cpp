@@ -78,7 +78,8 @@ arm_host_import(cl_context ctx, cl_extensions extensions, int flags, void *ptr, 
 
 std::vector<cl_mem>
 dmabuf_import(cl_context ctx, cl_extensions extensions, int flags,
-    std::variant<void *, int, VASurfaceID_proxy *, opencl_buffer *> ptr, int size)
+    std::variant<void *, int, opencl_planes *, opencl_buffer *, VASurfaceID_proxy *> ptr,
+    int size)
 {
 #ifdef CL_IMPORT_TYPE_DMA_BUF_ARM
   if (auto *pfd = std::get_if<int>(&ptr)) {
@@ -228,33 +229,13 @@ init_extensions(cl_platform_id platform, void *display)
 }
 
 std::vector<cl_mem>
-create_va_buffers(cl_context ctx, cl_extensions extensions, int elem_size,
-    int num_elems, int flags,
-    const std::variant<void *, int, VASurfaceID_proxy *, opencl_buffer *> &ptr,
-    int num_planes, int &error)
+create_va_buffers(cl_context /*ctx*/, cl_extensions /*extensions*/,
+    int /*elem_size*/, int /*num_elems*/, int /*flags*/,
+    const std::variant<void *, int, opencl_planes *, opencl_buffer *, VASurfaceID_proxy *> & /*ptr*/,
+    int /*num_planes*/, int & /*error*/)
 {
-#if defined(HAS_VAAPI_MEDIA_SHARING)
-  if (std::holds_alternative<VASurfaceID_proxy *>(ptr)) {
-    auto surface = std::get<VASurfaceID_proxy *>(ptr);
-    if (extensions.clCreateFromVA) {
-      flags &= ~CL_MEM_USE_HOST_PTR;
-      auto buffers = std::vector<cl_mem>{};
-      for (int i = 0; i != num_planes; ++i) {
-        auto buffer = extensions.clCreateFromVA(ctx, flags, surface, i, &error);
-        if (error != CL_SUCCESS) {
-          throw std::runtime_error("Failed to create buffer, error: "
-                                   + ax_utils::cl_error_to_string(error));
-        }
-        cl_image_format format;
-        clGetImageInfo(buffer, CL_IMAGE_FORMAT, sizeof(cl_image_format), &format, NULL);
-        buffers.push_back(buffer);
-      }
-      return buffers;
-    } else {
-      throw std::runtime_error("Import of VA surfaces is not supported");
-    }
-  }
-#endif
+  //  VA-API surface sharing is no longer supported via this path.
+  //  The vaapi field in AxVideoInterface is repurposed for opencl_planes.
   return {};
 }
 
@@ -280,16 +261,36 @@ create_buffer(void *ptr, cl_context ctx, cl_extensions extensions, int size,
 
   auto buffer = clCreateBuffer(ctx, flags, size, ptr, &error);
   if (error != CL_SUCCESS) {
-    throw std::runtime_error("Failed to create OpenCL buffer, error = " + std::to_string(error)
+    throw std::runtime_error("Failed to create OpenCL buffer, error = "
+                             + ax_utils::cl_error_to_string(error)
                              + ", flags = " + std::to_string(flags));
   }
   return buffer;
 }
 
+static cl_mem
+make_plane_buffer(opencl_buffer *ocl, cl_context ctx, cl_extensions extensions,
+    int flags, int &error)
+{
+  if (!ocl->buffer) {
+    const int page_size = 4096;
+    const auto aligned_size = (ocl->data.size() + page_size - 1) & ~(page_size - 1);
+    ocl->buffer = create_buffer(
+        ocl->data.data(), ctx, extensions, aligned_size, flags, 1, true, error);
+    if (error != CL_SUCCESS) {
+      throw std::runtime_error("Failed to create OpenCL plane buffer, error: "
+                               + ax_utils::cl_error_to_string(error)
+                               + ", flags = " + std::to_string(flags));
+    }
+  }
+  clRetainMemObject(ocl->buffer);
+  return ocl->buffer;
+}
+
 std::vector<cl_mem>
 create_optimal_buffer(cl_context ctx, cl_extensions extensions, int elem_size,
     int num_elems, int flags,
-    const std::variant<void *, int, VASurfaceID_proxy *, opencl_buffer *> &ptr,
+    const std::variant<void *, int, opencl_planes *, opencl_buffer *, VASurfaceID_proxy *> &ptr,
     int plane, int &error)
 {
   auto unaligned_size = elem_size * num_elems;
@@ -310,6 +311,15 @@ create_optimal_buffer(cl_context ctx, cl_extensions extensions, int elem_size,
       return buffers;
     }
   }
+  if (std::holds_alternative<opencl_planes *>(ptr)) {
+    //  Multi-memory plane path: lazily create cl_mem for each plane
+    auto *planes = std::get<opencl_planes *>(ptr);
+    std::vector<cl_mem> result;
+    for (auto *plane : planes->planes) {
+      result.push_back(make_plane_buffer(plane, ctx, extensions, flags, error));
+    }
+    return result;
+  }
   if (std::holds_alternative<opencl_buffer *>(ptr)) {
     //  If we have an opencl buffer, then we can use it directly
     auto *ocl_buffer = std::get<opencl_buffer *>(ptr);
@@ -329,10 +339,19 @@ create_optimal_buffer(cl_context ctx, cl_extensions extensions, int elem_size,
     clRetainMemObject(ocl_buffer->buffer);
     return { ocl_buffer->buffer };
   }
+  if (std::holds_alternative<VASurfaceID_proxy *>(ptr)) {
+    auto buffers = create_va_buffers(
+        ctx, extensions, elem_size, num_elems, flags, ptr, plane, error);
+    if (!buffers.empty()) {
+      return buffers;
+    }
+    throw std::runtime_error("VA-API surface sharing is not yet implemented");
+  }
   auto buffer = create_buffer(std::get<void *>(ptr), ctx, extensions,
       unaligned_size, flags, plane, false, error);
   if (error != CL_SUCCESS) {
-    throw std::runtime_error("Failed to create OpenCL buffer, error = " + std::to_string(error)
+    throw std::runtime_error("Failed to create OpenCL buffer, error = "
+                             + ax_utils::cl_error_to_string(error)
                              + ", flags = " + std::to_string(flags));
   }
   return { buffer };

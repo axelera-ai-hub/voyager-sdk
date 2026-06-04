@@ -4,10 +4,25 @@
 #include "AxOpenCVVideoDecoder.hpp"
 
 Ax::OpenCVVideoDecoder::OpenCVVideoDecoder(const std::string &input,
+    std::function<void(VideoBuffer)> frame_callback, AxVideoFormat format)
+    : Ax::VideoDecode(input, frame_callback, format)
+{
+  try {
+    // Open the video capture
+    cap.open(input);
+    if (!cap.isOpened()) {
+      throw std::runtime_error("Could not open video input: " + input);
+    }
+  } catch (const std::exception &e) {
+    throw std::runtime_error(
+        "Error initializing OpenCVVideoDecoder: " + std::string(e.what()));
+  }
+}
+
+Ax::OpenCVVideoDecoder::OpenCVVideoDecoder(const std::string &input,
     std::function<void(cv::Mat)> frame_callback, AxVideoFormat format)
     : Ax::VideoDecode(input, frame_callback, format)
 {
-
   try {
     // Open the video capture
     cap.open(input);
@@ -28,10 +43,58 @@ Ax::OpenCVVideoDecoder::reader_func()
     if (frame.empty()) {
       break; // End of video
     }
+
+    VideoBuffer video_buffer;
     if (format == AxVideoFormat::RGB) {
-      cv::cvtColor(frame, frame, cv::COLOR_BGR2RGB);
+      // Convert BGR to RGB
+      video_buffer = VideoBuffer(frame.cols, frame.rows, AxVideoFormat::RGB);
+      cv::Mat rgb_frame(frame.rows, frame.cols, CV_8UC3, video_buffer.data());
+      cv::cvtColor(frame, rgb_frame, cv::COLOR_BGR2RGB);
+    } else if (format == AxVideoFormat::BGR || format == AxVideoFormat::UNDEFINED) {
+      // BGR format: no conversion needed (OpenCV default)
+      video_buffer = VideoBuffer(frame.cols, frame.rows, AxVideoFormat::BGR);
+      std::memcpy(video_buffer.data(), frame.data, video_buffer.size());
+    } else if (format == AxVideoFormat::I420) {
+      // Convert BGR to I420
+      int width = frame.cols;
+      int height = frame.rows;
+      video_buffer = VideoBuffer(width, height, AxVideoFormat::I420);
+      cv::Mat yuv_frame(frame.rows * 3 / 2, frame.cols, CV_8UC1, video_buffer.data()); // I420 has height * 1.5
+      cv::cvtColor(frame, yuv_frame, cv::COLOR_BGR2YUV_I420);
+    } else if (format == AxVideoFormat::NV12) {
+      // NV12 conversion: OpenCV doesn't have direct BGR2NV12
+      // Convert BGR -> I420 first, then convert I420 -> NV12 manually
+      cv::Mat yuv_i420;
+      cv::cvtColor(frame, yuv_i420, cv::COLOR_BGR2YUV_I420);
+
+      int width = frame.cols;
+      int height = frame.rows;
+
+      // Create NV12 VideoBuffer
+      video_buffer = VideoBuffer(width, height, AxVideoFormat::NV12);
+
+      // I420 has Y, U, V planes separately
+      // NV12 has Y plane, then interleaved UV plane
+      size_t y_size = width * height;
+      size_t uv_size = (width / 2) * (height / 2);
+
+      // Copy Y plane
+      std::memcpy(video_buffer.y_plane(), yuv_i420.data, y_size);
+
+      // Interleave U and V planes into UV plane
+      const uint8_t *u_src = yuv_i420.data + y_size;
+      const uint8_t *v_src = yuv_i420.data + y_size + uv_size;
+      uint8_t *uv_dst = video_buffer.u_plane();
+
+      for (size_t i = 0; i < uv_size; i++) {
+        uv_dst[i * 2] = u_src[i];
+        uv_dst[i * 2 + 1] = v_src[i];
+      }
     }
-    frame_callback(std::move(frame));
+
+    frame_callback(std::move(video_buffer));
   }
-  frame_callback(std::move(frame));
+
+  // Send invalid buffer to signal end of stream
+  frame_callback(VideoBuffer());
 }

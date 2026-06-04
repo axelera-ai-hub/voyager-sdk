@@ -91,7 +91,7 @@ parse_args(int argc, char **argv)
   }
   if (labels.empty()) {
     const auto root = std::getenv("AXELERA_FRAMEWORK");
-    labels = read_labels(root[0] == '\0' ? DEFAULT_LABELS : root + "/"s + DEFAULT_LABELS);
+    labels = read_labels(!root || root[0] == '\0' ? DEFAULT_LABELS : root + "/"s + DEFAULT_LABELS);
   }
 
   return { model_properties, labels, input };

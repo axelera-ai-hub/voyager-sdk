@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #pragma once
 
 #ifdef __cplusplus
@@ -85,9 +85,16 @@ struct AxVideoInfo {
   int actual_height = 0;
 };
 
-//  We never need the definition, this is just a type discriminator
-struct VASurfaceID_proxy;
+struct VASurfaceID_proxy {
+  enum Type : int {
+    vaapi_surface = 0,
+    opencl = 1,
+  };
+  int type{ vaapi_surface };
+};
+
 struct opencl_buffer;
+struct opencl_planes;
 
 struct AxVideoInterface {
   AxVideoInfo info{};

@@ -63,7 +63,7 @@ float2 barrel_distortion_correction(
     return  mad(focal, distorted, centre);
 }
 
-__kernel void barrel_correct(__global const %s *in, __global %s *out, int4 image_dims,
+__kernel void barrel_correct(%s__global %s *out, int4 image_dims,
                         int4 strides, int4 offsets, const float x_scale, const float y_scale, const float4 camera_props,
                         float4 new_camera_props, __constant const float *coeffs, float16 color_matrix) {
 
@@ -87,18 +87,24 @@ using ax_utils::CLProgram;
 using ax_utils::opencl_details;
 
 ax_utils::CLProgram::ax_kernel
-build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format, AxVideoFormat out_format)
+build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
+    AxVideoFormat out_format, int num_planes)
 {
   std::string kernel_code = barrel_correct;
 
-  auto [unused1, in_type, sampler_code] = ax_utils::get_input_details(in_format);
-  auto [unused2, out_type, output_code]
-      = ax_utils::get_output_details(in_format, out_format);
+  auto input_details = ax_utils::get_input_details(
+      in_format, ax_utils::Interpolation::bilinear, num_planes);
+  auto output_details = ax_utils::get_output_details(in_format, out_format);
 
-  auto n = snprintf(nullptr, 0, kernel_code.c_str(), in_type.c_str(), out_type.c_str());
+  const auto &out_type = output_details.out_type;
+  const auto &output_code = output_details.sampler;
+  const auto &sampler_code = input_details.sampler;
+
+  auto n = snprintf(nullptr, 0, kernel_code.c_str(),
+      input_details.input_params.c_str(), out_type.c_str());
   std::vector<char> buffer(n + 1);
-  snprintf(buffer.data(), buffer.size(), kernel_code.c_str(), in_type.c_str(),
-      out_type.c_str());
+  snprintf(buffer.data(), buffer.size(), kernel_code.c_str(),
+      input_details.input_params.c_str(), out_type.c_str());
   auto final_kernel = std::string(buffer.data());
   final_kernel += sampler_code;
   final_kernel += output_code;
@@ -142,8 +148,9 @@ class CLBarrelCorrect
   int run(const buffer_details &in, const buffer_details &out,
       const barrelcorrect_properties &prop)
   {
+    auto num_planes = ax_utils::get_num_planes(in);
     if (!converter) {
-      converter = build_kernel(program, in.format, out.format);
+      converter = build_kernel(program, in.format, out.format, num_planes);
     }
     bool start_flush = !prop.downstream_supports_opencl;
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
@@ -179,14 +186,14 @@ class CLBarrelCorrect
 
     std::array<cl_int, 4> image_dims = { in.width, in.height, out.width, out.height };
     auto strides = ax_utils::build_strides(in, out);
-    auto offsets = ax_utils::build_offsets(in, out);
+    auto offsets = ax_utils::build_offsets(in, out, num_planes);
     auto matrix = ax_utils::get_color_conversion_matrix(in.format, out.format);
-    auto inbuf_y = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
+    auto in_bufs = program.create_buffers(1, ax_utils::determine_buffer_size(in),
+        CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, in.data, in.offsets.size());
 
-    program.set_kernel_args(*converter, 0, *inbuf_y, *outbuf, image_dims,
-        strides, offsets, x_scale, y_scale, original_camera_props, camera_props,
-        *distort_coeffs, matrix);
-    return run_kernel(program, *converter, in, out, inbuf_y, outbuf, start_flush);
+    program.set_kernel_args(*converter, 0, in_bufs, *outbuf, image_dims, strides, offsets,
+        x_scale, y_scale, original_camera_props, camera_props, *distort_coeffs, matrix);
+    return run_kernel(program, *converter, in, out, in_bufs[0], outbuf, start_flush);
   }
 
   private:

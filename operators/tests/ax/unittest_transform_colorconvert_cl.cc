@@ -1367,5 +1367,150 @@ TEST(Conversion, nv122rgba_cropped_plus_I420)
   }
 }
 
+TEST(Conversion, nv122rgba_cropped_two_planes)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "format", "rgba" },
+  };
+  auto xform = Ax::LoadTransform("colorconvert_cl", input);
+  auto in_buf1 = std::vector<uint8_t>{
+    // clang-format off
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x98, 0x98, 0x00, 0x00,
+    // clang-format on
+  };
+  auto in_buf2 = std::vector<uint8_t>{
+    // clang-format off
+    0x80, 0x80, 0x3A, 0xc9, 0x80, 0x80,
+    // clang-format on
+  };
+
+  auto expected = std::vector<uint8_t>{
+    // clang-format off
+    0xFF, 0x7E, 0x11, 0xFF, 0xFF, 0x7E, 0x11, 0xFF,
+    // clang-format on
+  };
+  auto out_buf = std::vector<uint8_t>(expected.size(), 0x99);
+
+  std::vector<size_t> strides{ 6, 6 };
+  std::vector<size_t> offsets{ 0, 0 };
+
+  std::vector<std::vector<uint8_t>> mem_planes = { in_buf1, in_buf2 };
+  Ax::buffer_planes cl_planes{ mem_planes };
+  opencl_planes planes = cl_planes.get_planes();
+
+  auto in = AxVideoInterface{ { 2, 1, int(strides[0]), 0, AxVideoFormat::NV12,
+                                  true, 2, 1, 2 },
+    nullptr, strides, offsets, -1, &planes };
+
+  auto out = AxVideoInterface{ { 2, 1, 2 * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { 6 * 4 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
+TEST(Conversion, i4202rgba_cropped_3_planes)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "format", "rgba" },
+  };
+  auto xform = Ax::LoadTransform("colorconvert_cl", input);
+  auto in_buf1 = std::vector<uint8_t>{
+    // clang-format off
+    0x98, 0x98, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // clang-format on
+  };
+  auto in_buf2 = std::vector<uint8_t>{
+    // clang-format off
+    0x3A, 0x80, 0x80,
+    0x80, 0x80, 0x80,
+    // clang-format on
+  };
+  auto in_buf3 = std::vector<uint8_t>{
+    // clang-format off
+    0xC9, 0x80, 0x80,
+    0x80, 0x80, 0x80,
+    // clang-format on
+  };
+
+  auto expected = std::vector<uint8_t>{
+    // clang-format off
+    0xFF, 0x7E, 0x11, 0xFF, 0xFF, 0x7E, 0x11, 0xFF,
+    // clang-format on
+  };
+  auto out_buf = std::vector<uint8_t>(expected.size(), 0x99);
+
+  std::vector<size_t> strides{ 6, 3, 3 };
+  std::vector<size_t> offsets{ 0, 12, 18 };
+  std::vector<std::vector<uint8_t>> mem_planes = { in_buf1, in_buf2, in_buf3 };
+  Ax::buffer_planes cl_planes{ mem_planes };
+  opencl_planes planes = cl_planes.get_planes();
+
+  auto in = AxVideoInterface{ { 2, 1, int(strides[0]), 0, AxVideoFormat::I420,
+                                  true, 0, 0, 2 },
+    nullptr, strides, offsets, -1, &planes };
+
+  auto out = AxVideoInterface{ { 2, 1, 2 * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { 6 * 4 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
+TEST(Conversion, i4202rgba_cropped_2_planes)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "format", "rgba" },
+  };
+  auto xform = Ax::LoadTransform("colorconvert_cl", input);
+  auto in_buf1 = std::vector<uint8_t>{
+    // clang-format off
+    0x98, 0x98, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // clang-format on
+  };
+  auto in_buf2 = std::vector<uint8_t>{
+    // clang-format off
+    0x3A, 0x80, 0x80,
+    0x80, 0x80, 0x80,
+    0xC9, 0x80, 0x80,
+    0x80, 0x80, 0x80,
+    // clang-format on
+  };
+
+  auto expected = std::vector<uint8_t>{
+    // clang-format off
+    0xFF, 0x7E, 0x11, 0xFF, 0xFF, 0x7E, 0x11, 0xFF,
+    // clang-format on
+  };
+  auto out_buf = std::vector<uint8_t>(expected.size(), 0x99);
+
+  std::vector<size_t> strides{ 6, 3, 3 };
+  std::vector<size_t> offsets{ 0, 0, 6 };
+  std::vector<std::vector<uint8_t>> mem_planes = { in_buf1, in_buf2 };
+  Ax::buffer_planes cl_planes{ mem_planes };
+  opencl_planes planes = cl_planes.get_planes();
+
+  auto in = AxVideoInterface{ { 2, 1, int(strides[0]), 0, AxVideoFormat::I420,
+                                  true, 0, 0, 2 },
+    nullptr, strides, offsets, -1, &planes };
+
+  auto out = AxVideoInterface{ { 2, 1, 2 * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { 6 * 4 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
 
 } // namespace

@@ -116,7 +116,7 @@ float2 transform_coordinates(int row, int col, int in_width, int in_height, int 
     return src_coords;
 }
 
-__kernel void polar_transform(__global const %s *in, __global %s *out, int4 image_dims,
+__kernel void polar_transform(%s__global %s *out, int4 image_dims,
                         int4 strides, int4 offsets, float center_x, float center_y, float max_radius, int inverse, int linear_polar, float start_angle, int rotate180,
                         float16 color_matrix) {
 
@@ -162,19 +162,25 @@ class CLPolarTransform
   }
 
   ax_utils::CLProgram::ax_kernel build_kernel(ax_utils::CLProgram &program,
-      AxVideoFormat in_format, AxVideoFormat out_format, int flip_type)
+      AxVideoFormat in_format, AxVideoFormat out_format, int flip_type, int num_planes)
   {
     std::string kernel_code = polar_transform_kernel;
 
-    auto [_, in_type, sampler_code] = ax_utils::get_input_details(in_format);
-    auto [__, out_type, output_code] = ax_utils::get_output_details(in_format, out_format);
+    auto input_details = ax_utils::get_input_details(
+        in_format, ax_utils::Interpolation::bilinear, num_planes);
+    auto output_details = ax_utils::get_output_details(in_format, out_format);
 
-    auto n = snprintf(nullptr, 0, kernel_code.c_str(), in_type.c_str(), out_type.c_str());
+    const auto &out_type = output_details.out_type;
+    const auto &output_code = output_details.sampler;
+    const auto &sampler_code = input_details.sampler;
+
+    auto n = snprintf(nullptr, 0, kernel_code.c_str(),
+        input_details.input_params.c_str(), out_type.c_str());
     std::vector<char> buffer(n + 1);
-    snprintf(buffer.data(), buffer.size(), kernel_code.c_str(), in_type.c_str(),
-        out_type.c_str());
+    snprintf(buffer.data(), buffer.size(), kernel_code.c_str(),
+        input_details.input_params.c_str(), out_type.c_str());
     auto final_kernel = std::string(buffer.data());
-    final_kernel += ax_utils::get_rotation(flip_type);
+
     final_kernel += sampler_code;
     final_kernel += output_code;
     final_kernel = ax_utils::get_kernel_utils(flip_type) + final_kernel;
@@ -185,8 +191,9 @@ class CLPolarTransform
 
   int run(const buffer_details &in, const buffer_details &out, const polar_properties &prop)
   {
+    auto num_planes = ax_utils::get_num_planes(in);
     if (!converter) {
-      converter = build_kernel(program, in.format, out.format, 0); // No flip for perspective
+      converter = build_kernel(program, in.format, out.format, 0, num_planes);
     }
     bool start_flush = prop.downstream_supports_opencl == 0;
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
@@ -198,16 +205,18 @@ class CLPolarTransform
 
     std::array<cl_int, 4> image_dims = { in.width, in.height, out.width, out.height };
     auto strides = ax_utils::build_strides(in, out);
-    auto offsets = ax_utils::build_offsets(in, out);
-    auto inbuf_y = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
+    auto offsets = ax_utils::build_offsets(in, out, num_planes);
+    auto in_bufs = program.create_buffers(1, ax_utils::determine_buffer_size(in),
+        CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, in.data, in.offsets.size());
     auto matrix = ax_utils::get_color_conversion_matrix(in.format, out.format);
-    program.set_kernel_args(*converter, 0, *inbuf_y, *outbuf, image_dims,
+
+    program.set_kernel_args(*converter, 0, in_bufs, *outbuf, image_dims,
         strides, offsets, static_cast<cl_float>(prop.center_x),
         static_cast<cl_float>(prop.center_y), max_radius,
         static_cast<cl_int>(prop.inverse), static_cast<cl_int>(prop.linear_polar),
         static_cast<cl_float>(prop.start_angle),
         static_cast<cl_int>(prop.rotate180), matrix);
-    return run_kernel(program, *converter, in, out, inbuf_y, outbuf, start_flush);
+    return run_kernel(program, *converter, in, out, in_bufs[0], outbuf, start_flush);
   }
 
   private:

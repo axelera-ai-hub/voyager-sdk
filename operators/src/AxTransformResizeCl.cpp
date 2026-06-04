@@ -40,7 +40,7 @@ uchar4 color_convert(uchar4 pixel, float16 matrix) {
     return convert_uchar4_sat(color);
 }
 
-__kernel void resize_kernel_cl(__global const %s *in, __global %s *out, int4 image_dims, int crop_x, int crop_y,
+__kernel void resize_kernel_cl(%s__global %s *out, int4 image_dims, int crop_x, int crop_y,
                             int4 strides, int4 offsets, float xscale, float yscale, int scaled_width,
                             int scaled_height, uchar fill, float4 mul, float4 add, float16 color_matrix) {
 
@@ -76,21 +76,27 @@ add_alpha(AxVideoFormat format)
 
 ax_utils::CLProgram::ax_kernel
 build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
-    AxVideoFormat out_format, int flip_type, const resize_properties &prop)
+    AxVideoFormat out_format, int flip_type, const resize_properties &prop, int num_planes)
 {
   std::string kernel_code = resize_kernel;
 
-  auto [unused1, in_type, sampler_code] = ax_utils::get_input_details(in_format);
-  auto [unused2, out_type, output_code]
-      = prop.mul[0] != 0.0F ? ax_utils::get_output_norm_details(in_format, out_format) :
-                              ax_utils::get_output_details(in_format, out_format);
+  auto input_details = ax_utils::get_input_details(
+      in_format, ax_utils::Interpolation::bilinear, num_planes);
+  auto output_details = prop.mul[0] != 0.0F ?
+                            ax_utils::get_output_norm_details(in_format, out_format) :
+                            ax_utils::get_output_details(in_format, out_format);
+  const auto &out_type = output_details.out_type;
+  const auto &output_code = output_details.sampler;
 
-  auto n = snprintf(nullptr, 0, kernel_code.c_str(), in_type.c_str(), out_type.c_str());
+  const auto &sampler_code = input_details.sampler;
+
+  auto n = snprintf(nullptr, 0, kernel_code.c_str(),
+      input_details.input_params.c_str(), out_type.c_str());
   std::vector<char> buffer(n + 1);
-  snprintf(buffer.data(), buffer.size(), kernel_code.c_str(), in_type.c_str(),
-      out_type.c_str());
+  snprintf(buffer.data(), buffer.size(), kernel_code.c_str(),
+      input_details.input_params.c_str(), out_type.c_str());
   auto final_kernel = std::string(buffer.data());
-  final_kernel += ax_utils::get_rotation(flip_type);
+
   final_kernel += sampler_code;
   final_kernel += output_code;
   final_kernel = ax_utils::get_kernel_utils(flip_type) + final_kernel;
@@ -110,7 +116,7 @@ class CLResize
   }
 
   cl_kernel get_converter(ax_utils::CLProgram &program, AxVideoFormat in_format,
-      AxVideoFormat out_format, int flip_type, const resize_properties &prop)
+      AxVideoFormat out_format, int flip_type, const resize_properties &prop, int num_planes)
   {
     auto hash = (static_cast<int>(in_format) << 16)
                 + (static_cast<int>(out_format) << 8) + flip_type;
@@ -119,7 +125,7 @@ class CLResize
     if (it != all_kernels.end()) {
       return *it->cl_prog;
     }
-    auto k = build_kernel(program, in_format, out_format, flip_type, prop);
+    auto k = build_kernel(program, in_format, out_format, flip_type, prop, num_planes);
     return *all_kernels.emplace_back(hash, std::move(k)).cl_prog;
   }
 
@@ -130,7 +136,8 @@ class CLResize
 
   int run(const buffer_details &in, const buffer_details &out, const resize_properties &prop)
   {
-    auto converter = get_converter(program, in.format, out.format, 0, prop);
+    auto num_planes = ax_utils::get_num_planes(in);
+    auto converter = get_converter(program, in.format, out.format, 0, prop, num_planes);
     bool start_flush = prop.downstream_supports_opencl == 0;
     cl_float xscale = (float) in.width / out.width;
     cl_float yscale = (float) in.height / out.height;
@@ -162,14 +169,16 @@ class CLResize
     cl_uchar fill = prop.fill;
     auto image_dims = (cl_int4){ in.width, in.height, out.width, out.height };
     auto strides = ax_utils::build_strides(in, out);
-    auto offsets = ax_utils::build_offsets(in, out);
+    auto offsets = ax_utils::build_offsets(in, out, num_planes);
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
-    auto inbuf_y = create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
+    auto in_bufs = program.create_buffers(1, ax_utils::determine_buffer_size(in),
+        CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, in.data, in.offsets.size());
     auto matrix = ax_utils::get_color_conversion_matrix(in.format, out.format);
-    program.set_kernel_args(converter, 0, *inbuf_y, *outbuf, image_dims,
+
+    program.set_kernel_args(converter, 0, in_bufs, *outbuf, image_dims,
         in.crop_x, in.crop_y, strides, offsets, xscale, yscale, scaled_width,
         scaled_height, fill, prop.mul, prop.add, matrix);
-    return run_kernel(program, converter, in, out, inbuf_y, outbuf, start_flush);
+    return run_kernel(program, converter, in, out, in_bufs[0], outbuf, start_flush);
   }
 
   bool can_use_dmabuf() const

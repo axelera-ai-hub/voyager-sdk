@@ -1,5 +1,5 @@
-(License for 'webencodings' package per
-https://github.com/gsnedders/python-webencodings/blob/master/LICENSE)
+# License for 'webencodings' package per
+# from https://github.com/gsnedders/python-webencodings/blob/master/LICENSE
 
 Copyright (c) 2012 by Simon Sapin.
 

@@ -3,6 +3,7 @@
 
 #include <opencv2/opencv.hpp>
 #include "AxDataInterface.h"
+#include "AxVideoBuffer.hpp"
 
 #include <optional>
 using namespace std::string_literals;
@@ -262,5 +263,27 @@ video_from_cvmat(const cv::Mat &mat, AxVideoFormat format)
   return video;
 }
 
+/// @brief Convert a VideoBuffer to cv::Mat
+/// @param buffer VideoBuffer containing the frame data
+/// @return cv::Mat containing a copy of the VideoBuffer data
+/// @note This function always creates a copy to ensure the Mat remains valid
+///       even if the VideoBuffer is moved or destroyed.
+inline cv::Mat
+cvmat_from_buffer(VideoBuffer &buffer)
+{
+  if (buffer.has_strides()) {
+    // For strided buffers, convert via AxVideoInterface which handles strides
+    auto video_interface = buffer.to_video_interface();
+    VideoBuffer contiguous_buffer = VideoBuffer::from_video_interface(video_interface);
+    cv::Mat yuv_mat = contiguous_buffer.to_cvmat();
+    // Clone to avoid dangling pointer when contiguous_buffer goes out of scope
+    return yuv_mat.clone();
+  } else {
+    // For contiguous buffers, create a view then clone it
+    // We must clone because the VideoBuffer may be moved or destroyed
+    cv::Mat yuv_mat = buffer.to_cvmat();
+    return yuv_mat.clone();
+  }
+}
 
 } // namespace Ax

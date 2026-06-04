@@ -1,3 +1,4 @@
+# from https://gitlab.freedesktop.org/freetype/freetype/-/blob/master/docs/FTL.TXT
 
                     The FreeType Project LICENSE
                     ----------------------------

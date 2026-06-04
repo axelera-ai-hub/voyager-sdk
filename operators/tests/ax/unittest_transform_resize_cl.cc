@@ -551,5 +551,169 @@ TEST(resize_cl, nv12torgb)
   ASSERT_EQ(out_buf, expected);
 }
 
+TEST(resize_cl, nv12torgb_2_planes)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "width", "6" },
+    { "height", "2" },
+    { "mean", "0.,0.,0." },
+    { "std", "1.,1.,1." },
+    { "quant_scale", "0.003921568859368563" },
+    { "quant_zeropoint", "-128.0" },
+  };
+  auto xform = Ax::LoadTransform("resize_cl", input);
+  auto in_buf1 = std::vector<uint8_t>{
+    // clang-format off
+    0x98, 0x98, 0x98, 0x98, 0x98, 0x98,
+    0x98, 0x98, 0x98, 0x98, 0x98, 0x98,
+    // clang-format on
+  };
+  auto in_buf2 = std::vector<uint8_t>{
+    // clang-format off
+    0x3A, 0xc9, 0x3A, 0xc9, 0x3A, 0xc9,
+    // clang-format on
+  };
+
+  auto expected = std::vector<uint8_t>{
+    // clang-format off
+    0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F,
+    0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F,
+    0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F,
+    0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F,
+    // clang-format on
+  };
+  auto out_buf = std::vector<uint8_t>(expected.size());
+
+  std::vector<size_t> strides{ 6, 6 };
+  std::vector<size_t> offsets{ 0, 12 };
+
+  std::vector<std::vector<uint8_t>> mem_planes = { in_buf1, in_buf2 };
+  Ax::buffer_planes cl_planes{ mem_planes };
+  opencl_planes planes = cl_planes.get_planes();
+
+  auto in = AxVideoInterface{ { 6, 2, int(strides[0]), 0, AxVideoFormat::NV12 },
+    nullptr, strides, offsets, -1, &planes };
+
+  auto out = AxVideoInterface{ { 6, 2, 6 * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { 6 * 4 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
+TEST(resize_cl, i4202rgb_2_planes)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "width", "6" },
+    { "height", "2" },
+    { "mean", "0.,0.,0." },
+    { "std", "1.,1.,1." },
+    { "quant_scale", "0.003921568859368563" },
+    { "quant_zeropoint", "-128.0" },
+  };
+
+  auto xform = Ax::LoadTransform("resize_cl", input);
+  auto in_buf1 = std::vector<uint8_t>{
+    // clang-format off
+    0x98, 0x98, 0x98, 0x98, 0x98, 0x98,
+    0x98, 0x98, 0x98, 0x98, 0x98, 0x98,
+    // clang-format on
+  };
+  auto in_buf2 = std::vector<uint8_t>{
+    // clang-format off
+    0x3A, 0x3A, 0x3A,
+    0xC9, 0xC9, 0xC9,
+    // clang-format on
+  };
+
+  auto expected = std::vector<uint8_t>{
+    // clang-format off
+    0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F,
+    0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F,
+    0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F,
+    0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F,
+    // clang-format on
+  };
+  auto out_buf = std::vector<uint8_t>(expected.size());
+
+  std::vector<size_t> strides{ 6, 3, 3 };
+  std::vector<size_t> offsets{ 0, 0, 3 };
+  std::vector<std::vector<uint8_t>> mem_planes = { in_buf1, in_buf2 };
+  Ax::buffer_planes cl_planes{ mem_planes };
+  opencl_planes planes = cl_planes.get_planes();
+
+  auto in = AxVideoInterface{ { 6, 2, int(strides[0]), 0, AxVideoFormat::I420 },
+    nullptr, strides, offsets, -1, &planes };
+
+  auto out = AxVideoInterface{ { 6, 2, 6 * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { 6 * 4 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
+TEST(resize_cl, i4202rgb_3_planes)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "width", "6" },
+    { "height", "2" },
+    { "mean", "0.,0.,0." },
+    { "std", "1.,1.,1." },
+    { "quant_scale", "0.003921568859368563" },
+    { "quant_zeropoint", "-128.0" },
+  };
+
+  auto xform = Ax::LoadTransform("resize_cl", input);
+  auto in_buf1 = std::vector<uint8_t>{
+    // clang-format off
+    0x98, 0x98, 0x98, 0x98, 0x98, 0x98,
+    0x98, 0x98, 0x98, 0x98, 0x98, 0x98,
+    // clang-format on
+  };
+  auto in_buf2 = std::vector<uint8_t>{
+    // clang-format off
+    0x3A, 0x3A, 0x3A,
+  };
+  auto in_buf3 = std::vector<uint8_t>{
+    // clang-format on
+    // clang-format off
+    0xC9, 0xC9, 0xC9,
+    // clang-format on
+  };
+
+  auto expected = std::vector<uint8_t>{
+    // clang-format off
+    0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F,
+    0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F,
+    0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F,
+    0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F, 0x7E, 0xFF, 0x92, 0x7F,
+    // clang-format on
+  };
+  auto out_buf = std::vector<uint8_t>(expected.size());
+
+  std::vector<size_t> strides{ 6, 3, 3 };
+  std::vector<size_t> offsets{ 0, 0, 3 };
+  std::vector<std::vector<uint8_t>> mem_planes = { in_buf1, in_buf2, in_buf3 };
+  Ax::buffer_planes cl_planes{ mem_planes };
+  opencl_planes planes = cl_planes.get_planes();
+
+  auto in = AxVideoInterface{ { 6, 2, int(strides[0]), 0, AxVideoFormat::I420 },
+    nullptr, strides, offsets, -1, &planes };
+
+  auto out = AxVideoInterface{ { 6, 2, 6 * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { 6 * 4 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
 
 } // namespace

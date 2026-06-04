@@ -1,7 +1,9 @@
 // Copyright Axelera AI, 2024
 // UNet decoder
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <span>
 #include <unordered_set>
 #include <vector>
@@ -11,12 +13,17 @@
 namespace semantic_seg
 {
 
+// `threshold` is interpreted in probability space when `sigmoid` is true
+// (and converted to a logit at init time so the per-pixel loop can compare
+// raw logits directly), and in raw-logit space when `sigmoid` is false.
+// `threshold` is only used on the single-class path; the multi-class path
+// always emits the argmax class.
 struct properties {
   std::string meta_name{};
   bool class_map_out{ true };
   std::string decoder_name;
-  float threshold{ 0.0f };
-  bool sigmoid{ true };
+  float threshold{ 0.00001f };
+  bool sigmoid{ false };
 };
 } // namespace semantic_seg
 
@@ -31,24 +38,20 @@ decode_to_meta(const AxTensorsInterface &in_tensors, const semantic_seg::propert
   auto &tensor = in_tensors[0];
 
   std::vector<int> size{ tensor.sizes[1], tensor.sizes[2], tensor.sizes[3] };
-
   auto *fdata = static_cast<float *>(tensor.data);
   if (prop->class_map_out) {
     std::vector<int> max_indices(tensor.sizes[1] * tensor.sizes[2]);
-    auto out_it = max_indices.begin();
-    int offset = 0;
-    for (int i = 0; i < tensor.sizes[1]; ++i) {
-      for (int j = 0; j < tensor.sizes[2]; ++j) {
-        if (tensor.sizes[3] == 1) {
-          float value = prop->sigmoid ? ax_utils::to_sigmoid(fdata[offset]) :
-                                        fdata[offset];
-          *out_it++ = value > prop->threshold ? 1 : 0;
-        } else {
-          std::span<float> vec(fdata + offset, tensor.sizes[3]);
-          auto max_it = std::max_element(vec.begin(), vec.end());
-          *out_it++ = *max_it > prop->threshold ? std::distance(vec.begin(), max_it) : -1;
-        }
-        offset += tensor.sizes[3];
+    auto out_it = max_indices.data();
+    auto total_size = tensor.sizes[1] * tensor.sizes[2] * tensor.sizes[3];
+    if (tensor.sizes[3] == 1) {
+      for (int offset = 0; offset != total_size; ++offset) {
+        *out_it++ = fdata[offset] > prop->threshold ? 1 : 0;
+      }
+    } else {
+      for (int offset = 0; offset != total_size; offset += tensor.sizes[3]) {
+        std::span<float> vec(fdata + offset, tensor.sizes[3]);
+        auto max_it = std::max_element(vec.begin(), vec.end());
+        *out_it++ = std::distance(vec.begin(), max_it);
       }
     }
     map[prop->meta_name] = std::make_unique<AxMetaSemanticSegmentation>(
@@ -71,8 +74,11 @@ extern "C" const std::unordered_set<std::string> &
 allowed_properties()
 {
   static const std::unordered_set<std::string> allowed_properties{
-    "meta_key", "class_map_out", "decoder_name", "threshold"
-
+    "meta_key",
+    "class_map_out",
+    "decoder_name",
+    "threshold",
+    "sigmoid",
   };
   return allowed_properties;
 }
@@ -96,6 +102,12 @@ init_and_set_static_properties(
 
   props->sigmoid
       = Ax::get_property(input, "sigmoid", "decode_static_properties", props->sigmoid);
+
+  if (props->sigmoid) {
+    // Avoid log(0) and log(1) by clamping threshold to a reasonable range, then convert to logit
+    props->threshold = std::clamp(props->threshold, 0.00001F, 0.99999F);
+    props->threshold = std::log(props->threshold / (1.0f - props->threshold));
+  }
 
   return props;
 }

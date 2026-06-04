@@ -166,3 +166,16 @@ def test_cv_window_close_source_reopen():
     assert wnd._current == {0: mock_frame, 2: mock_frame}
     wnd._handle_message(display._Frame(1, *new_frame[:2]))
     assert wnd._current == {0: mock_frame, 1: new_frame, 2: mock_frame}
+
+
+def test_cvdraw_warns_when_stream_id_exceeds_num_streams():
+    array = np.zeros((480, 640, 3), dtype=np.uint8)
+    composite = types.Image.fromarray(array)
+    image = types.Image.fromarray(array)
+
+    with patch.object(display_cv, 'LOG') as mock_log, patch.object(display_cv, 'cv2'):
+        display_cv.CVDraw(1, 1, composite, image, [])
+
+    mock_log.warning.assert_called_once_with(
+        "Source ID 1 is too high for the number of sources (1), expect rendering glitches."
+    )

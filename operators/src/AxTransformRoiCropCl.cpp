@@ -47,7 +47,7 @@ oob_fill_snippet(AxVideoFormat out_format)
     case AxVideoFormat::RGBA:
     case AxVideoFormat::BGRA:
       return R"##(
-    if (top_left.x < 0 || top_left.x >= width || top_left.y < 0 || top_left.y >= height) {
+    if (corrected.x < 0 || corrected.x >= width || corrected.y < 0 || corrected.y >= height) {
         __global uchar4 *pout = advance_uchar4_ptr(out, row * strides.w);
         pout[col] = (uchar4)(0, 0, 0, 255);
         return;
@@ -56,7 +56,7 @@ oob_fill_snippet(AxVideoFormat out_format)
     case AxVideoFormat::RGB:
     case AxVideoFormat::BGR:
       return R"##(
-    if (top_left.x < 0 || top_left.x >= width || top_left.y < 0 || top_left.y >= height) {
+    if (corrected.x < 0 || corrected.x >= width || corrected.y < 0 || corrected.y >= height) {
         __global uchar *pout = advance_uchar_ptr(out, row * strides.w);
         vstore3((uchar3)(0, 0, 0), col, pout);
         return;
@@ -64,7 +64,7 @@ oob_fill_snippet(AxVideoFormat out_format)
 )##";
     case AxVideoFormat::GRAY8:
       return R"##(
-    if (top_left.x < 0 || top_left.x >= width || top_left.y < 0 || top_left.y >= height) {
+    if (corrected.x < 0 || corrected.x >= width || corrected.y < 0 || corrected.y >= height) {
         __global uchar *pout = advance_uchar_ptr(out, row * strides.w);
         pout[col] = 0;
         return;
@@ -90,7 +90,7 @@ uchar4 color_convert(uchar4 pixel, float16 matrix) {
     return convert_uchar4_sat(color);
 }
 
-__kernel void roicrop_cl(__global const %s *p_in, __global %s *out, int4 image_dims,
+__kernel void roicrop_cl(__global const %s *in, __global %s *out, int4 image_dims,
                          int crop_x, int crop_y,
                          int4 strides, int4 offsets, float16 color_matrix) {
     const int col = get_global_id(0);
@@ -100,7 +100,7 @@ __kernel void roicrop_cl(__global const %s *p_in, __global %s *out, int4 image_d
     }
     int width = image_dims.x;
     int height = image_dims.y;
-    int2 top_left = (int2)(col + crop_x, row + crop_y);
+    int2 corrected = (int2)(col + crop_x, row + crop_y);
 )##";
 
 using ax_utils::buffer_details;
@@ -118,28 +118,29 @@ class CLRoiCrop
   {
   }
 
-  kernel build_kernel(AxVideoFormat in_format, AxVideoFormat out_format)
+  kernel build_kernel(AxVideoFormat in_format, AxVideoFormat out_format, int num_planes)
   {
     std::string kernel_code = roicrop_kernel_template;
 
-    auto [_, in_type, sampler_code]
-        = ax_utils::get_input_details(in_format, ax_utils::Interpolation::nearest);
-    auto [__, out_type, output_code] = ax_utils::get_output_details(in_format, out_format);
+    auto input_details = ax_utils::get_input_details(
+        in_format, ax_utils::Interpolation::nearest, num_planes);
+    auto output_details = ax_utils::get_output_details(in_format, out_format);
 
-    auto n = snprintf(nullptr, 0, kernel_code.c_str(), in_type.c_str(), out_type.c_str());
+    auto n = snprintf(nullptr, 0, kernel_code.c_str(),
+        input_details.out_type.c_str(), output_details.out_type.c_str());
     std::vector<char> buf(n + 1);
-    snprintf(buf.data(), buf.size(), kernel_code.c_str(), in_type.c_str(),
-        out_type.c_str());
+    snprintf(buf.data(), buf.size(), kernel_code.c_str(),
+        input_details.out_type.c_str(), output_details.out_type.c_str());
     auto final_kernel = std::string(buf.data());
     final_kernel += oob_fill_snippet(out_format);
-    final_kernel += sampler_code;
-    final_kernel += output_code;
+    final_kernel += input_details.sampler;
+    final_kernel += output_details.sampler;
     final_kernel = ax_utils::get_kernel_utils(0) + final_kernel;
 
     return program.build_kernel_from_source(final_kernel, "roicrop_cl");
   }
 
-  cl_kernel get_converter(AxVideoFormat in_format, AxVideoFormat out_format)
+  cl_kernel get_converter(AxVideoFormat in_format, AxVideoFormat out_format, int num_planes)
   {
     auto hash = (static_cast<int>(in_format) << 16)
                 + (static_cast<int>(out_format) << 8) + 0;
@@ -148,14 +149,15 @@ class CLRoiCrop
     if (it != all_kernels.end()) {
       return *it->cl_prog;
     }
-    auto k = build_kernel(in_format, out_format);
+    auto k = build_kernel(in_format, out_format, num_planes);
     return *all_kernels.emplace_back(hash, std::move(k)).cl_prog;
   }
 
   int run(const buffer_details &in, const buffer_details &out, int crop_x,
       int crop_y, bool downstream_supports_opencl)
   {
-    auto converter = get_converter(in.format, out.format);
+    auto num_planes = ax_utils::get_num_planes(in);
+    auto converter = get_converter(in.format, out.format, num_planes);
 
     bool start_flush = !downstream_supports_opencl;
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);

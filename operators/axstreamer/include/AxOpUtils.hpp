@@ -75,7 +75,7 @@ struct buffer_details {
   cl_int crop_y;
   cl_int channels{};
   cl_int stride{};
-  std::variant<void *, int, VASurfaceID_proxy *, opencl_buffer *> data{};
+  std::variant<void *, int, opencl_planes *, opencl_buffer *, VASurfaceID_proxy *> data{};
   std::vector<size_t> offsets;
   std::vector<size_t> strides;
   AxVideoFormat format{};

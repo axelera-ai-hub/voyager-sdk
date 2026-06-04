@@ -252,13 +252,17 @@ class OpenCVDisplay : public Ax::OpenCV::Display
     tk.update(high_resolution_clock::now(), options);
 
     if (tk.should_render()) {
-      for (auto &&[name, m] : meta) {
-        Ax::OpenCV::render(*m, image, options);
-      }
       if (format == AxVideoFormat::RGB) {
         cv::cvtColor(image, converted, cv::COLOR_RGB2BGR);
+      } else if (format == AxVideoFormat::I420) {
+        cv::cvtColor(image, converted, cv::COLOR_YUV2BGR_I420);
+      } else if (format == AxVideoFormat::NV12) {
+        cv::cvtColor(image, converted, cv::COLOR_YUV2BGR_NV12);
       } else {
         converted = image;
+      }
+      for (auto &&[name, m] : meta) {
+        Ax::OpenCV::render(*m, converted, options);
       }
 
       cv::imshow(wndname, converted);

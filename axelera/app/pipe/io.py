@@ -799,7 +799,7 @@ class PipeOutput:
             w, h = image.size
             image = types.Image.fromarray(np.zeros((h, w, 3), dtype=np.uint8))
             draw = display_cv.CVDraw(
-                frame_result.stream_id,
+                0,
                 1,
                 image,
                 frame_result.image,

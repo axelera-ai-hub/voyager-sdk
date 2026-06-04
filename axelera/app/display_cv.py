@@ -316,6 +316,10 @@ class CVDraw(display.Draw):
         window_options: CVOptions = CVOptions(),
         speedometer_smoothing: display.SpeedometerSmoothing = None,
     ):
+        if stream_id >= num_streams:
+            LOG.warning(
+                f"Source ID {stream_id} is too high for the number of sources ({num_streams}), expect rendering glitches."
+            )
         self._source_id = stream_id
         self._img = composite
         self._image_size = (image.width, image.height)

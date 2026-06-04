@@ -1,11 +1,13 @@
+# from https://github.com/python-pillow/Pillow/blob/main/LICENSE
+
 The Python Imaging Library (PIL) is
 
-    Copyright © 1997-2011 by Secret Labs AB
-    Copyright © 1995-2011 by Fredrik Lundh and contributors
+    Copyright (c) 1997-2011 by Secret Labs AB
+    Copyright (c) 1995-2011 by Fredrik Lundh and contributors
 
 Pillow is the friendly PIL fork. It is
 
-    Copyright © 2010-2024 by Jeffrey A. Clark and contributors
+    Copyright (c) 2010-2024 by Jeffrey A. Clark and contributors
 
 Like PIL, Pillow is licensed under the open source HPND License:
 
@@ -200,7 +202,7 @@ Introduction
   encourage you to use the following text:
 
    """
-    Portions of this software are copyright © <year> The FreeType
+    Portions of this software are copyright (c) <year> The FreeType
     Project (www.freetype.org).  All rights reserved.
    """
 
@@ -769,23 +771,23 @@ HarfBuzz is licensed under the so-called "Old MIT" license.  Details follow.
 For parts of HarfBuzz that are licensed under different licenses see individual
 files names COPYING in subdirectories where applicable.
 
-Copyright © 2010-2022  Google, Inc.
-Copyright © 2015-2020  Ebrahim Byagowi
-Copyright © 2019,2020  Facebook, Inc.
-Copyright © 2012,2015  Mozilla Foundation
-Copyright © 2011  Codethink Limited
-Copyright © 2008,2010  Nokia Corporation and/or its subsidiary(-ies)
-Copyright © 2009  Keith Stribley
-Copyright © 2011  Martin Hosken and SIL International
-Copyright © 2007  Chris Wilson
-Copyright © 2005,2006,2020,2021,2022,2023  Behdad Esfahbod
-Copyright © 2004,2007,2008,2009,2010,2013,2021,2022,2023  Red Hat, Inc.
-Copyright © 1998-2005  David Turner and Werner Lemberg
-Copyright © 2016  Igalia S.L.
-Copyright © 2022  Matthias Clasen
-Copyright © 2018,2021  Khaled Hosny
-Copyright © 2018,2019,2020  Adobe, Inc
-Copyright © 2013-2015  Alexei Podtelezhnikov
+Copyright (c) 2010-2022  Google, Inc.
+Copyright (c) 2015-2020  Ebrahim Byagowi
+Copyright (c) 2019,2020  Facebook, Inc.
+Copyright (c) 2012,2015  Mozilla Foundation
+Copyright (c) 2011  Codethink Limited
+Copyright (c) 2008,2010  Nokia Corporation and/or its subsidiary(-ies)
+Copyright (c) 2009  Keith Stribley
+Copyright (c) 2011  Martin Hosken and SIL International
+Copyright (c) 2007  Chris Wilson
+Copyright (c) 2005,2006,2020,2021,2022,2023  Behdad Esfahbod
+Copyright (c) 2004,2007,2008,2009,2010,2013,2021,2022,2023  Red Hat, Inc.
+Copyright (c) 1998-2005  David Turner and Werner Lemberg
+Copyright (c) 2016  Igalia S.L.
+Copyright (c) 2022  Matthias Clasen
+Copyright (c) 2018,2021  Khaled Hosny
+Copyright (c) 2018,2019,2020  Adobe, Inc
+Copyright (c) 2013-2015  Alexei Podtelezhnikov
 
 For full copyright notices consult the individual files in the package.
 
@@ -1194,8 +1196,8 @@ RAQM
 
 The MIT License (MIT)
 
-Copyright © 2015 Information Technology Authority (ITA) <foss@ita.gov.om>
-Copyright © 2016 Khaled Hosny <khaledhosny@eglug.org>
+Copyright (c) 2015 Information Technology Authority (ITA) <foss@ita.gov.om>
+Copyright (c) 2016 Khaled Hosny <khaledhosny@eglug.org>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

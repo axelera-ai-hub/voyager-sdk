@@ -227,6 +227,8 @@ class AxInferenceNet : public InferenceNet
   bool supports_dmabuf() override;
   int frames_required_for_inference() const override;
 
+  void distributor_thread();
+
   private:
   void release_frame(std::unique_ptr<Ax::Frame> frame);
   void init_frame(Ax::Frame &frame);
@@ -277,7 +279,10 @@ class AxInferenceNet : public InferenceNet
   std::unique_ptr<Inference> inference;
   OperatorList post_ops;
 
+  BlockingQueue<std::unique_ptr<Ax::Frame>> distributor_queue;
+
   std::vector<std::jthread> threads;
+  std::jthread distributor;
   std::jthread push_thread;
   // used in low-latency inference mode only
   std::atomic_uint64_t global_frame_idx{ 0 };
@@ -352,8 +357,10 @@ class TransformOp : public Ax::Operator
     if (auto *p = std::get_if<AxVideoInterface>(&interface)) {
       p->info.stride = p->info.width * AxVideoFormatNumChannels(p->info.format);
       p->strides = { size_t(p->info.stride) };
+      p->vaapi = nullptr;
+      p->offsets = {};
     }
-    auto buffer = pool->new_batched_buffer(input);
+    auto buffer = pool->new_batched_buffer(interface);
     map(buffer,
         supported_features{
             .opencl_buffers = supports_opencl(),
@@ -1124,6 +1131,7 @@ AxInferenceNet::finalize_thread()
 void
 AxInferenceNet::stop()
 {
+  distributor_queue.stop();
   pre_ops.stop();
   post_ops.stop();
   threads.clear();
@@ -1221,6 +1229,46 @@ get_number_of_subframes(MetaMap &axmetamap,
 }
 
 void
+AxInferenceNet::distributor_thread()
+{
+  while (true) {
+    auto frame = distributor_queue.wait_one();
+    if (!frame) {
+      return;
+    }
+    if (frame->end_of_input) {
+      pre_ops.input_queue().push(std::move(frame));
+      continue;
+    }
+    auto buffer_handle = frame->buffer_handle;
+    auto video = frame->video;
+    auto *axmetamap = frame->meta_map;
+    auto stream_id = frame->stream_id;
+    auto frame_id = frame->frame_id;
+    const auto num = get_number_of_subframes(*axmetamap, properties.meta, video);
+    auto &preq = pre_ops.input_queue();
+    //  It is one or more subframes
+    preq.push(std::move(frame));
+    for (int n = 1; n < num; ++n) {
+      auto subframe = new_frame();
+      subframe->buffer_handle = buffer_handle;
+      subframe->video = video;
+      subframe->meta_map = axmetamap;
+      subframe->stream_id = stream_id;
+      subframe->frame_id = frame_id;
+      subframe->subframe_index = n;
+      subframe->number_of_subframes = num;
+      subframe->end_of_input = false;
+      subframe->timestamp = std::chrono::high_resolution_clock::now();
+      subframe->latency_start = subframe->timestamp;
+      subframe->inference_start = subframe->timestamp;
+      init_frame(*subframe);
+      preq.push(std::move(subframe));
+    }
+  }
+}
+
+void
 AxInferenceNet::push_new_frame(std::shared_ptr<void> &&buffer_handle,
     const AxVideoInterface &video, MetaMap &axmetamap, int stream_id)
 {
@@ -1250,29 +1298,11 @@ AxInferenceNet::push_new_frame(std::shared_ptr<void> &&buffer_handle,
   frame->timestamp = std::chrono::high_resolution_clock::now();
   frame->latency_start = frame->timestamp;
   frame->inference_start = frame->timestamp;
-  auto &preq = pre_ops.input_queue();
   const auto num = get_number_of_subframes(axmetamap, properties.meta, video);
-  //  It is one or more subframes
   frame->subframe_index = 0;
   frame->number_of_subframes = num;
   init_frame(*frame);
-  preq.push(std::move(frame));
-  for (int n = 1; n < num; ++n) {
-    auto subframe = new_frame();
-    subframe->buffer_handle = buffer_handle;
-    subframe->video = video;
-    subframe->meta_map = &axmetamap;
-    subframe->stream_id = stream_id;
-    subframe->frame_id = frame_id;
-    subframe->subframe_index = n;
-    subframe->number_of_subframes = num;
-    subframe->end_of_input = false;
-    subframe->timestamp = std::chrono::high_resolution_clock::now();
-    subframe->latency_start = subframe->timestamp;
-    subframe->inference_start = subframe->timestamp;
-    init_frame(*subframe);
-    preq.push(std::move(subframe));
-  }
+  distributor_queue.push(std::move(frame));
 }
 
 void
@@ -1327,6 +1357,7 @@ AxInferenceNet::initialise_pipeline(const AxVideoInterface &video)
     threads.emplace_back(&AxInferenceNet::inference_thread, this, batch_size);
   }
   push_thread = std::jthread(&AxInferenceNet::finalize_thread, this);
+  distributor = std::jthread(&AxInferenceNet::distributor_thread, this);
 }
 
 void
@@ -1342,7 +1373,7 @@ AxInferenceNet::end_of_input()
   frame->end_of_input = true;
   frame->timestamp = std::chrono::high_resolution_clock::now();
   frame->latency_start = std::chrono::high_resolution_clock::now();
-  pre_ops.input_queue().push(std::move(frame));
+  distributor_queue.push(std::move(frame));
 }
 
 bool

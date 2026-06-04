@@ -1,5 +1,6 @@
 // Copyright Axelera AI, 2023
 #include "AxOpUtils.hpp"
+#include "AxOpenClExtensions.hpp"
 #include "AxStreamerUtils.hpp"
 
 #include <algorithm>
@@ -45,7 +46,7 @@ parse_metric_type(const std::unordered_map<std::string, std::string> &input,
 std::string
 sizes_to_string(const std::vector<int> &sizes)
 {
-  return "(" + Ax::Internal::join(sizes, ",") + ")";
+  return std::string("(") + Ax::Internal::join(sizes, ",") + ")";
 }
 bool
 validate_shape(const std::vector<int> &new_shape, const std::vector<int> &original)
@@ -610,6 +611,8 @@ get_buffer_details(const AxVideoInterface &input)
   details.stride = input.info.stride;
   if (input.fd != -1) {
     details.data = input.fd;
+  } else if (input.vaapi && input.vaapi->type == VASurfaceID_proxy::opencl) {
+    details.data = static_cast<opencl_planes *>(input.vaapi);
   } else if (input.vaapi) {
     details.data = input.vaapi;
   } else if (input.ocl_buffer) {

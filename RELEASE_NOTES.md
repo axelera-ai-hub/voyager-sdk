@@ -1,6 +1,14 @@
 # Voyager SDK release notes v1.6
 
 - [Voyager SDK release notes v1.6](#voyager-sdk-release-notes-v16)
+    - [Voyager SDK release notes v1.6.1](#voyager-sdk-release-notes-v161)
+        - [Fixed Issues Since v1.6.0](#fixed-issues-since-v160)
+        - [New Features / Support Since v1.6.0](#new-features--support-since-v160)
+            - [Windows](#windows)
+            - [Metis Hardware](#metis-hardware)
+            - [Pipeline Builder](#pipeline-builder)
+            - [Tools](#tools)
+        - [Document Updates Since v1.6.0](#document-updates-since-v160)
     - [Voyager SDK release notes v1.6.0](#voyager-sdk-release-notes-v160)
     - [Release Qualification](#release-qualification)
     - [New Features / Support](#new-features--support)
@@ -20,7 +28,7 @@
             - [AxLLM](#axllm)
         - [Beta Model Compiler](#beta-model-compiler)
         - [Runtime](#runtime)
-        - [Tools](#tools)
+        - [Tools](#tools-1)
         - [Firmware](#firmware)
     - [Breaking Changes](#breaking-changes)
     - [Fixed Issues Since Last Release](#fixed-issues-since-last-release)
@@ -29,6 +37,62 @@
         - [Development Environment](#development-environment)
         - [Runtime Environment](#runtime-environment)
     - [Further Support](#further-support)
+
+## Voyager SDK release notes v1.6.1
+
+This release is a patch on top of v1.6.0, delivering improvements to Windows performance, expanded hardware support, pipeline stability fixes, and a new documentation portal at [docs.axelera.ai](https://docs.axelera.ai/).
+
+### Fixed Issues Since v1.6.0
+
+- Fixed closed-loop power control on Metis M.2 Max:
+    - The feature no longer results in unexpected performance degradation.
+    - The user-set power limit (e.g. via `axdevice --set-power-limit`) now matches values reported by `axmonitor` at runtime. Previously, reported values could clamp below the configured limit.
+    - Default power limit setting is changed from 11 W to 8.5 W (see [Metis Hardware](#metis-hardware)).
+- Fixed performance degradation when writing output video to disk. Multi-stream video output can now be written without throughput drop, including cases with uneven per-stream frame distribution.
+- Fixed multiple-pipelines example to work with USB/video sources.
+- Fix for `libaxldev` "Failed to detach int ioctl" errors on some ARM hosts.
+- Fixed `axmonitor` to report the correct Avg/Min/Max power from the on-board power sensor on 4-chip PCIe cards.
+- Restored the `--transform` option of `axcompile`.
+- Fixed OpenCL paths producing out-of-bounds reads/writes when the upstream element passes multi-memory `gst_memory` buffers from `OpenCLAllocator`.
+- Fixed the Face-recognition pipeline which was failing with "Failed to set kernel argument 7, Invalid arg size".
+- Fixed segmentation fault at end of inference with tiled inference on 4-chip PCIe with multiple streams.
+- Fixed error case on Windows where `axrunmodel yolox-x-crowdhuman-onnx` triggered "AssertionError: Arrays are not equal".
+- Fixed accuracy testing on private datasets where the `.ax_dataset_complete` stamp was not being created.
+- Fixed the examples `cross_line_count.py` and `remote_cross_line_monitor.py` terminal hangs when the display window was closed via the X button.
+- Fixed OpenGL renderer failing on NV16 image sources; corrected rendering for YUY2 and grayscale sources.
+- Fixed `render_to_wx.py` performance; previously it was extremely slow (~4 min when deploying a model) when adding a stream.
+- Removed the examples `examples/stream_select.py` and `examples/multiple_pipeline.py` in favour of `render_to_wx.py`.
+- Fixed multiple semantic segmentation issues: gst-path thresholding on multi-class segmentation, incorrect output-tensor transpose and dataloader sizes on single-class segmentation, incorrect default sigmoid in the gst decoder, "Invalid Value" being printed for a valid accuracy_mean, missing prediction field in binary segmentation, and a missing resize in preprocessing.
+- Fixed blank streams when saving the output of multiple streams; sources beyond the first were saved as blank due to a source-ID mismatch in the save-output draw.
+- Fixed `pipeline.add_source` failing because of a stale reference to a legacy env var.
+- Fixed architecture detection when building operators on Debian 12.
+- Fixed firmware upgrade on Raspberry Pi 5 with Metis M.2.
+
+### New Features / Support Since v1.6.0
+
+#### Windows
+
+- Performance improvements in the PCIe driver for Windows and in `libaxldev`, closing the gap with Linux.
+- Improved logging and tracing infrastructure for higher-resolution tracing and higher stability, including a utility for viewing traces.
+- **\[Breaking change\] Driver compatibility**: Voyager SDK on Windows now requires Metis Driver 1.3.2 or newer. Drivers v1.3.1 and earlier are no longer supported. This release ships with Windows driver 1.3.11.
+
+#### Metis Hardware
+
+- **Metis M.2 Max host dependent setting:** When using a Metis M.2 Max card, the closed loop power control is enabled with a default power limit of 8.5 W. This default value is biased towards the average workstation host PC. When paired with hosts which are compliant with PCIe SIG M.2 Specification Revision 4.0 power rating or higher, increasing the power limit setting results in potential performance gains. Users are recommended to experiment in steps of 0.1 W up to 11 W. On the other hand, configuring the power limit setting to a lower value enables M.2 Max in power-constrained hosts by trading off performance e.g. a power limit setting of 4 W when paired with embedded SBCs.
+- Metis PCIe Rev.2 boards with **2 GB** and **8 GB** DDR memory configurations are now supported.
+
+#### Pipeline Builder
+
+- `axstreamer` VideoDecode now supports automatic colour format selection (`color_format=auto`), enabling the decoder to select its native output format. This avoids unnecessary colour conversions and enables fusion of colour-convert into resize operators.
+- Added support for downstream OpenCL-based Resize and Colour Conversion plugins for I420-formatted images.
+
+#### Tools
+
+- `axrunmodel` now displays a live progress bar when stdin is a TTY (via `alive_progress`).
+
+### Document Updates Since v1.6.0
+
+- New documentation portal launched at [docs.axelera.ai](https://docs.axelera.ai/), covering Voyager SDK and all Axelera AI hardware products.
 
 ## Voyager SDK release notes v1.6.0
 

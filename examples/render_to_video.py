@@ -10,11 +10,17 @@ This demo shows how to:
 
 from __future__ import annotations
 
+import os
 import queue
+import sys
 import threading
 import time
-
 from axelera import types
+
+if __name__ == '__main__':
+    # Application Framework is not a package, so add it to the path to import it
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
 from axelera.app import create_inference_stream, display, config
 
 framework = config.env.framework
