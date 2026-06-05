@@ -13,7 +13,7 @@
     - [Release Qualification](#release-qualification)
     - [New Features / Support](#new-features--support)
         - [New Axelera AI Cards and Systems](#new-axelera-ai-cards-and-systems)
-        - [New Platforms](#new-platforms)
+        - [Host Platform Support](#host-platform-support)
         - [New Networks Supported](#new-networks-supported)
             - [New models for Object Detection](#new-models-for-object-detection)
             - [New models for Instance Segmentation](#new-models-for-instance-segmentation)

@@ -21,7 +21,7 @@ To tune this demo, follow these steps
 
 For conferences, we generally use the following command to run this demo:\
 `./examples/demos/8k_demo.py ${video_source} --tiled 960 --window fullscreen --show-tiles --no-show-host-fps --no-show-cpu-usage`. \
-Your camera's user manual shows how to connect to the rtsp stream of your camera. For usb cameras, simply use the `usb:x` source, where `x` is your camera number. Refer to our [video_sources](/docs/tutorials/video_sources.md) tutorial for more information.
+Your camera's user manual shows how to connect to the rtsp stream of your camera. For usb cameras, simply use the `usb:x` source, where `x` is your camera number. Refer to our [video_sources](../../../docs/tutorials/video-sources.md) tutorial for more information.
 
 The `--show-tiles` option shows the tiles on the screen. While the screen may be a rectangular shape, the tiles follow the shape of the model (square for square models, 16/9 for 16/9 models, etc.). Therefore, the tiles may overlap somewhat in either horizontal or vertical (or both) direction. You can force this behavior by using the `--tile-overlap x` flag, where `x` specifies the minimum amount of overlap as a percentage.
 

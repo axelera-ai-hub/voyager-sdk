@@ -1,4 +1,4 @@
-![](/docs/images/Ax_Page_Banner_2500x168_01.png)
+![](../../../docs/images/Ax_Page_Banner_2500x168_01.png)
 # Advanced model and pipeline deployment [Experimental]
 
 - [Advanced model and pipeline deployment \[Experimental\]](#advanced-model-and-pipeline-deployment-experimental)
@@ -42,6 +42,7 @@
       - [Implementing a Custom DataAdapter](#implementing-a-custom-dataadapter)
       - [types.BaseEvalSample](#typesbaseevalsample)
     - [The other built-in DataAdapter](#the-other-built-in-dataadapter)
+    - [Deploying with Existing Calibration Data](#deploying-with-existing-calibration-data)
     - [Takeaways](#takeaways-3)
     - [Appendix](#appendix-1)
   - [Tutorial-5: Building End-to-End GStreamer Pipelines](#tutorial-5-building-end-to-end-gstreamer-pipelines)
@@ -85,10 +86,10 @@ The following tutorials explain experimental advanced model and pipeline deploym
 
 To get familiar with Axelera YAML and build your applications, we provide a tutorial series that guides you through the entire process of deploying your model on the Metis platform. You'll learn how to measure its performance on the AIPU and create a high-performance, end-to-end pipeline without sacrificing accuracy. By the end of the series, you’ll be equipped to build your own optimized pipelines with any model.
 
-- If your model is a **PyTorch model**, start with [t0-prepare-your-torch.md](/ax_models/tutorials/torch/t0-prepare-your-torch.md).
-- If your model is an **ONNX model** or can be converted to ONNX, begin with [t0-prepare-your-onnx.md](/ax_models/tutorials/onnx/t0-prepare-your-onnx.md). This tutorial also covers how to convert models from various frameworks to ONNX.
+- If your model is a **PyTorch model**, start with [t0-prepare-your-torch.md](../../../ax_models/tutorials/torch/t0-prepare-your-torch.md).
+- If your model is an **ONNX model** or can be converted to ONNX, begin with [t0-prepare-your-onnx.md](../../../ax_models/tutorials/onnx/t0-prepare-your-onnx.md). This tutorial also covers how to convert models from various frameworks to ONNX.
 
-Both versions include a **tutorial-1** to help you deploy your model. From **tutorial-2** onward, all tutorials are consolidated in the `tutorials/general/` directory, with an introduction in [tutorials.md](/ax_models/tutorials/general/tutorials.md). While ONNX models are used as examples, the concepts and techniques are fully applicable to PyTorch models as well. The tutorial series will guide you through:
+Both versions include a **tutorial-1** to help you deploy your model. From **tutorial-2** onward, all tutorials are consolidated in the `tutorials/general/` directory, with an introduction in [tutorials.md](../../../ax_models/tutorials/general/tutorials.md). While ONNX models are used as examples, the concepts and techniques are fully applicable to PyTorch models as well. The tutorial series will guide you through:
 
 1. **Getting Started with Model Deployment**
    - *Key Concepts Covered:* `types.Model`, preprocess function
@@ -226,8 +227,8 @@ in the YAML `models` section without any additional coding.
 The `types.DataAdapter` and `types.Evaluator` are designed to **wrap your existing implementations**, not force you to reimplement everything. This allows you to perform **apple-to-apple benchmarking** with minimal effort.
 
 For further reference, check:
-- [ax_datasets/mmseg.py](/ax_datasets/mmseg.py) for dataset wrapping examples.
-- [ax_evaluators/mmlab.py](/ax_evaluators/mmlab.py) for evaluator wrapping examples.
+- [ax_datasets/mmseg.py](../../../ax_datasets/mmseg.py) for dataset wrapping examples.
+- [ax_evaluators/mmlab.py](../../../ax_evaluators/mmlab.py) for evaluator wrapping examples.
 
 By following the tutorials, you will gain a deeper understanding of these components, learn how to leverage these built-in tools effectively, and discover how to contribute to the ecosystem by building your own plugins to integrate with your framework.
 
@@ -236,8 +237,8 @@ By following the tutorials, you will gain a deeper understanding of these compon
 
 The tutorial files are organized as follows:
 
-- YAMLs, Python files, and the `tutorials.md` file are located in the [ax_models/tutorials/](/ax_models/tutorials/) directory.
-- C++ files are located in the [customers/tutorials/](/customers/tutorials/) directory.
+- YAMLs, Python files, and the `tutorials.md` file are located in the [ax_models/tutorials/](../../../ax_models/tutorials/) directory.
+- C++ files are located in the [customers/tutorials/](../../../customers/tutorials/) directory.
 
 For your own projects, we recommend creating a dedicated folder within the `customers` directory, especially if you plan to develop custom C++ plugins. Our C/C++ build system automatically scans the `customers` folder for valid `CMakeLists.txt` files that use our helper functions. By placing your source code in a dedicated folder, you can easily reuse your work across SDK versions by simply copying your folder into the updated environment. This folder can include:
 
@@ -260,8 +261,8 @@ The `AXELERA_FRAMEWORK` environment variable points to the root of the Voyager S
 This tutorial introduces the fundamental structure of Axelera YAML files, which are essential for defining and deploying models on the Axelera platform. We will then walk through an example of deploying a single model. 
 
 Before starting this tutorial ensure you have completed Tutorial 0.
-- If your model is a **PyTorch model**, start with [t0-prepare-your-torch.md](/ax_models/tutorials/torch/t0-prepare-your-torch.md).
-- If your model is an **ONNX model** or can be converted to ONNX, begin with [t0-prepare-your-onnx.md](/ax_models/tutorials/onnx/t0-prepare-your-onnx.md). This tutorial also covers how to convert models from various frameworks to ONNX.
+- If your model is a **PyTorch model**, start with [t0-prepare-your-torch.md](../../../ax_models/tutorials/torch/t0-prepare-your-torch.md).
+- If your model is an **ONNX model** or can be converted to ONNX, begin with [t0-prepare-your-onnx.md](../../../ax_models/tutorials/onnx/t0-prepare-your-onnx.md). This tutorial also covers how to convert models from various frameworks to ONNX.
 
 ### YAML File Structure
 A valid Axelera YAML file must include the following six sections + an optional section:
@@ -293,7 +294,7 @@ The `axelera-model-format` field is used for backward compatibility. This versio
 
 ### Deploying a Single Model
 
-The YAML file for tutorial-1 can be found at [ax_models/tutorials/onnx/t1-simplest-onnx.yaml](/ax_models/tutorials/onnx/t1-simplest-onnx.yaml). The `pipeline` section is set to `null`, indicating that we are deploying a single model without a pipeline. Below is the `models` section from the YAML file:
+The YAML file for tutorial-1 can be found at [ax_models/tutorials/onnx/t1-simplest-onnx.yaml](../../../ax_models/tutorials/onnx/t1-simplest-onnx.yaml). The `pipeline` section is set to `null`, indicating that we are deploying a single model without a pipeline. Below is the `models` section from the YAML file:
 
 ```yaml
 models:
@@ -309,13 +310,13 @@ models:
     extra_kwargs:
 ```
 
-When deploying an ONNX model, you must implement a subclass of `types.ONNXModel` to load the ONNX model specified in the `weight_path` of the YAML file into the `self.onnx_model` attribute. In this example, the model is implemented in [simplest_onnx.py](/ax_models/tutorials/onnx/simplest_onnx.py), located alongside the YAML file, and the subclass name is `CustomONNXModel`. You can define your own class name as long as it subclasses `types.ONNXModel` and specify the `class_path` as either a relative or absolute path to the file.
+When deploying an ONNX model, you must implement a subclass of `types.ONNXModel` to load the ONNX model specified in the `weight_path` of the YAML file into the `self.onnx_model` attribute. In this example, the model is implemented in [simplest_onnx.py](../../../ax_models/tutorials/onnx/simplest_onnx.py), located alongside the YAML file, and the subclass name is `CustomONNXModel`. You can define your own class name as long as it subclasses `types.ONNXModel` and specify the `class_path` as either a relative or absolute path to the file.
 
 To simplify implementation, we provide the `base_onnx.AxONNXModel` helper class, which includes the `init_model_deploy` function. This function automatically loads the ONNX model path from `types.ModelInfo` and assigns it to the `self.onnx_model` attribute. The `ModelInfo` class encapsulates the model information declared in the YAML file, including parameters like `task_category`, `input_tensor_layout`, `input_tensor_shape`, `input_color_format`, `weight_path` and `dataset`. We suggest studying extra_kwargs in conjunction with ModelInfo after completing this tutorial to avoid distractions for now. For more details, refer to the [extra_kwargs section](#extra_kwargs-in-yaml-models-section).
 
 
 **Implementing Preprocessing:**
-You can use [simplest_onnx.py](/ax_models/tutorials/onnx/simplest_onnx.py) as a foundation to implement your own `override_preprocess` function, which is responsible for converting input data into a `torch.Tensor` that matches the requirements of the ONNX/PyTorch model. This function should encapsulate all necessary preprocessing steps, such as resizing, normalization and format conversion, to ensure the input data aligns with the model's expected input shape and format. In most cases, your existing codebase may already include preprocessing logic implemented using `torchvision.transforms`. You can adapt this logic by integrating it into the `override_preprocess` function. The function takes a `PIL.Image.Image` or `np.ndarray` as input, following the conventions of `torchvision`, and applies the defined transformations to produce a properly formatted tensor as output. This ensures compatibility with the ONNX/PyTorch model while maintaining flexibility for customization.
+You can use [simplest_onnx.py](../../../ax_models/tutorials/onnx/simplest_onnx.py) as a foundation to implement your own `override_preprocess` function, which is responsible for converting input data into a `torch.Tensor` that matches the requirements of the ONNX/PyTorch model. This function should encapsulate all necessary preprocessing steps, such as resizing, normalization and format conversion, to ensure the input data aligns with the model's expected input shape and format. In most cases, your existing codebase may already include preprocessing logic implemented using `torchvision.transforms`. You can adapt this logic by integrating it into the `override_preprocess` function. The function takes a `PIL.Image.Image` or `np.ndarray` as input, following the conventions of `torchvision`, and applies the defined transformations to produce a properly formatted tensor as output. This ensures compatibility with the ONNX/PyTorch model while maintaining flexibility for customization.
 
 ```python
 class CustomONNXModel(base_onnx.AxONNXModel):
@@ -376,7 +377,7 @@ On Metis, there are 4 cores available. You can use multiple cores in two ways:
 2. **Multi-Core**:
    Deploy with `./deploy.py t1-simplest-onnx --aipu-cores=<number>` and infer with the same number of cores. The number of cores must not exceed 4 and should be an integer multiple of the deployment cores. This method may offer better performance for certain models.
 
-For multi-core deployment, the portable model will be located in `build/t1-simplest-onnx/model1/<number>`. Alongside the `model.json` file, you will find the `manifest.json` file, which contains deployment details such as input/output tensor shapes, quantization and padding. The manifest will be loaded as TensorInfo. See its usages in [Python example](/examples/axruntime/axruntime_example.py) and [C++ example](/examples/axruntime/axruntime_example.cpp).
+For multi-core deployment, the portable model will be located in `build/t1-simplest-onnx/model1/<number>`. Alongside the `model.json` file, you will find the `manifest.json` file, which contains deployment details such as input/output tensor shapes, quantization and padding. The manifest will be loaded as TensorInfo. See its usages in [Python example](../../../examples/axruntime/python/axruntime_quickstart.py) and [C++ example](../../../examples/axruntime/axruntime_example.cpp).
 
 
 **Notes on Multiple Models Deployment:**
@@ -394,7 +395,7 @@ For multi-core deployment, the portable model will be located in `build/t1-simpl
 
 ### PyTorch path
 
-The YAML file for PyTorch models is located at [ax_models/tutorials/torch/t1-simplest-pytorch.yaml](/ax_models/tutorials/torch/t1-simplest-pytorch.yaml). The main differences are:
+The YAML file for PyTorch models is located at [ax_models/tutorials/torch/t1-simplest-pytorch.yaml](../../../ax_models/tutorials/torch/t1-simplest-pytorch.yaml). The main differences are:
 
 ```yaml
 models:
@@ -421,14 +422,14 @@ Additionally, the `weight_path` points to a `.pt` file instead of an ONNX file. 
 
 ### Appendix
 
-This tutorial assumes that the model you want to deploy is either not supported by the Axelera model-zoo or you want to learn the Voyager SDK from scratch. If you are using a model-zoo model with your own weights, the best approach is to copy the YAML file and replace the weights. For more details, refer to the [custom weights tutorial](/docs/tutorials/custom_weights.md) and the examples in [yolov8n-weapons-and-knives.yaml](/ax_models/tutorials/yolo/yolov8n-weapons-and-knives.yaml) and [yolov8n-license-plate.yaml](/ax_models/tutorials/yolo/yolov8n-license-plate.yaml).
+This tutorial assumes that the model you want to deploy is either not supported by the Axelera model-zoo or you want to learn the Voyager SDK from scratch. If you are using a model-zoo model with your own weights, the best approach is to copy the YAML file and replace the weights. For more details, refer to the [custom weights tutorial](../../../docs/tutorials/custom-weights.md) and the examples in [yolov8n-weapons-and-knives.yaml](../../../ax_models/tutorials/yolo/yolov8n-weapons-and-knives.yaml) and [yolov8n-license-plate.yaml](../../../ax_models/tutorials/yolo/yolov8n-license-plate.yaml).
 
 
 #### `extra_kwargs` in YAML models Section
 
-The `extra_kwargs` field allows you to pass additional arguments to the model, making it useful for providing custom parameters to initialize your model or for configurations of runtime and compilation. In this example, the field is left empty. For more details on how to use this field for custom compilation, refer to the [Compiler Configuration Parameters](/docs/reference/compiler_configs.md) documentation. 
+The `extra_kwargs` field allows you to pass additional arguments to the model, making it useful for providing custom parameters to initialize your model or for configurations of runtime and compilation. In this example, the field is left empty. For more details on how to use this field for custom compilation, refer to the [Compiler Configuration Parameters](../../../docs/reference/compiler/compiler-configs.md) documentation. 
 
-To see how `extra_kwargs` can be used for model initialization, refer to the [/ax_models/model_cards/timm/resnet10t-imagenet.yaml](/ax_models/zoo/timm/resnet10t-imagenet.yaml) file, which includes the following configuration:
+To see how `extra_kwargs` can be used for model initialization, refer to the [/ax_models/model_cards/timm/resnet10t-imagenet.yaml](../../../ax_models/zoo/timm/resnet10t-imagenet.yaml) file, which includes the following configuration:
 
 ```yaml
 extra_kwargs:
@@ -436,7 +437,7 @@ extra_kwargs:
     name: resnet10t.c3_in1k
 ```
 
-In the `AxTimmModel` class (located in [ax_models/torch/ax_timm.py](/ax_models/torch/ax_timm.py)), this field is accessed as follows:
+In the `AxTimmModel` class (located in [ax_models/torch/ax_timm.py](../../../ax_models/torch/ax_timm.py)), this field is accessed as follows:
 
 ```python
 model_name = YAML.attribute(timm_model_args, 'name')
@@ -459,7 +460,7 @@ A "Task" in this context is a combination of:
 3. (Optional) Pre-processing operators (if `override_preprocess` is not implemented in the model)
 4. Post-processing operators
 
-Below is an example snippet of the `pipeline` section from the YAML file located at [ax_models/tutorials/general/t2-learn-axoperator.yaml](/ax_models/tutorials/general/t2-learn-axoperator.yaml)
+Below is an example snippet of the `pipeline` section from the YAML file located at [ax_models/tutorials/general/t2-learn-axoperator.yaml](../../../ax_models/tutorials/general/t2-learn-axoperator.yaml)
 
 ```yaml
 pipeline:
@@ -515,7 +516,7 @@ This method constructs the GStreamer pipeline using either general GStreamer ele
 
 The following figure illustrates the three pipeline types. A pipeline is constructed as a sequence of `AxOperators`, with `Model Inference` being a special built-in `AxOperator` that is automatically included in the pipeline. 
 
-![pipe_types](/ax_models/tutorials/general/images/pipe_types.png)
+![pipe_types](../../../ax_models/tutorials/general/images/pipe_types.png)
 
 Below is a summary of how the inference operator behaves across the three pipeline types:
 
@@ -538,7 +539,7 @@ operators:
     class: TopKDecoder
     class_path: tutorial_decoders.py
 ```
-Here, `class: TopKDecoder` and `class_path: tutorial_decoders.py` inform the pipeline that whenever `my_topk_decoder` is referenced (as it is in the postprocess section), the `TopKDecoder` class implemented in the file [tutorial_decoders.py](/ax_models/tutorials/general/tutorial_decoders.py) should be used.
+Here, `class: TopKDecoder` and `class_path: tutorial_decoders.py` inform the pipeline that whenever `my_topk_decoder` is referenced (as it is in the postprocess section), the `TopKDecoder` class implemented in the file [tutorial_decoders.py](../../../ax_models/tutorials/general/tutorial_decoders.py) should be used.
 
 #### Example: *TopKDecoder* Implementation
 
@@ -664,7 +665,7 @@ models:
     weight_path: ~/.cache/axelera/weights/tutorials/resnet34_fruits360.pth
 ```
 
-Uncomment the 3 lines for PyTorch in [t2-learn-axoperator.yaml](/ax_models/tutorials/general/t2-learn-axoperator.yaml) and comment out the 3 lines pointing to the ONNX path. After that, you can redeploy and run inference with the model.
+Uncomment the 3 lines for PyTorch in [t2-learn-axoperator.yaml](../../../ax_models/tutorials/general/t2-learn-axoperator.yaml) and comment out the 3 lines pointing to the ONNX path. After that, you can redeploy and run inference with the model.
 
 ### Takeaways
 
@@ -685,7 +686,7 @@ In [Tutorial-2: Inspecting the Model Pipeline and Measuring Model Performance](#
 
 `AxTaskMeta` is the base class which provides a container for model inference results. It abstracts the inference results into a unified format so that developers can retrieve and visualize them easily—without delving into pipeline internals. It also aligns well with in-house CV and GL components in the Voyager SDK for displaying or further processing the inference outcomes.
 
-In this tutorial, we introduce [t3-learn-axtaskmeta.yaml](/ax_models/tutorials/general/t3-learn-axtaskmeta.yaml), which is very similar to [t2-learn-axoperator.yaml](/ax_models/tutorials/general/t2-learn-axoperator.yaml) except for two key differences:
+In this tutorial, we introduce [t3-learn-axtaskmeta.yaml](../../../ax_models/tutorials/general/t3-learn-axtaskmeta.yaml), which is very similar to [t2-learn-axoperator.yaml](../../../ax_models/tutorials/general/t2-learn-axoperator.yaml) except for two key differences:
 
 1. We replace the `TopKDecoder` (postprocess operator) with a `TopKDecoderOutputMeta` implementation that populates results into `AxTaskMeta`.
 2. We add a `labels_path` entry in the `datasets` section that points to the `fruits360.names` file. This file contains the dataset labels, used here to populate the `AxTaskMeta` with human-readable class names.
@@ -959,9 +960,9 @@ Before deploying a model to production, it can be crucial to evaluate its accura
 
 We will use two YAML configuration files to demonstrate the process:
 
-- [t4.1-measurement-with-meta.yaml](/ax_models/tutorials/general/t4.1-measurement-with-meta.yaml): Uses a built-in `TorchvisionDataAdapter` to load the Fruits360 dataset and measure accuracy.
-- [t4.2-dataadapter.yaml](/ax_models/tutorials/general/t4.2-dataadapter.yaml): Demonstrates how to build your own `DataAdapter` to load the same dataset and measure accuracy.
-- [t4.3-deploy-with-cal-data.yaml](/ax_models/tutorials/general/t4.3-deploy-with-cal-data.yaml): An example demonstrating how to deploy a model with calibration data.
+- [t4.1-measurement-with-meta.yaml](../../../ax_models/tutorials/general/t4.1-measurement-with-meta.yaml): Uses a built-in `TorchvisionDataAdapter` to load the Fruits360 dataset and measure accuracy.
+- [t4.2-dataadapter.yaml](../../../ax_models/tutorials/general/t4.2-dataadapter.yaml): Demonstrates how to build your own `DataAdapter` to load the same dataset and measure accuracy.
+- [t4.3-deploy-with-cal-data.yaml](../../../ax_models/tutorials/general/t4.3-deploy-with-cal-data.yaml): An example demonstrating how to deploy a model with calibration data.
 
 ### Building End-to-End GStreamer Pipelines
 
@@ -973,7 +974,7 @@ To measure the accuracy of your model using the Fruits360 dataset, run the follo
 
 This process may take some time. During execution, you will see progress updates in the console:
 
-![Progress of the measurement](/ax_models/tutorials/general/images/measurement.png)
+![Progress of the measurement](../../../ax_models/tutorials/general/images/measurement.png)
 
 Once the measurement is complete, you will see a summary like this:
 
@@ -1017,7 +1018,7 @@ The accuracy on AIPU is very close to the FP32 accuracy. This is because the Voy
 
 #### YAML Configuration Breakdown
 
-Let’s take a closer look at [t4.1-measurement-with-meta.yaml](/ax_models/tutorials/general/t4.1-measurement-with-meta.yaml). The first difference is that we explicitly set the `num_classes` in the `models` section:
+Let’s take a closer look at [t4.1-measurement-with-meta.yaml](../../../ax_models/tutorials/general/t4.1-measurement-with-meta.yaml). The first difference is that we explicitly set the `num_classes` in the `models` section:
 
 ```yaml
     num_classes: 141
@@ -1062,7 +1063,7 @@ The advantage of the built-in DataAdapter with YAML configuration is that it eli
 
 ### Custom DataAdapter
 
-Let’s examine [t4.2-dataadapter.yaml](/ax_models/tutorials/general/t4.2-dataadapter.yaml). The key difference is that it points the dataset to `Custom-Fruits360`, which utilizes `CustomDataAdapter` instead of `Fruits360`. Now, let’s proceed to run the measurement using the `torch-aipu` backend:
+Let’s examine [t4.2-dataadapter.yaml](../../../ax_models/tutorials/general/t4.2-dataadapter.yaml). The key difference is that it points the dataset to `Custom-Fruits360`, which utilizes `CustomDataAdapter` instead of `Fruits360`. Now, let’s proceed to run the measurement using the `torch-aipu` backend:
 
 ```bash
 ./inference.py t4.2-dataadapter dataset --pipe=torch-aipu --no-display
@@ -1078,7 +1079,7 @@ The slight difference is due to the calibration process, which is not always ide
 
 #### Implementing a Custom DataAdapter
 
-The `CustomDataAdapter` is a user-defined implementation of a `DataAdapter`, designed to load and prepare datasets for evaluation. It is implemented in the file [tutorial_data_adapter.py](/ax_models/tutorials/general/tutorial_data_adapter.py). To create a custom DataAdapter, you need to implement four key methods. Below, we will walk through these methods step by step.
+The `CustomDataAdapter` is a user-defined implementation of a `DataAdapter`, designed to load and prepare datasets for evaluation. It is implemented in the file [tutorial_data_adapter.py](../../../ax_models/tutorials/general/tutorial_data_adapter.py). To create a custom DataAdapter, you need to implement four key methods. Below, we will walk through these methods step by step.
 
 1. Initializing the `DataAdapter`
 
@@ -1203,7 +1204,7 @@ As you may recall from sections 4.1 and 4.2, we specified the representative ima
 
 A common scenario is when you already have a calibration or training dataset that was used during model training. In such cases, rather than preparing a separate set of representative images, you can leverage the existing dataset using the `cal_data` parameter in the YAML configuration file.
 
-To implement this approach, refer to [t4.3-deploy-with-cal-data.yaml](/ax_models/tutorials/general/t4.3-deploy-with-cal-data.yaml), where we replace `repr_imgs_dir_path` with `cal_data`:
+To implement this approach, refer to [t4.3-deploy-with-cal-data.yaml](../../../ax_models/tutorials/general/t4.3-deploy-with-cal-data.yaml), where we replace `repr_imgs_dir_path` with `cal_data`:
 
 ```yaml
   Custom-Fruits360:
@@ -1313,7 +1314,7 @@ For embedded or application engineers, the Voyager Model-Zoo is a reliable, prod
 
 We have now verified a qualified model running on the AIPU platform. The next step is to deploy the model as a high-performance, end-to-end C/C++ pipeline, making it production-ready.
 
-First, let’s examine the file [t5-gst-pipeline.yaml](/ax_models/tutorials/general/t5-gst-pipeline.yaml), specifically the model section. For this pipeline, we don’t need a custom `CustomONNXModel` because the base model `AxONNXModel` is sufficient. The `override_preprocess` method is not required here.
+First, let’s examine the file [t5-gst-pipeline.yaml](../../../ax_models/tutorials/general/t5-gst-pipeline.yaml), specifically the model section. For this pipeline, we don’t need a custom `CustomONNXModel` because the base model `AxONNXModel` is sufficient. The `override_preprocess` method is not required here.
 
 ```yaml
   model1:
@@ -1338,7 +1339,7 @@ transforms.Compose([
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
 ])
 ```
-In the YAML pipeline, we can use the built-in AxOperators to replicate the functionality of custom transforms (override_preprocess). Refer to the [YAML Operator](/docs/reference/yaml_operators.md) to see the list of supported operators in YAML.
+In the YAML pipeline, we can use the built-in AxOperators to replicate the functionality of custom transforms (override_preprocess). Refer to the [YAML Operator](../../../docs/reference/pipeline/yaml-operators.md) to see the list of supported operators in YAML.
 
 ```yaml
 preprocess:
@@ -1445,7 +1446,7 @@ In the previous tutorial, we ran a GStreamer pipeline using the default tensor d
 
 In Tutorial 2, we already implemented a **custom decoder** in Python. The goal of this tutorial is to do the decoding inside of the GStreamer pipeline. No knowledge of GStreamer is required. The C++ code you write will be compiled into a **shared library** file that is loaded by GStreamer plugins.
 
-The description of the interfaces designed to exchange data between your custom code and GStreamer can be found in the [pipeline operator reference](/docs/reference/pipeline_operators.md). At least the function `decode_to_meta` must be defined in the source code file that will be compiled into the shared library.
+The description of the interfaces designed to exchange data between your custom code and GStreamer can be found in the [pipeline operator reference](../../../docs/reference/pipeline/pipeline-basics.md). At least the function `decode_to_meta` must be defined in the source code file that will be compiled into the shared library.
 
 ```cpp
 extern "C" void
@@ -1464,9 +1465,9 @@ decode_to_meta(const AxTensorsInterface &tensors,
 }
 ```
 
-The first parameter is the output of the model. The interface used to access the tensor stored in GStreamer is described in the [reference document for AxDataInterface](/docs/reference/pipeline_operators.md#axdatainterface). In our case, there is only one tensor, we can get its total number of elements and then loop over all of them to find the position of the largest value, which gives us the top class ID.
+The first parameter is the output of the model.  In our case, there is only one tensor, we can get its total number of elements and then loop over all of them to find the position of the largest value, which gives us the top class ID.
 
-We would like to pass the result of the decoder to the Python code (e.g. for measurements) or to another GStreamer element. To achieve both of this, we have to **store the result** in the unordered [meta map](/docs/reference/pipeline_operators.md#axmetamap), which is the fifth parameter of `decode_to_meta`. The values inside the map are objects with the base class `AxMetaBase`. Classes to store the results already exist in the application framework for the most common network types. For those C++ classes, corresponding `AxTaskMeta` classes exist in the Python code. In our example, [AxMetaClassification](/operators/axstreamer/include/AxMetaClassification.hpp) is appropriate. We can use the helper function `insert_meta` to construct an instance of this class inside of the meta map.
+We would like to pass the result of the decoder to the Python code (e.g. for measurements) or to another GStreamer element. To achieve both of this, we have to **store the result** in the unordered meta map, which is the fifth parameter of `decode_to_meta`. The values inside the map are objects with the base class `AxMetaBase`. Classes to store the results already exist in the application framework for the most common network types. For those C++ classes, corresponding `AxTaskMeta` classes exist in the Python code. In our example, [AxMetaClassification](../../../operators/axstreamer/include/AxMetaClassification.hpp) is appropriate. We can use the helper function `insert_meta` to construct an instance of this class inside of the meta map.
 
 ```cpp
   ax_utils::insert_meta<AxMetaClassification>(map, "classifier", {}, 0, 1,
@@ -1479,7 +1480,7 @@ The first parameter of `insert_meta` is the meta map. The second one is the key 
 
 ### Compile as a Shared Library
 
-In order to run the decoder above, we have to **compile** the code into a shared library and implement the function `build_gst` in the Python decoder file. The source code of the C++ decoder for this part of the tutorial can be found in [customers/tutorials/src/decode_tu6a.cc](/customers/tutorials/src/decode_tu6a.cc). To compile this C++ file, first add it to [customers/tutorials/CMakeLists.txt](/customers/tutorials/CMakeLists.txt).
+In order to run the decoder above, we have to **compile** the code into a shared library and implement the function `build_gst` in the Python decoder file. The source code of the C++ decoder for this part of the tutorial can be found in [customers/tutorials/src/decode_tu6a.cc](../../../customers/tutorials/src/decode_tu6a.cc). To compile this C++ file, first add it to [customers/tutorials/CMakeLists.txt](../../../customers/tutorials/CMakeLists.txt).
 
 ```cmake
 add_customer_libraries(tutorials
@@ -1490,7 +1491,7 @@ add_customer_libraries(tutorials
 
 After that, run the command `make operators`. This command will compile all built-in GStreamer plugins located in the `operators` directory. Additionally, it will iterate through the `customers` folder to check for a valid CMakeLists.txt file that uses our helper functions. In this example, since the source file is named `decode_tu6a.cc`, the resulting library will be generated as `libdecode_tu6a.so`. If you encounter any errors during compilation, resolve them and rerun `make operators`. If you need to clean up all existing artifacts for a fresh build, you can use the `make clobber-libs` command. Now, let’s explore how to integrate this library into our pipeline builder.
 
-We now implement the function `build_gst` in `class TopKDecoderWithMySimplifiedGstPlugin` of the Python decoder file [ax_models/tutorials/general/tutorial_decoders.py](/ax_models/tutorials/general/tutorial_decoders.py). Remember that we specified this path in the YAML file. The Python code below makes sure that the GStreamer element for decoding loads the shared library resulting from the compilation above. We just have to assign the filename to the lib property.
+We now implement the function `build_gst` in `class TopKDecoderWithMySimplifiedGstPlugin` of the Python decoder file [ax_models/tutorials/general/tutorial_decoders.py](../../../ax_models/tutorials/general/tutorial_decoders.py). Remember that we specified this path in the YAML file. The Python code below makes sure that the GStreamer element for decoding loads the shared library resulting from the compilation above. We just have to assign the filename to the lib property.
 
 ```python
 def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
@@ -1505,7 +1506,7 @@ If we have compiled our C++ decoder correctly, we can now use it in the GStreame
 
 ### Add Properties
 
-In our YAML files from previous tutorials, we specified **options** for the Python decoder, e.g. we assigned the number 3 for `k` so that the top 3 results are returned. In the following, we want to pass those options to our C++ decoder as well. As a first step, we adapt the function `build_gst` of `class TopKDecoderWithMyGstPlugin` in the Python decoder file [ax_models/tutorials/general/tutorial_decoders.py](/ax_models/tutorials/general/tutorial_decoders.py).
+In our YAML files from previous tutorials, we specified **options** for the Python decoder, e.g. we assigned the number 3 for `k` so that the top 3 results are returned. In the following, we want to pass those options to our C++ decoder as well. As a first step, we adapt the function `build_gst` of `class TopKDecoderWithMyGstPlugin` in the Python decoder file [ax_models/tutorials/general/tutorial_decoders.py](../../../ax_models/tutorials/general/tutorial_decoders.py).
 
 ```python
 def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
@@ -1516,7 +1517,7 @@ def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
     )
 ```
 
-Notice that we also pass the task name via the option `meta_key`. Inside of the C++ source file [customers/tutorials/src/decode_tu6b.cc](/customers/tutorials/src/decode_tu6b.cc) we can then use it as the key into the meta map in the helper function `insert_meta`. As a consequence, if we change the task name in our YAML, the changes will be reflected in C++ as well without recompiling.
+Notice that we also pass the task name via the option `meta_key`. Inside of the C++ source file [customers/tutorials/src/decode_tu6b.cc](../../../customers/tutorials/src/decode_tu6b.cc) we can then use it as the key into the meta map in the helper function `insert_meta`. As a consequence, if we change the task name in our YAML, the changes will be reflected in C++ as well without recompiling.
 
 We have to store the options inside C++ somehow. To do this, first we declare a struct.
 
@@ -1528,7 +1529,7 @@ struct classification_properties
 }
 ```
 
-After that we have to define two function with the signatures described in the [reference](/docs/reference/pipeline_operators.md#subplugin-source-code), see [customers/tutorials/src/decode_tu6b.cc](/customers/tutorials/src/decode_tu6b.cc).
+After that we have to define two functions with the signatures shown below, see [customers/tutorials/src/decode_tu6b.cc](../../../customers/tutorials/src/decode_tu6b.cc).
 The keywords must be registered in the function `allowed_properties`.
 
 ```cpp
@@ -1580,7 +1581,7 @@ AxMetaClassification *meta = ax_utils::get_meta<AxMetaClassification>("classifie
 
 In the previous tutorial, we used predefined classes derived from `AxMetaBase` to store the decoded results of our neural networks. For some tasks, those might not meet the requirements. In the following, we will write our own C++ class `MyCppClassificationMeta` and the corresponding Python class `MyPyClassificationMeta` derived from `AxTaskMeta` and use it in our pipeline.
 
-The C++ decoder file [customers/tutorials/src/decode_tu7.cc](/customers/tutorials/src/decode_tu7.cc), where we add our custom metadata format, is almost equal to [customers/tutorials/src/decode_tu6a.cc](/customers/tutorials/src/decode_tu6a.cc), except that it constructs an instance of `MyCppClassificationMeta`.
+The C++ decoder file [customers/tutorials/src/decode_tu7.cc](../../../customers/tutorials/src/decode_tu7.cc), where we add our custom metadata format, is almost equal to [customers/tutorials/src/decode_tu6a.cc](../../../customers/tutorials/src/decode_tu6a.cc), except that it constructs an instance of `MyCppClassificationMeta`.
 
 ```cpp
   ax_utils::insert_meta<MyCppClassificationMeta>(map, prop->key, {}, 0, 1,
@@ -1589,7 +1590,7 @@ The C++ decoder file [customers/tutorials/src/decode_tu7.cc](/customers/tutorial
         prop->num_classes);
 ```
 
-The definitions of `MyCppClassificationMeta` can be found in the header file [customers/tutorials/include/MyCppClassificationMeta_tu7.h](/customers/tutorials/include/MyCppClassificationMeta_tu7.h), which gets included in the decoder file. To make sure the file is found, we have to add the folder to [customers/tutorials/CMakeLists.txt](/customers/tutorials/CMakeLists.txt).
+The definitions of `MyCppClassificationMeta` can be found in the header file [customers/tutorials/include/MyCppClassificationMeta_tu7.h](../../../customers/tutorials/include/MyCppClassificationMeta_tu7.h), which gets included in the decoder file. To make sure the file is found, we have to add the folder to [customers/tutorials/CMakeLists.txt](../../../customers/tutorials/CMakeLists.txt).
 
 ```
 add_customer_libraries(tutorials
@@ -1625,7 +1626,7 @@ Each `extern_meta` struct contains four values:
 1. The size of the data in number of bytes.
 1. The pointer to the data. It must stay valid until the data is copied to Python, so it must not point to data that is local to the function.
 
-In the Python code, we must define a corresponding class derived from `AxTaskMeta` and member variables that store the required data. We created the class `MyPyClassificationMeta` in the file [ax_models/tutorials/general/tutorial_decoders_tu7.py](/ax_models/tutorials/general/tutorial_decoders_tu7.py). Here, just to get a runnable example using dataset, we added some member functions that are required to do the evaluation.
+In the Python code, we must define a corresponding class derived from `AxTaskMeta` and member variables that store the required data. We created the class `MyPyClassificationMeta` in the file [ax_models/tutorials/general/tutorial_decoders_tu7.py](../../../ax_models/tutorials/general/tutorial_decoders_tu7.py). Here, just to get a runnable example using dataset, we added some member functions that are required to do the evaluation.
 
 To read the metadata into the Python object, we define the function `decode` of `MyPyClassificationMeta`.
 
@@ -1660,11 +1661,11 @@ We can now run inference with our new custom metadata format using `--pipe=torch
 
 ## Tutorial-8: Evaluating Model Performance with Your Own Metrics
 
-This tutorial explains how to evaluate model performance using custom metrics. We'll start by using `TopKDecoderWithMyAxTaskMeta` from [tutorial_decoders_tu8.py](/ax_models/tutorials/general/tutorial_decoders_tu8.py) instead of [tutorial_decoders_tu7.py](/ax_models/tutorials/general/tutorial_decoders_tu7.py) in the YAML operators section. Then, in the YAML datasets section, we'll switch from `CustomDataAdapter` to either `CustomDataAdapterWithOfflineEvaluator` or `CustomDataAdapterWithOnlineEvaluator`, both implemented in [tutorial_data_adapter.py](/ax_models/tutorials/general/tutorial_data_adapter.py).
+This tutorial explains how to evaluate model performance using custom metrics. We'll start by using `TopKDecoderWithMyAxTaskMeta` from [tutorial_decoders_tu8.py](../../../ax_models/tutorials/general/tutorial_decoders_tu8.py) instead of [tutorial_decoders_tu7.py](../../../ax_models/tutorials/general/tutorial_decoders_tu7.py) in the YAML operators section. Then, in the YAML datasets section, we'll switch from `CustomDataAdapter` to either `CustomDataAdapterWithOfflineEvaluator` or `CustomDataAdapterWithOnlineEvaluator`, both implemented in [tutorial_data_adapter.py](../../../ax_models/tutorials/general/tutorial_data_adapter.py).
 
 ### Understanding AxTaskMeta::to_evaluation and types.BaseEvalSample
 
-Here's a high-level overview of the `MyAxTaskMeta` class defined in [tutorial_decoders_tu8.py](/ax_models/tutorials/general/tutorial_decoders_tu8.py):
+Here's a high-level overview of the `MyAxTaskMeta` class defined in [tutorial_decoders_tu8.py](../../../ax_models/tutorials/general/tutorial_decoders_tu8.py):
 
 ```python
 @dataclass(frozen=True)
@@ -1740,7 +1741,7 @@ eval_result = types.EvalResult(
 eval_result.set_metric_result('Top-1 Accuracy', top1, 'average', is_percentage=True)
 ```
 
-The `OfflineEvaluator` implementation in [tutorial_data_adapter.py](/ax_models/tutorials/general/tutorial_data_adapter.py) might appear more intricate to showcase the ability to calculate and register multiple metrics within the `EvalResult`, allowing selection of a primary metric. The `organize_results` method demonstrates how aggregators can present average and weighted average metrics.
+The `OfflineEvaluator` implementation in [tutorial_data_adapter.py](../../../ax_models/tutorials/general/tutorial_data_adapter.py) might appear more intricate to showcase the ability to calculate and register multiple metrics within the `EvalResult`, allowing selection of a primary metric. The `organize_results` method demonstrates how aggregators can present average and weighted average metrics.
 
 The `OfflineEvaluator` is integrated through the `CustomDataAdapterWithOfflineEvaluator`. This illustrates how a dataset is linked to its evaluator. `CustomDataAdapterWithOfflineEvaluator` inherits from `CustomDataAdapter` and overrides the `evaluator` method to return an instance of `OfflineEvaluator`. The dataloader/dataset object itself is still created by the `create_validation_data_loader` method within `CustomDataAdapter`.
 
@@ -1798,9 +1799,9 @@ You will see similar results to the offline evaluator, but the computation happe
 
 The `CustomDataAdapterWithOnlineEvaluator` encapsulates the `OnlineEvaluator`. The `OnlineEvaluator` receives the `top_k` value from the `custom_config` and the `num_classes` parameter from the model information defined in the models section of your YAML pipeline. The `custom_config` dictionary originates from the operators implementations.
 
-In [tutorial_decoders_tu8.py](/ax_models/tutorials/general/tutorial_decoders_tu8.py), `TopKDecoderWithMyAxTaskMeta` invokes the `register_validation_params` method within its `_post_init` method. This mechanism allows passing parameters from the operators to the evaluator. Since post-processing parameters can influence accuracy, it's beneficial to pass them to the evaluator. Here, the `top_k` parameter is passed, which is why it's present in the `OnlineEvaluator`'s `custom_config` dictionary.
+In [tutorial_decoders_tu8.py](../../../ax_models/tutorials/general/tutorial_decoders_tu8.py), `TopKDecoderWithMyAxTaskMeta` invokes the `register_validation_params` method within its `_post_init` method. This mechanism allows passing parameters from the operators to the evaluator. Since post-processing parameters can influence accuracy, it's beneficial to pass them to the evaluator. Here, the `top_k` parameter is passed, which is why it's present in the `OnlineEvaluator`'s `custom_config` dictionary.
 
-Referring back to the [t8-evaluator.yaml](/ax_models/tutorials/general/t8-evaluator.yaml) pipelines section, you'll find the `eval` parameter configured within the `postprocess` section, like this:
+Referring back to the [t8-evaluator.yaml](../../../ax_models/tutorials/general/t8-evaluator.yaml) pipelines section, you'll find the `eval` parameter configured within the `postprocess` section, like this:
 
 ```yaml
 postprocess:
@@ -1842,7 +1843,7 @@ To run several models in parallel, the individual pipeline descriptions are just
 
 In contrast to the above, a cascaded pipeline consists of multiple models arranged in a hierarchical structure. In this setup, a master model serves as the primary model, with its output feeding into one or more dependent models. The results of these submodels refer to data from the master. A typical example is a detection-classification pipeline, where the master model is a detector that identifies regions of interest (ROIs) and the classifier assigns a label to each ROI.
 
-An example of a YOLO detector cascaded into the Resnet34 classifier known from the previous tutorials can be found in the file [t9-cascaded.yaml](/ax_models/tutorials/general/t9-cascaded.yaml). In this yaml file we now have two list items under the top-level key `pipeline`. The first list item is the `detections` task, the second one is the `classifier` task. The associations between the two models are established in the input operator of the dependent model. As `detections` serves as the master, no changes are required there. We specify that `detections` is the master of `classifier` with the help of the key `where` in the input operator of the subtask `classifier`. In addition, we have to set the source to `roi`.
+An example of a YOLO detector cascaded into the Resnet34 classifier known from the previous tutorials can be found in the file [t9-cascaded.yaml](../../../ax_models/tutorials/general/t9-cascaded.yaml). In this yaml file we now have two list items under the top-level key `pipeline`. The first list item is the `detections` task, the second one is the `classifier` task. The associations between the two models are established in the input operator of the dependent model. As `detections` serves as the master, no changes are required there. We specify that `detections` is the master of `classifier` with the help of the key `where` in the input operator of the subtask `classifier`. In addition, we have to set the source to `roi`.
 
 ```yaml
 pipeline:
@@ -1875,13 +1876,13 @@ models:
       aipu_cores: 1
 ```
 
-The Python decoder in file [ax_models/tutorials/general/tutorial_decoders_tu9.py](/ax_models/tutorials/general/tutorial_decoders_tu9.py) needs only minor adaptations compared to the previous tutorials. The function `configure_model_and_context_info` of the base class `AxOperator`, which is called in the application framework for each operator, assigns the master meta name to the member variable `self._where`. In the GST pipeline, this variable is passed to the subplugins, while in the torch pipeline, it is used in `add_instance`.
+The Python decoder in file [ax_models/tutorials/general/tutorial_decoders_tu9.py](../../../ax_models/tutorials/general/tutorial_decoders_tu9.py) needs only minor adaptations compared to the previous tutorials. The function `configure_model_and_context_info` of the base class `AxOperator`, which is called in the application framework for each operator, assigns the master meta name to the member variable `self._where`. In the GST pipeline, this variable is passed to the subplugins, while in the torch pipeline, it is used in `add_instance`.
 
 ```python
 axmeta.add_instance(self.task_name, model_meta, self._where)
 ```
 
-In our C++ decoder, we have to make some minor adaptations as well. The file [customers/tutorials/src/decode_tu9_master.cc](/customers/tutorials/src/decode_tu9_master.cc) looks familiar from tutorial 6. The difference is that we now have an additional property which is required to pass the name of the master meta into the decoder. Furthermore, we use the third and fourth parameter in the signature of `decode_to_meta`. Those specify the index of the current subframe and the total number of subframes, in our case the number of classification models that have been executed for each detection model. The `insert_meta` helper functions uses those three additional parameters to store the results of the submodels in such a way that the connection between the primary task and the dependent tasks is maintained.
+In our C++ decoder, we have to make some minor adaptations as well. The file [customers/tutorials/src/decode_tu9_master.cc](../../../customers/tutorials/src/decode_tu9_master.cc) looks familiar from tutorial 6. The difference is that we now have an additional property which is required to pass the name of the master meta into the decoder. Furthermore, we use the third and fourth parameter in the signature of `decode_to_meta`. Those specify the index of the current subframe and the total number of subframes, in our case the number of classification models that have been executed for each detection model. The `insert_meta` helper functions uses those three additional parameters to store the results of the submodels in such a way that the connection between the primary task and the dependent tasks is maintained.
 
 ```cpp
 extern "C" void
@@ -1980,13 +1981,13 @@ pipeline:
 > 2. Monitor performance metrics to validate settings
 > 3. Consider that fewer, higher-quality ROIs often perform better than processing all detections
 
-When using filters in the input operator, internally a new hidden meta object is created, which contains the filtered boxes and the associations between those boxes and the boxes inside the original master meta. The name of this association meta can be taken from the context and assigned to a member variable inside of the function `configure_model_and_context_info` in the Python decode operator file [ax_models/tutorials/general/tutorial_decoders_tu9.py](/ax_models/tutorials/general/tutorial_decoders_tu9.py).
+When using filters in the input operator, internally a new hidden meta object is created, which contains the filtered boxes and the associations between those boxes and the boxes inside the original master meta. The name of this association meta can be taken from the context and assigned to a member variable inside of the function `configure_model_and_context_info` in the Python decode operator file [ax_models/tutorials/general/tutorial_decoders_tu9.py](../../../ax_models/tutorials/general/tutorial_decoders_tu9.py).
 
 ```python
 self._association = context.association or None
 ```
 
-If the results of the secondary models are assigned as submeta to the original master meta, the name of the hidden meta must be specified as well. Instead of the function `insert_meta`, the function `insert_and_associate_meta` has to be used, which takes the hidden meta as one additional parameter. An example can be found in the file [customers/tutorials/src/decode_tu9.cc](/customers/tutorials/src/decode_tu9.cc). The additional parameter must be passed from the Python code as a property, just like the master meta key.
+If the results of the secondary models are assigned as submeta to the original master meta, the name of the hidden meta must be specified as well. Instead of the function `insert_meta`, the function `insert_and_associate_meta` has to be used, which takes the hidden meta as one additional parameter. An example can be found in the file [customers/tutorials/src/decode_tu9.cc](../../../customers/tutorials/src/decode_tu9.cc). The additional parameter must be passed from the Python code as a property, just like the master meta key.
 
 ```cpp
 ...
@@ -2034,7 +2035,7 @@ After setting up filtering, you'll need to access the classification results in 
 
 #### C++ Implementation
 
-To access the submeta inside of a C++ plugin, first the pointer to the master is required. Each master meta contains a shared pointer to a map of submetas, called `submeta_map`. This data structure maps strings which represent the submeta names to a vector of pointers to objects derived from `AxMetaBase`. The size of the vector is just the number of subframes. The overloaded function `get` is used to retrieve either the complete vector, or the submeta of a specified subframe. In your C++ code, you need to handle the fact that not all master detections will have corresponding submeta due to filtering. The key steps are shown in [customers/tutorials/src/inplace_tu9.cc](/customers/tutorials/src/inplace_tu9.cc):
+To access the submeta inside of a C++ plugin, first the pointer to the master is required. Each master meta contains a shared pointer to a map of submetas, called `submeta_map`. This data structure maps strings which represent the submeta names to a vector of pointers to objects derived from `AxMetaBase`. The size of the vector is just the number of subframes. The overloaded function `get` is used to retrieve either the complete vector, or the submeta of a specified subframe. In your C++ code, you need to handle the fact that not all master detections will have corresponding submeta due to filtering. The key steps are shown in [customers/tutorials/src/inplace_tu9.cc](../../../customers/tutorials/src/inplace_tu9.cc):
 
 **1. Check for subtask existence:**
 ```cpp
@@ -2065,7 +2066,7 @@ if (i < submetas.size() && submetas[i] != nullptr) {
 
 #### Python Implementation
 
-For Python applications, you have multiple ways to access submeta. The complete implementation can be found in [ax_models/tutorials/general/t9-application.py](/ax_models/tutorials/general/t9-application.py). Here are the key approaches:
+For Python applications, you have multiple ways to access submeta. The complete implementation can be found in [ax_models/tutorials/general/t9-application.py](../../../ax_models/tutorials/general/t9-application.py). Here are the key approaches:
 
 **Option 1: Low-level metadata access (similar to C++)**
 
@@ -2167,7 +2168,7 @@ A real-world implementation of a cascaded pipeline is demonstrated through the f
 ### Creating an Embeddings File
 
 Face recognition models are typically trained on extensive datasets comprising publicly available images. To enable identification of specific individuals, their facial embeddings must be computed and stored alongside their corresponding names. This reference dictionary allows the recognition model to compare newly computed embeddings against stored embeddings using distance metrics such as cosine similarity. A positive identification is achieved when the computed distance falls below a predefined threshold and represents the minimum distance among all stored individuals in the embeddings database.
-For this implementation, we utilize the FaceNet model for face recognition and RetinaFace for face detection. To create the embeddings database, configure the file located at [ax_models/reference/cascade/face-recognition.yaml](/ax_models/reference/cascade/face-recognition.yaml). 
+For this implementation, we utilize the FaceNet model for face recognition and RetinaFace for face detection. To create the embeddings database, configure the file located at [ax_models/reference/cascade/face-recognition.yaml](../../../ax_models/reference/cascade/face-recognition.yaml). 
 
 Deploy the model using the following command:
 
@@ -2207,7 +2208,7 @@ This debug output is invaluable for troubleshooting purposes. The logging level 
 
 Verify that the `famous_embeddings.json` file contains 8 entries with their corresponding names and embeddings. The names are derived from the image filenames in the `famous_faces` directory, while the embeddings are computed by the face-recognition pipeline.
 
-Next, disable embedding updates by setting `update_embeddings` to `False` in the configuration file [ax_models/reference/cascade/face-recognition.yaml](/ax_models/reference/cascade/face-recognition.yaml). This prevents the embeddings from being modified during subsequent runs with new faces.
+Next, disable embedding updates by setting `update_embeddings` to `False` in the configuration file [ax_models/reference/cascade/face-recognition.yaml](../../../ax_models/reference/cascade/face-recognition.yaml). This prevents the embeddings from being modified during subsequent runs with new faces.
 
 ```yaml
       postprocess:
@@ -2310,7 +2311,7 @@ This assumes your webcam is connected and accessible via `/dev/video0`. Modify t
 
 Continuously executing face recognition for every frame is computationally expensive and can degrade performance. However, repeated identification becomes unnecessary once a person's identity is established with confidence. By implementing a tracker, we can monitor facial movement across frames. The tracker assigns unique IDs to each face, ideally maintaining consistency throughout the video sequence. This approach allows recognition to be performed once per tracked individual. In practice, recognition accuracy is improved by running the sub-model a limited number of times and selecting the most frequently occurring identification result.
 
-The enhanced configuration file [ax_models/reference/cascade/with_tracker/face-recognition-with-vote.yaml](/ax_models/reference/cascade/with_tracker/face-recognition-with-vote.yaml) incorporates the OC-Sort tracker within the pipeline:
+The enhanced configuration file [ax_models/reference/cascade/with_tracker/face-recognition-with-vote.yaml](../../../ax_models/reference/cascade/with_tracker/face-recognition-with-vote.yaml) incorporates the OC-Sort tracker within the pipeline:
 
 ```yaml
 pipeline:
@@ -2382,8 +2383,8 @@ With this setup, the ROIs from the detection stage will be distributed in parall
 
 The `tutorials/resnet34_caltech101/` directory provides a complete example of how to deploy a **torchvision model** to the Metis platform in a low-code manner. This example demonstrates the following components:
 
-- **[tutorial_resnet34_caltech101.py](/ax_models/tutorials/resnet34_caltech101/tutorial_resnet34_caltech101.py)**: The training script for the ResNet34 model on the Caltech101 dataset.
-- **[tutorial_resnet34_caltech101.yaml](/ax_models/tutorials/resnet34_caltech101/tutorial_resnet34_caltech101.yaml)**: A YAML configuration file for deploying the model and pipeline. It leverages existing **AxOperators**, **types.DataAdapter**, and **types.Evaluator** to simplify the deployment process.
+- **[tutorial_resnet34_caltech101.py](../../../ax_models/tutorials/resnet34_caltech101/tutorial_resnet34_caltech101.py)**: The training script for the ResNet34 model on the Caltech101 dataset.
+- **[tutorial_resnet34_caltech101.yaml](../../../ax_models/tutorials/resnet34_caltech101/tutorial_resnet34_caltech101.yaml)**: A YAML configuration file for deploying the model and pipeline. It leverages existing **AxOperators**, **types.DataAdapter**, and **types.Evaluator** to simplify the deployment process.
 
 This example serves as a practical reference for using torchvision models with the Metis platform, showcasing how to train, configure, and deploy with minimal coding effort.
 

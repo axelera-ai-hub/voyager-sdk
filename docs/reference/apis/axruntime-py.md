@@ -32,7 +32,7 @@ INT8 Unpadded
 Float32 Output
 ```
 
-For detailed tutorials and examples, see the [python axruntime documentation](../tutorials/axruntime-python/axruntime-python-quickstart.md).
+For detailed tutorials and examples, see the [python axruntime documentation](../../tutorials/axruntime-python/axruntime-python-quickstart.md).
 
 ## Objects
 
@@ -208,7 +208,7 @@ Valid kwargs are:
 | device_profiling |         0 | True to enable device profiling                                     |
 | host_profiling   |         0 | True to enable host profiling                                       |
 | output_dmabuf    |         0 | True if the output arguments are dmabuf file descriptors            |
-| double_buffer    |         0 | Enable DMA pipelining for higher throughput (adds 2-frame latency). See [Double Buffering guide](../tutorials/axruntime-python/double-buffering.md). |
+| double_buffer    |         0 | Enable DMA pipelining for higher throughput (adds 2-frame latency). See [Double Buffering guide](../../tutorials/axruntime-python/double-buffering.md). |
 | elf_in_ddr       |         1 | True if the model was compiled with elf_in_ddr as True.             |
 * **Return type:**
   [`ModelInstance`](#class-axeleraruntimemodelinstance)
@@ -239,7 +239,7 @@ A model object that can be loaded onto multiple Connection objects.
 
 * `preamble_graph` - Relative path to a preamble ONNX file containing preprocessing operations. Empty if no preprocessing was extracted. If present, execute this ONNX graph before AIPU inference. Path is relative to model directory.
 
-* `postamble_graph` - Relative path to a postamble ONNX file containing postprocessing operations. Empty if no postprocessing was extracted. If present, execute this ONNX graph after AIPU inference (depad, transpose, and dequantize first). Path is relative to model directory. See [Postamble Processing guide](../tutorials/axruntime-python/postamble-processing.md).
+* `postamble_graph` - Relative path to a postamble ONNX file containing postprocessing operations. Empty if no postprocessing was extracted. If present, execute this ONNX graph after AIPU inference (depad, transpose, and dequantize first). Path is relative to model directory. See [Postamble Processing guide](../../tutorials/axruntime-python/postamble-processing.md).
 
 * `input_tensor_layout` - Always NHWC. AIPU outputs are also NHWC. Transpose to NCHW if needed for ONNX postamble graphs.
 
@@ -287,7 +287,7 @@ A model instance that has been loaded onto a Connection object. Each ModelInstan
 
 Execute inference synchronously. This call blocks until the AIPU completes.
 
-For maximum throughput, create one worker thread per ModelInstance. While one thread waits for inference, the OS can schedule other workers. See [Basic Usage Tutorial - Worker Threads](../tutorials/axruntime-python/basic-usage-tutorial.md#step-6-running-inference-with-worker-threads).
+For maximum throughput, create one worker thread per ModelInstance. While one thread waits for inference, the OS can schedule other workers. See [Basic Usage Tutorial - Worker Threads](../../tutorials/axruntime-python/basic-usage-tutorial.md#step-6-running-inference-with-worker-threads).
 
 **Parameters:**
 * `inputs` - List of input numpy arrays (or dmabuf file descriptors if `input_dmabuf=True`). Arrays are modified in-place and can be reused across multiple run() calls.

@@ -78,7 +78,7 @@ pipeline = op.seq(
 )
 
 # Grab Ultralytics' sample image (swap for your own file anytime).
-urllib.request.urlretrieve("https://ultralytics.com/images/bus.jpg", "bus.jpg")
+urllib.request.urlretrieve("https://github.com/ultralytics/assets/releases/download/v0.0.0/bus.jpg", "bus.jpg")
 image = cv2.imread("bus.jpg")  # BGR, which the pipeline converts above
 detections = pipeline(image)
 
