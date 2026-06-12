@@ -87,10 +87,6 @@ python convert_aflink_to_onnx.py
 
 Note: AFLink requires ONNX Runtime to be installed.
 
-## Algorithm Details
-
-See [docs/algorithm.md](docs/algorithm.md) for detailed algorithm documentation.
-
 ## Known Limitations
 
 1. Currently uses greedy assignment instead of Hungarian algorithm
