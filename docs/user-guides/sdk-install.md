@@ -38,7 +38,30 @@ Install system dependencies using the provided script:
 ./install-dependencies.sh
 ```
 
-### Step 2: Install the Metis kernel driver
+### Step 2: Create a virtual environment and install
+
+```bash
+python3 -m venv axelera-env
+source axelera-env/bin/activate
+# Install SDK
+pip install --extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple axelera-rt==1.6.1 axelera-devkit[all]==1.6.1
+make operators
+```
+
+> [!TIP]
+> Use a dedicated virtual environment for each SDK version or project to avoid dependency conflicts.
+
+
+### Step 3: Install the Metis kernel driver
+
+#### Option a). Using `axdevice driver`
+
+With an activated environment:
+```bash
+axdevice driver --install 1.4.17
+```
+
+#### Option b). Using `apt`
 
 ```bash
 # Add the Axelera apt repository
@@ -49,30 +72,22 @@ sudo sh -c "echo 'deb [signed-by=/etc/apt/keyrings/axelera.gpg] https://software
 sudo sh -c "echo 'deb [signed-by=/etc/apt/keyrings/axelera.gpg] https://software.axelera.ai/artifactory/axelera-apt-source ubuntu24 main' > /etc/apt/sources.list.d/axelera.list"
 
 sudo apt-get update
+# Install latest metis-dkms driver
 sudo apt-get install -y metis-dkms=1.4.16
 ```
 
+#### In both cases
 Verify the driver is loaded:
 
 ```bash
 lsmod | grep metis
+# If it is not loaded, run
+sudo modprobe metis 
+# or do a power cycle of the machine
 ```
 
 > [!NOTE]
 > If installation fails, ensure your kernel headers are present: `sudo apt-get install -y linux-headers-$(uname -r)`
-
-
-### Step 3: Create a virtual environment and install
-
-```bash
-python3 -m venv axelera-env
-source axelera-env/bin/activate
-pip install --extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple axelera-rt axelera-devkit[all]
-make operators
-```
-
-> [!TIP]
-> Use a dedicated virtual environment for each SDK version or project to avoid dependency conflicts.
 
 
 ### Step 4: Verify installation
