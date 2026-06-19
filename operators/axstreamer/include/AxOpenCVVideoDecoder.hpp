@@ -15,8 +15,10 @@ class OpenCVVideoDecoder : public VideoDecode
   OpenCVVideoDecoder(const std::string &input,
       std::function<void(cv::Mat)> frame_callback, AxVideoFormat format);
 
+  ~OpenCVVideoDecoder();
+
   protected:
-  void reader_func() override;
+  void reader_func(std::stop_token stoken) override;
 
   private:
   cv::VideoCapture cap;

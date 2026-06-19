@@ -55,8 +55,10 @@ class Crop(PreprocessOperator):
     height: int
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
+        opencl = gst.getconfig() is not None and gst.getconfig().opencl
+        lib = "libtransform_roicrop_cl.so" if opencl else "libtransform_roicrop.so"
         gst.axtransform(
-            lib="libtransform_roicrop.so",
+            lib=lib,
             options=f'left:{self.left};top:{self.top};width:{self.width};height:{self.height}',
         )
 
@@ -141,26 +143,45 @@ class Normalize(PreprocessOperator):
             self.mean_values, self.std_values, mean, std
         )
 
+    def configure_model_and_context_info(
+        self,
+        model_info: types.ModelInfo,
+        context: PipelineContext,
+        task_name: str,
+        taskn: int,
+        compiled_model_dir: Path | None,
+        task_graph,
+    ):
+        super().configure_model_and_context_info(
+            model_info, context, task_name, taskn, compiled_model_dir, task_graph
+        )
+        self._scale = [1.0]
+        self._zero = [0.0]
+        if model_info and model_info.manifest and model_info.manifest.is_compiled():
+            q = model_info.manifest.quantize_params
+            if q:
+                self._scale, self._zero = zip(*q)
+
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
-        add, div = [-x for x in self._mean], self._std
-        opts = []
-        if len(add) == 1:
-            if add[0] != 0.0:
-                opts.append(f'add:{float(add[0])}')
-        else:
-            opts.extend(f'add:{float(x)}@{i}' for i, x in enumerate(add) if x != 0.0)
-
-        if len(div) == 1:
-            if div[0] != 1.0:
-                opts.append(f'div:{float(div[0])}')
-        else:
-            opts.extend(f'div:{float(x)}@{i}' for i, x in enumerate(div) if x != 1.0)
-
-        if opts and (len(div) > 1 or len(add) > 1):
-            channel_pos = len(self.tensor_layout.name) - 1 - self.tensor_layout.name.index('C')
-            opts.insert(0, f'per-channel:true@{channel_pos}')  # Does this need to go at the front?
-        if opts:
-            raise NotImplementedError('None fused Normalize not implemented in gst pipeline')
+        # Standalone fallback when no megaop fuser matched. Emits libtransform_normalize_cl.so
+        # with mean/std/quant_scale/quant_zeropoint and to_tensor:0 (upstream already produced
+        # a tensor via standalone ToTensor). The plugin operates on uint8 input and applies
+        # /255 internally; the mean/std passed here represent the user-space normalization
+        # (in [0, 1] domain), matching the convention used by OpenCLToTensorAndNormalize.
+        _ensure_len3 = lambda seq: list(seq) + [seq[0]] * (3 - len(seq))
+        mean = _ensure_len3([float(x) for x in self._mean])
+        std = _ensure_len3([float(x) for x in self._std])
+        scale = getattr(self, '_scale', [1.0]) or [1.0]
+        zero = getattr(self, '_zero', [0.0]) or [0.0]
+        m = ",".join(f'{x:.6f}'.rstrip('0') for x in mean)
+        s = ",".join(f'{x:.6f}'.rstrip('0') for x in std)
+        gst.axtransform(
+            lib='libtransform_normalize_cl.so',
+            options=(
+                f'to_tensor:0;mean:{m};std:{s};'
+                f'quant_scale:{float(scale[0])};quant_zeropoint:{float(zero[0])}'
+            ),
+        )
 
     def exec_torch(self, tensor: torch.Tensor):
         import torchvision.transforms.functional as TF

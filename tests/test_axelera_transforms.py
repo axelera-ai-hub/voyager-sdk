@@ -92,6 +92,63 @@ def test_barrel_and_convert_resize():
     ]
 
 
+def test_colorconvert_with_crop():
+    ops = [
+        operators.ConvertColorInput(format=types.ColorFormat.RGBA),
+        operators.preprocessing.Crop(left=320, top=180, width=640, height=640),
+    ]
+    original = ops.copy()
+    transforms.opencl_colorconvert_with_crop(ops)
+    assert original != ops
+    assert ops == [
+        operators.preprocessing.Crop(left=320, top=180, width=640, height=640),
+        operators.ConvertColorInput(format=types.ColorFormat.RGBA),
+    ]
+
+
+def test_colorconvert_with_crop_preserves_format():
+    ops = [
+        operators.ConvertColorInput(format=types.ColorFormat.BGR),
+        operators.preprocessing.Crop(left=0, top=0, width=640, height=480),
+    ]
+    transforms.opencl_colorconvert_with_crop(ops)
+    assert ops[1] == operators.ConvertColorInput(format=types.ColorFormat.BGR)
+
+
+def test_colorconvert_with_crop_via_run_all():
+    got = [
+        operators.ConvertColorInput(format=types.ColorFormat.RGBA),
+        operators.preprocessing.Crop(left=320, top=180, width=640, height=640),
+    ]
+    transforms.run_all_transformers(got, hardware_caps=config.HardwareCaps.OPENCL)
+    assert got == [
+        operators.preprocessing.Crop(left=320, top=180, width=640, height=640),
+        operators.ConvertColorInput(format=types.ColorFormat.RGBA),
+    ]
+
+
+def test_colorconvert_with_crop_no_opencl():
+    # Transformer is hardware-gated; without OpenCL caps the order must not change.
+    got = [
+        operators.ConvertColorInput(format=types.ColorFormat.RGBA),
+        operators.preprocessing.Crop(left=320, top=180, width=640, height=640),
+    ]
+    original = got.copy()
+    transforms.run_all_transformers(got)
+    assert got == original
+
+
+def test_colorconvert_with_crop_wrong_order():
+    # Transformer only matches [ConvertColorInput, Crop]; reversed order is a no-op.
+    ops = [
+        operators.preprocessing.Crop(left=320, top=180, width=640, height=640),
+        operators.ConvertColorInput(format=types.ColorFormat.RGBA),
+    ]
+    original = ops.copy()
+    transforms.opencl_colorconvert_with_crop(ops)
+    assert ops == original
+
+
 def test_perspective_and_convert():
     ops = [
         operators.custom_preprocessing.ConvertColorInput(format='rgb'),

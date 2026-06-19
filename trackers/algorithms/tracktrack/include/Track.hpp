@@ -106,7 +106,6 @@ class Track
   float get_prev_score() const; // Get previous frame's score for confidence projection
 
   // Feature management
-  void update_features(const Eigen::VectorXf &new_features);
   Eigen::VectorXf get_features() const
   {
     return features_;

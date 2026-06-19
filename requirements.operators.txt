@@ -1,0 +1,23 @@
+# Minimal dependency closure for the rt2 operators validation lane
+# (axelera_runtime2 tests/python/test_transforms.py + test_postprocess.py).
+#
+# These tests import axelera.app.{network,pipeline,schema,yaml_parser,meta}
+# and axelera.types via _import_legacy_{pre,post}process_stack_or_skip.
+# Loading those modules eagerly pulls in PIL, cv2, strictyaml, tqdm, psutil,
+# requests (top-level imports in axelera.app.{utils,logging_utils,operators}).
+#
+# numpy / pyyaml / typing-extensions / pytest come from [testenv] deps in
+# axelera_runtime2/tox.ini. torch/torchvision are pinned directly in the
+# operators env there.
+#
+# Do NOT use requirements.application.txt for this lane -- it pulls pygobject,
+# pyglet, pyopencl, sewar, siphash24, whose C-extension builds need apt
+# packages (libgirepository1.0-dev, libcairo2-dev, libglib2.0-dev, OpenCL
+# ICDs) not installed in the rt2-operators CI job.
+
+pillow>=8,<13
+opencv-python>=4,<5
+psutil>=6,<7
+requests>=2,<3
+strictyaml>=1.7,<2
+tqdm>=4.6,<5

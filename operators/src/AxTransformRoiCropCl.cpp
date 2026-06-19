@@ -81,15 +81,6 @@ oob_fill_snippet(AxVideoFormat out_format)
 // and output snippet from get_input_details / get_output_details, followed by
 // the closing brace that comes from the output snippet.
 const char *roicrop_kernel_template = R"##(
-uchar4 color_convert(uchar4 pixel, float16 matrix) {
-    float4 in_pixel = convert_float4(pixel);
-    float4 color = mad(in_pixel.x, matrix.s0123,
-                   mad(in_pixel.y, matrix.s4567,
-                   mad(in_pixel.z, matrix.s89ab, matrix.scdef)));
-    color.w = in_pixel.w;
-    return convert_uchar4_sat(color);
-}
-
 __kernel void roicrop_cl(__global const %s *in, __global %s *out, int4 image_dims,
                          int crop_x, int crop_y,
                          int4 strides, int4 offsets, float16 color_matrix) {
@@ -135,7 +126,7 @@ class CLRoiCrop
     final_kernel += oob_fill_snippet(out_format);
     final_kernel += input_details.sampler;
     final_kernel += output_details.sampler;
-    final_kernel = ax_utils::get_kernel_utils(0) + final_kernel;
+    final_kernel = ax_utils::get_kernel_utils(0, program.has_fp16()) + final_kernel;
 
     return program.build_kernel_from_source(final_kernel, "roicrop_cl");
   }

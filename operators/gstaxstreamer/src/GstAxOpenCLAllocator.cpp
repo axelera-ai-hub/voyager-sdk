@@ -2,16 +2,10 @@
 /**
  * Custom UDMABUF Allocator
  */
-#include <fcntl.h>
 #include <glib.h>
 #include <gst/allocators/allocators.h>
 #include <gst/gst.h>
 #include <stdio.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 #include "GstAxDataUtils.hpp"
 #include "GstAxStreamerUtils.hpp"
 #if HAVE_OPENCL

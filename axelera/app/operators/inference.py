@@ -340,6 +340,7 @@ def build_onnx_inferencer(
     if axm_path:
         with zipfile.ZipFile(axm_path, 'r') as axm:
             onnx_input = axm.read(model)
+
     session = rt.InferenceSession(onnx_input, providers=providers)
 
     post_input_names = [node.name for node in session.get_inputs()]
@@ -982,9 +983,14 @@ class Inference:
 
                 model_path = _get_model_path(self.compiled_model_dir, self.model.model_lib_file)
                 c = self._device_man.context
+                self._batch_size = config.env.torch_aipu_batch_size
                 self._axr_model = c.load_model(model_path)
-                self._axr_conn = c.device_connect(None, 1)
-                self._axr_modeli = self._axr_conn.load_model_instance(self._axr_model)
+                self._axr_conn = c.device_connect(None, self._batch_size)
+                self._axr_modeli = self._axr_conn.load_model_instance(
+                    self._axr_model,
+                    num_sub_devices=self._batch_size,
+                    aipu_cores=self._batch_size,
+                )
 
                 LOG.debug(f"Loaded model : {model_path}")
                 self._init_pre_and_post()
@@ -1012,9 +1018,20 @@ class Inference:
                 'NHWC',
             )
 
-            outputs = [np.empty(t.shape, np.int8) for t in self._axr_model.outputs()]
+            if self._batch_size > 1:
+                input_array = np.repeat(input_array, self._batch_size, axis=0)
+                outputs = [
+                    np.empty((self._batch_size,) + t.shape[1:], np.int8)
+                    for t in self._axr_model.outputs()
+                ]
+            else:
+                outputs = [np.empty(t.shape, np.int8) for t in self._axr_model.outputs()]
             inputs = [input_array]
+
             self._axr_modeli.run(inputs, outputs)
+
+            if self._batch_size > 1:
+                outputs = [o[0:1] for o in outputs]  # take only the first batch element
 
             if len(outputs) != len(self.model.dequantize_params):
                 raise ValueError(

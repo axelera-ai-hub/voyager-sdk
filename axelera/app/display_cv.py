@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 from __future__ import annotations
 
 import collections
@@ -299,8 +299,6 @@ def _create_canvas(
 
 
 def _normalize_img_color(img: types.Image) -> types.Image:
-    if img.color_format == types.ColorFormat.GRAY:
-        return img.asarray(types.ColorFormat.GRAY)
     return img.asarray(types.ColorFormat.RGB)
 
 

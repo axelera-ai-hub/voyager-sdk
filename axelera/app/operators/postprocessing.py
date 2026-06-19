@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # General post-processing operators
 from __future__ import annotations
 
@@ -756,6 +756,7 @@ class SemanticSegmentation(AxOperator):
         palette: palette of the output image; if not set, the palette of the input image will be used
         labels: labels of the output image; if not set, the labels of the input image will be used
         binary_threshold: threshold to decide the class map for binary segmentation
+        interpolate_before_argmax: if True, interpolate logits to original resolution before argmax (improves accuracy)
     '''
 
     width: int = 0
@@ -763,9 +764,14 @@ class SemanticSegmentation(AxOperator):
     palette: list = None
     # for binay segmentation, the threshold to decide the class map
     binary_threshold: float = 1.0
+    # Interpolate logits to original resolution before argmax for better accuracy
+    interpolate_before_argmax: bool = False
 
     def _post_init(self):
         self._tmp_labels: Optional[Path] = None
+        self._deq_scales = None
+        self._deq_zeropoints = None
+        self._n_padded_ch_outputs = None
         if (self.width > 0) != (self.height > 0):
             raise ValueError('width and height must both be set, or both unset')
 
@@ -791,35 +797,56 @@ class SemanticSegmentation(AxOperator):
         self.num_classes = model_info.num_classes
         self.labels = model_info.labels
         self.scaled = context.resize_status
+        if model_info.manifest and model_info.manifest.is_compiled():
+            self._deq_scales, self._deq_zeropoints = zip(*model_info.manifest.dequantize_params)
+            self._n_padded_ch_outputs = model_info.manifest.n_padded_ch_outputs
         # TODO: get labels and palette from model_info for both gst and torch pipelines
 
     def build_gst(self, gst: gst_builder.Builder, stream_idx: str):
         self.meta_type_name = "SemanticSegmentationMeta"
+        options = f'meta_key:{str(self.task_name)};decoder_name:{self.meta_type_name};'
+        if self._deq_scales is not None:
+            scales = ','.join(str(s) for s in self._deq_scales)
+            zeros = ','.join(str(s) for s in self._deq_zeropoints)
+            options += f'scales:{scales};zero_points:{zeros};'
+        if self._n_padded_ch_outputs:
+            paddings = '|'.join(
+                ','.join(str(num) for num in sublist) for sublist in self._n_padded_ch_outputs
+            )
+            options += f'padding:{paddings};'
+        # Add letterbox parameters for proper cropping
+        options += f'model_width:{self.width};model_height:{self.height};'
+        options += f'scale_up:{int(self.scaled==types.ResizeMode.LETTERBOX_FIT)};'
+        options += f'letterbox:{int(self.scaled in [types.ResizeMode.LETTERBOX_FIT, types.ResizeMode.LETTERBOX_CONTAIN])};'
+        # Add interpolation parameter
+        options += f'interpolate_before_argmax:{int(self.interpolate_before_argmax)};'
         gst.decode_muxer(
             name=f'decoder_task{self._taskn}{stream_idx}',
             lib='libdecode_semantic_seg.so',
             mode='read',
-            options=f'meta_key:{str(self.task_name)};' f'decoder_name:{self.meta_type_name};',
+            options=options,
         )
 
     def _rescale(self, target_height, target_width, seg_logits):
         import torch.nn.functional as TF
 
-        if self.scaled in [types.ResizeMode.LETTERBOX_FIT, types.ResizeMode.SQUISH]:
+        if self.scaled in [
+            types.ResizeMode.LETTERBOX_FIT,
+            types.ResizeMode.LETTERBOX_CONTAIN,
+            types.ResizeMode.SQUISH,
+        ]:
             ratio = min(self.height / target_height, self.width / target_width)
             scaled_height = int(target_height * ratio)
             scaled_width = int(target_width * ratio)
             padding_top = (self.height - scaled_height) // 2
             padding_left = (self.width - scaled_width) // 2
 
-            # Correct slicing to remove padding
             seg_logits = seg_logits[
                 :,
                 :,
                 padding_top : padding_top + scaled_height,
                 padding_left : padding_left + scaled_width,
             ]
-            # scale back to original size
             seg_logits = TF.interpolate(
                 seg_logits,
                 size=(target_height, target_width),

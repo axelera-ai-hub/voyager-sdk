@@ -7,7 +7,7 @@ The Pipeline Builder is the Pythonic API for building ML inference pipelines on 
 
 > [!IMPORTANT]
 > **Experimental**
-> Core operators (detection, classification, pose, segmentation, tracking) are stable. Cascade (`op.foreach`, `op.croproi`) and streaming APIs are still in development. Optimized fused kernels from the YAML pipeline path have not yet been ported — each release closes this gap.
+> Core operators (detection, classification, pose, segmentation, tracking) are stable. Cascade (`op.for_each`, `op.crop_roi`) and streaming APIs are still in development. Optimized fused kernels from the YAML pipeline path have not yet been ported — each release closes this gap.
 
 
 ## Start here
@@ -23,7 +23,7 @@ The Pipeline Builder is the Pythonic API for building ML inference pipelines on 
 - [Results](api/axelera.runtime.op.results.md) — convert arrays to typed objects (DetectedObject, PoseObject, etc.)
 - [Inference](api/axelera.runtime.op.inference.md) — model loading (`op.load`, `op.onnx_model`)
 - [Tracker](api/axelera.runtime.op.tracker.md) — multi-object tracking (ByteTrack, OC-SORT, SORT, TrackTrack)
-- [Combinators](api/axelera.runtime.op.combinators.md) — pipeline composition (`op.seq`, `op.par`, `op.foreach`)
+- [Combinators](api/axelera.runtime.op.combinators.md) — pipeline composition (`op.seq`, `op.par`, `op.for_each`)
 
 ## Type reference
 

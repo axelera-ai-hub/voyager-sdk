@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # Copyright Axelera AI, 2023
 
+import argparse
 import os
 import sys
 import time
@@ -15,8 +16,10 @@ try:
         statistics,
         yaml_parser,
     )
-except ImportError:
-    sys.exit("Please activate the Axelera environment with source venv/bin/activate and run again")
+except ImportError as e:
+    sys.exit(
+        f"Please activate the Axelera environment with source venv/bin/activate and run again: {e}"
+    )
 
 from tqdm import tqdm
 
@@ -43,7 +46,11 @@ def inference_loop(args, log_file_path, stream, app, wnd, tracers=None):
             wnd.options(sid, show_tiles=args.show_tiles)
     else:
         wnd.options(0, show_tiles=args.show_tiles)
-    wnd.options(-1, speedometer_smoothing=args.speedometer_smoothing)
+    wnd.options(
+        -1,
+        speedometer_smoothing=args.speedometer_smoothing,
+        multi_res_layout=args.multi_res_layout,
+    )
     logo1 = wnd.image(LOGO_POS, LOGO1, anchor_x='right', anchor_y='bottom', scale=0.3)
     logo2 = wnd.image(
         LOGO_POS, LOGO2, anchor_x='right', anchor_y='bottom', scale=0.3, fadeout_from=0.0
@@ -121,11 +128,13 @@ if __name__ == "__main__":
         default=None,
         help="Save tracer data to a file as CSV, prefix with `+` to append to an existing file",
     )
+    # Internal, unstable: number of inference loops to run (0 = infinite).
+    # Hidden from --help (argparse.SUPPRESS); not a customer-facing flag.
     parser.add_argument(
         '--loops',
         type=int,
         default=1,
-        help='Number of inference loops to perform, use 0 for infinite',
+        help=argparse.SUPPRESS,
     )
     args = parser.parse_args()
     # early exit if the network is a LLM

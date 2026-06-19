@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #include <fstream>
 #include <gmock/gmock.h>
 #include "AxInference.hpp"
@@ -280,6 +280,105 @@ TEST(axinferencenet, dmabuf_allocator_tensors2)
     allocator->unmap(managed);
     check_dmabuf_unmapped_consistency(managed);
   }
+}
+
+// Verify that data written through a WRITE_ONLY map is visible after a
+// subsequent READ_ONLY map. On ARM write-back caches, this requires that
+// unmap issues DMA_BUF_SYNC_END | WRITE to flush CPU cache lines — the bug
+// that was present before the fix.
+TEST(axinferencenet, dmabuf_sync_write_read_roundtrip)
+{
+  if (not has_dma_heap()) {
+    GTEST_SKIP() << "Skipping test as dma heap is not available";
+  }
+
+  constexpr int N = 256;
+  auto allocator = Ax::create_dma_buf_allocator();
+  auto managed = allocator->allocate(AxTensorsInterface{
+      AxTensorInterface{ { N }, sizeof(float), nullptr },
+  });
+
+  allocator->map(managed, Ax::MAP_WRITE_ONLY);
+  auto *tensors = std::get_if<AxTensorsInterface>(&managed.data());
+  auto *data = static_cast<float *>(tensors->at(0).data);
+  for (int i = 0; i < N; ++i) {
+    data[i] = static_cast<float>(i);
+  }
+  allocator->unmap(managed); // must issue SYNC_END | WRITE to flush CPU cache
+
+  allocator->map(managed, Ax::MAP_READ_ONLY);
+  tensors = std::get_if<AxTensorsInterface>(&managed.data());
+  data = static_cast<float *>(tensors->at(0).data);
+  for (int i = 0; i < N; ++i) {
+    EXPECT_EQ(data[i], static_cast<float>(i)) << "at index " << i;
+  }
+  allocator->unmap(managed);
+}
+
+// Same roundtrip using MAP_READ_WRITE for both map operations.
+TEST(axinferencenet, dmabuf_sync_rw_roundtrip)
+{
+  if (not has_dma_heap()) {
+    GTEST_SKIP() << "Skipping test as dma heap is not available";
+  }
+
+  constexpr int N = 256;
+  auto allocator = Ax::create_dma_buf_allocator();
+  auto managed = allocator->allocate(AxTensorsInterface{
+      AxTensorInterface{ { N }, sizeof(float), nullptr },
+  });
+
+  allocator->map(managed, Ax::MAP_READ_WRITE);
+  auto *tensors = std::get_if<AxTensorsInterface>(&managed.data());
+  auto *data = static_cast<float *>(tensors->at(0).data);
+  for (int i = 0; i < N; ++i) {
+    data[i] = static_cast<float>(i * 2);
+  }
+  allocator->unmap(managed); // must issue SYNC_END | RW
+
+  allocator->map(managed, Ax::MAP_READ_WRITE);
+  tensors = std::get_if<AxTensorsInterface>(&managed.data());
+  data = static_cast<float *>(tensors->at(0).data);
+  for (int i = 0; i < N; ++i) {
+    EXPECT_EQ(data[i], static_cast<float>(i * 2)) << "at index " << i;
+  }
+  allocator->unmap(managed);
+}
+
+// Verify the write-read roundtrip across multiple tensors: each tensor must
+// independently flush its own fd, so test with two tensors of different sizes.
+TEST(axinferencenet, dmabuf_sync_write_read_roundtrip_multi_tensor)
+{
+  if (not has_dma_heap()) {
+    GTEST_SKIP() << "Skipping test as dma heap is not available";
+  }
+
+  constexpr int N0 = 100, N1 = 200;
+  auto allocator = Ax::create_dma_buf_allocator();
+  auto managed = allocator->allocate(AxTensorsInterface{
+      AxTensorInterface{ { N0 }, sizeof(int32_t), nullptr },
+      AxTensorInterface{ { N1 }, sizeof(int32_t), nullptr },
+  });
+
+  allocator->map(managed, Ax::MAP_WRITE_ONLY);
+  auto *tensors = std::get_if<AxTensorsInterface>(&managed.data());
+  auto *d0 = static_cast<int32_t *>(tensors->at(0).data);
+  auto *d1 = static_cast<int32_t *>(tensors->at(1).data);
+  for (int i = 0; i < N0; ++i)
+    d0[i] = i;
+  for (int i = 0; i < N1; ++i)
+    d1[i] = -i;
+  allocator->unmap(managed);
+
+  allocator->map(managed, Ax::MAP_READ_ONLY);
+  tensors = std::get_if<AxTensorsInterface>(&managed.data());
+  d0 = static_cast<int32_t *>(tensors->at(0).data);
+  d1 = static_cast<int32_t *>(tensors->at(1).data);
+  for (int i = 0; i < N0; ++i)
+    EXPECT_EQ(d0[i], i) << "tensor 0, index " << i;
+  for (int i = 0; i < N1; ++i)
+    EXPECT_EQ(d1[i], -i) << "tensor 1, index " << i;
+  allocator->unmap(managed);
 }
 
 TEST(axinferencenet, batched_buffer_pool)

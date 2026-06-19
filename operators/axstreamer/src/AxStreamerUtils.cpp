@@ -552,11 +552,13 @@ class DmaBufDataInterfaceAllocator : public Ax::DataInterfaceAllocator
       flags = DMA_BUF_SYNC_WRITE;
     }
     struct dma_buf_sync sync = {
-      .flags = DMA_BUF_SYNC_START | flags, // or WRITE
+      .flags = DMA_BUF_SYNC_START | flags,
     };
     ioctl(fd.fd, DMA_BUF_IOCTL_SYNC, &sync);
-    return { fd.mapped,
-      [sync, fd = fd.fd](void *p) { ioctl(fd, DMA_BUF_IOCTL_SYNC, &sync); } };
+    return { fd.mapped, [flags, fd = fd.fd](void *p) {
+              struct dma_buf_sync end_sync = { .flags = DMA_BUF_SYNC_END | flags };
+              ioctl(fd, DMA_BUF_IOCTL_SYNC, &end_sync);
+            } };
   }
 
   std::string device_name_;

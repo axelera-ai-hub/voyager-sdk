@@ -19,18 +19,18 @@ Model loading and inference: AxRuntimeModel, OnnxModel, load().
 ### load
 
 ```python
-load(file: str, ncores: int = 1, name: str = '') -> Operator
+load(file: str, *, name: str = '', core_allocation: int | str | None = None) -> Operator
 ```
 
-Load a compiled Axelera model (.axm) or pipeline package (.axe).
+Load a compiled Axelera model (`.axm`) or pipeline package (`.axe`).
 
 Takes preprocessed np.ndarray input(s) and returns model output(s).
 
 **Args:**
 
 - **file**: path to .axm or .axe file.
-- **ncores**: Number of AIPU cores to use (default: 1, for .axm only).
 - **name**: Optional name for the operator in pipeline.
+- **core_allocation**: How many AIPU cores to give this model. `None` (default) shares cores equally with the other models in the pipeline; an int assigns that many cores absolutely (e.g. `2`); a percentage string (e.g. `'50%'`) takes that share of the cores left after absolute allocations, so it scales with the core count of the target hardware.
 
 **Examples:**
 
@@ -47,12 +47,12 @@ op.seq(
 # Classification model (.axm)
 op.seq(
     op.resize(size=256, half_pixel_centers=True),
-    op.centercrop(224),
+    op.center_crop(224),
     op.totensor(),
     op.normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     op.load('resnet50-imagenet'),  # Returns raw logits
-    op.topk(k=5),
-    op.axclassification(...),
+    op.top_k(k=5),
+    op.ax_classification(...),
 )
 
 # Load .axe file (complete pipeline)
@@ -60,14 +60,18 @@ detector = op.load('yolov8n-coco.axe')
 detections = detector(image)
 ```
 
-**Note:** `op.load()` automatically handles quantization, padding, model execution, depadding, and dequantization. Preamble and postamble ONNX graphs are also applied if present in the model configuration.
+**Note:**
+
+`op.load()` automatically handles quantization, padding, model execution, depadding,
+and dequantization. Preamble and postamble ONNX graphs are also applied if present
+in the model configuration.
 
 ---
 
 ### onnx_model
 
 ```python
-onnx_model(path: str | Path, provider: str | None = None, name: str = '') -> OnnxModel
+onnx_model(path: str | Path, *, provider: str | None = None, name: str = '') -> OnnxModel
 ```
 
 Run standalone ONNX model inference.
@@ -115,7 +119,9 @@ op.onnx_model('model.onnx', provider='cpu')
 op.onnx_model('model.onnx', provider='cuda')
 ```
 
-**Note:** Available providers depend on your onnxruntime installation:
+**Note:**
+
+Available providers depend on your onnxruntime installation:
 - `'cuda'`: Requires onnxruntime-gpu with CUDA support
 - `'mps'`: Available on macOS with Apple Silicon
 - `'openvino'`: Requires onnxruntime-openvino
@@ -126,6 +132,8 @@ Use `_internal.get_available_onnx_providers()` to check available providers.
 ---
 
 ### OnnxModel
+
+**Alias:** `onnx_model`
 
 ONNX model inference operator.
 
@@ -143,3 +151,26 @@ execution provider selection.
 ```python
 __init__(axm_path: str | Path = str(axm_path), provider: str | None = provider, file=str(file))
 ```
+
+**Methods:**
+
+#### serialize
+
+```python
+serialize() -> dict[str, Any]
+```
+
+Serialize OnnxModel for AXE format.
+
+Returns dict with type and file path. The ONNX file will be embedded
+in the AXE archive using just the filename (not full path).
+
+#### classmethod deserialize_impl
+
+```python
+deserialize_impl(operator_cls, spec: dict[str, Any], zf: zipfile.ZipFile, base_path: Path) -> OnnxModel
+```
+
+Deserialize OnnxModel from AXE format.
+
+Extracts the ONNX file from the archive and creates an OnnxModel.

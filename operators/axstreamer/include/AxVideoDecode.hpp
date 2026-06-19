@@ -102,31 +102,41 @@ class VideoDecode
   void start_decoding()
   {
     if (!reader_thread.joinable()) {
-      reader_thread = std::jthread(&VideoDecode::reader_func, this);
+      reader_thread
+          = std::jthread([this](std::stop_token stoken) { reader_func(stoken); });
     }
   }
 
   /**
-   * @brief Virtual destructor
+   * @brief Stop the video decoding process
    *
-   * Ensures proper cleanup of the reader thread if it's still running.
-   * The destructor will request the thread to stop and wait for it to join.
+   * This method stops the decoding thread and waits for it to finish.
+   * Call this method from Python with GIL released to avoid deadlock.
    */
-  virtual ~VideoDecode()
+  void stop_decoding()
   {
     if (reader_thread.joinable()) {
       reader_thread.request_stop();
       reader_thread.join();
     }
-  };
+  }
+
+  /**
+   * @brief Destructor
+   *
+   * Derived classes should ensure proper cleanup of the reader thread.
+   */
+  virtual ~VideoDecode() = default;
 
   protected:
   /** @brief Start the reader thread
    *
    * This method is responsible for starting the video decoding process
    * in a separate thread. It should be implemented by derived classes.
+   *
+   * @param stoken Stop token to check for cancellation requests
    */
-  virtual void reader_func() = 0;
+  virtual void reader_func(std::stop_token stoken) = 0;
 
   /**
    * @brief Input source specification

@@ -1,7 +1,7 @@
 # API Reference
 
 > **Alpha:** Core operators (detection, classification, pose, segmentation, tracking)
-> are stable. Cascade (`op.foreach`, `op.croproi`) and streaming APIs are still in development.
+> are stable. Cascade (`op.for_each`, `op.crop_roi`) and streaming APIs are still in development.
 
 ## Tutorials
 
@@ -16,7 +16,7 @@
 - [Results](api/axelera.runtime.op.results.md) - Convert arrays to typed objects (AxDetection, AxPose, AxSegmentation, AxClassification)
 - [Inference](api/axelera.runtime.op.inference.md) - Model loading (load, onnx_model)
 - [Tracker](api/axelera.runtime.op.tracker.md) - Multi-object tracking (ByteTrack, OC-SORT, SORT, TrackTrack)
-- [Combinators](api/axelera.runtime.op.combinators.md) - Pipeline composition (seq, par, foreach, pack, unpack, itemgetter)
+- [Combinators](api/axelera.runtime.op.combinators.md) - Pipeline composition (seq, par, for_each, pack, unpack, itemgetter)
 
 ## Type Reference
 

@@ -38,13 +38,13 @@ Install system dependencies using the provided script:
 ./install-dependencies.sh
 ```
 
+
 ### Step 2: Create a virtual environment and install
 
 ```bash
 python3 -m venv axelera-env
 source axelera-env/bin/activate
-# Install SDK
-pip install --extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple axelera-rt==1.6.1 axelera-devkit[all]==1.6.1
+pip install --extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple axelera-rt==1.7.0 axelera-devkit[all]==1.7.0
 make operators
 ```
 
@@ -54,14 +54,21 @@ make operators
 
 ### Step 3: Install the Metis kernel driver
 
-#### Option a). Using `axdevice driver`
+There are two ways of installing the device driver, Option a) is the easiest.
 
-With an activated environment:
+> [!NOTE]
+> If installation fails, ensure your kernel headers are present: `sudo apt-get install -y linux-headers-$(uname -r)`
+
+
+#### Option a) Use axdevice
+
 ```bash
-axdevice driver --install 1.4.17
+axdevice driver --install 1.5.5
 ```
 
-#### Option b). Using `apt`
+#### Option b) Use apt
+
+This option updates apt sources to locate the debian package for the installer.
 
 ```bash
 # Add the Axelera apt repository
@@ -72,23 +79,19 @@ sudo sh -c "echo 'deb [signed-by=/etc/apt/keyrings/axelera.gpg] https://software
 sudo sh -c "echo 'deb [signed-by=/etc/apt/keyrings/axelera.gpg] https://software.axelera.ai/artifactory/axelera-apt-source ubuntu24 main' > /etc/apt/sources.list.d/axelera.list"
 
 sudo apt-get update
-# Install latest metis-dkms driver
-sudo apt-get install -y metis-dkms=1.4.16
+sudo apt-get install -y metis-dkms=1.5.5
 ```
 
-#### In both cases
+#### After installation
+
 Verify the driver is loaded:
 
 ```bash
 lsmod | grep metis
 # If it is not loaded, run
-sudo modprobe metis 
-# or do a power cycle of the machine
+sudo modprobe metis
+# or reboot your PC
 ```
-
-> [!NOTE]
-> If installation fails, ensure your kernel headers are present: `sudo apt-get install -y linux-headers-$(uname -r)`
-
 
 ### Step 4: Verify installation
 

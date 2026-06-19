@@ -1,0 +1,15 @@
+input:
+  type: image
+  color_format: RGB
+preprocess:
+  - letterbox:
+      width: ${{input_width}}
+      height: ${{input_height}}
+      half_pixel_centers: True
+  - torch-totensor:
+inference:
+  handle_dequantization_and_depadding: False
+  handle_transpose: False
+  handle_postamble: False
+postprocess:
+  - semantic-segmentation:

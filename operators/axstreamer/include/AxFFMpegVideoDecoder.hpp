@@ -28,7 +28,7 @@ class FFMpegVideoDecoder : public VideoDecode
   ~FFMpegVideoDecoder();
 
   protected:
-  void reader_func() override;
+  void reader_func(std::stop_token stoken) override;
 
   private:
   void init(AxVideoFormat format);
@@ -36,6 +36,7 @@ class FFMpegVideoDecoder : public VideoDecode
   AVPixelFormat get_requested_format(AxVideoFormat format);
   static int get_buffer2_callback(AVCodecContext *ctx, AVFrame *frame, int flags);
   static void free_aligned_buffer(void *opaque, uint8_t *data);
+  static int interrupt_callback(void *ctx);
 
   AVCodecContext *codec_ctx;
   AVFormatContext *format_ctx;

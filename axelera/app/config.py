@@ -45,10 +45,27 @@ class DeployMode(enum.Enum):
     PREQUANTIZED = enum.auto()
 
 
+class HWGeneration(enum.Enum):
+    '''Hardware generation, independent of board form factor.'''
+
+    none = enum.auto()
+    metis = enum.auto()
+    europa = enum.auto()
+
+
 class Metis(enum.Enum):
     none = enum.auto()
     pcie = enum.auto()
     m2 = enum.auto()
+    europa = enum.auto()
+
+    @property
+    def hw_generation(self) -> HWGeneration:
+        if self == Metis.europa:
+            return HWGeneration.europa
+        if self == Metis.none:
+            return HWGeneration.none
+        return HWGeneration.metis
 
 
 class HardwareEnable(enum.Enum):
@@ -68,10 +85,16 @@ _DETECTABLE_CAPS_AVAILABLE_ARGS = collections.defaultdict(list)
 _DETECTABLE_CAPS_AVAILABLE_ARGS['opengl'] = [env.opengl_backend]
 
 DEFAULT_MAX_EXECUTION_CORES = 4
-'''The number of cores to execute on, this is the default for the AIPU.'''
+'''The default number of AI cores to execute on (Metis/Omega).'''
+
+DEFAULT_MAX_EXECUTION_CORES_EUROPA = 8
+'''The default number of AI cores to execute on for Europa devices.'''
 
 DEFAULT_CORE_CLOCK = 800
-'''The default core clock frequency to use for the AIPU.'''
+'''The default core clock frequency in MHz (Metis/Omega).'''
+
+DEFAULT_CORE_CLOCK_EUROPA = 1200
+'''The default core clock frequency in MHz for Europa devices.'''
 
 DEFAULT_WINDOW_SIZE = (900, 600)
 '''The default window size for display windows.'''
@@ -184,9 +207,11 @@ def add_aipu_cores(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         '--aipu-cores',
         type=int,
-        choices=range(0, 5),
-        default=4,
-        help='number of AIPU cores to use; supported options are %(choices)s; default is %(default)s',
+        choices=range(0, 9),
+        default=8,
+        help='number of AIPU cores to use; supported options are %(choices)s; '
+        'by default uses all available cores on the device '
+        '(Metis: 4, Europa: 8)',
     )
 
 
@@ -219,9 +244,9 @@ def add_compile_extras(parser: argparse.ArgumentParser) -> None:
         '--cal-seed',
         type=int,
         default=None,
-        help='Specify the seed for the torch.manual_seed which will affect the dataset shuffling. '
-        'We use it to experiment with different seeds to see the impact on the accuracy. '
-        'If not set, the seed will be random. ',
+        help='Seed for torch.manual_seed; passing one enables shuffled calibration order so '
+        'different seeds can be swept to study the impact on accuracy. '
+        'If not set, calibration images are consumed in deterministic sorted order.',
     )
     parser.add_argument(
         '--default-representative-images',
@@ -820,6 +845,17 @@ def add_display_arguments(
         const=_window_size('fullscreen'),
         dest='window_size',
         help='Alias for --window-size=fullscreen.',
+    )
+    parser.add_argument(
+        '--multi-res-layout',
+        action='store_true',
+        default=False,
+        help=(
+            'Enable multi-resolution display layout with primary/secondary panel split, '
+            'per-stream downscaling, stream ID labels, and interactive stream swapping '
+            '(click a primary pane to select it, then click a secondary pane to swap). '
+            'Disabled by default.'
+        ),
     )
 
 
@@ -2012,6 +2048,12 @@ def verticalflip() -> list[ImagePreproc]:
 def horizontalflip() -> list[ImagePreproc]:
     '''Flip the image horizontally.'''
     return [ImagePreproc('videoflip', (VideoFlipMethod.horizontal_flip,), {})]
+
+
+@_image_preproc
+def crop(left: int, top: int, width: int, height: int) -> list[ImagePreproc]:
+    '''Crop the image to the given region.'''
+    return [ImagePreproc('crop', (left, top, width, height), {})]
 
 
 @_image_preproc

@@ -25,13 +25,6 @@ struct barrelcorrect_properties {
 };
 
 const char *const barrel_correct = R"##(
-uchar4 color_convert(uchar4 pixel, float16 matrix) {
-    float4 in_pixel = convert_float4(pixel);
-    float4 color = mad(in_pixel.x, matrix.s0123, mad(in_pixel.y, matrix.s4567, mad(in_pixel.z, matrix.s89ab, matrix.scdef)));
-    color.w = in_pixel.w;
-    return convert_uchar4_sat(color);
-}
-
 float2 barrel_distortion_correction(
     float x, float y, const float2 focal, const float2 centre,
     float4 new_camera_props, __constant const float *coeffs)
@@ -90,6 +83,7 @@ ax_utils::CLProgram::ax_kernel
 build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
     AxVideoFormat out_format, int num_planes)
 {
+  bool fp16 = program.has_fp16();
   std::string kernel_code = barrel_correct;
 
   auto input_details = ax_utils::get_input_details(
@@ -108,7 +102,7 @@ build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
   auto final_kernel = std::string(buffer.data());
   final_kernel += sampler_code;
   final_kernel += output_code;
-  final_kernel = ax_utils::get_kernel_utils() + final_kernel;
+  final_kernel = ax_utils::get_kernel_utils(0, fp16) + final_kernel;
   return program.build_kernel_from_source(final_kernel, "barrel_correct");
 }
 

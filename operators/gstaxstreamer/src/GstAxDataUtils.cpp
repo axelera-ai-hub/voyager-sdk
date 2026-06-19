@@ -368,9 +368,6 @@ add_video_meta_from_interface_to_buffer(GstBuffer *buffer, const AxDataInterface
     gsize offsets[1] = { static_cast<gsize>(info.offset) };
     meta = gst_buffer_add_video_meta_full(buffer, GST_VIDEO_FRAME_FLAG_NONE,
         ax_video_format_to_gst(info.format), info.width, info.height, 1, offsets, strides);
-  } else {
-    meta->width = info.width;
-    meta->height = info.height;
   }
 
   int original_x = 0;

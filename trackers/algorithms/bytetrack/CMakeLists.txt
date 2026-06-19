@@ -10,7 +10,9 @@ add_library(bytetrack SHARED
 )
 
 target_include_directories(bytetrack
-  PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    ${OpenCV_INCLUDE_DIRS}
 )
 
 target_link_libraries(bytetrack PUBLIC Eigen3::Eigen ${OpenCV_LIBS})

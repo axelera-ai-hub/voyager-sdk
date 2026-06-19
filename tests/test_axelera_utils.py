@@ -517,18 +517,18 @@ def test_extract_drop_dirs(tmp_path):
 @pytest.mark.parametrize(
     'out, expected, expected_level, expected_log',
     [
-        (subprocess.CalledProcessError, False, logging.INFO, 'Could not exec vainfo'),
-        ('nothing', False, logging.INFO, 'Did not find VA-API in vainfo output'),
+        (subprocess.CalledProcessError, False, logging.DEBUG, 'Could not exec vainfo'),
+        ('nothing', False, logging.DEBUG, 'Did not find VA-API in vainfo output'),
         (
             'blurb\nvleading vainfo: Supported profile and entrypoints,\nmore',
             True,
-            logging.INFO,
+            logging.DEBUG,
             'Did not find VA-API in vainfo output',
         ),
     ],
 )
 def test_is_vaapi_available_x86(caplog, out, expected, expected_level, expected_log):
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
 
     class Out:
         stdout = out
@@ -553,7 +553,7 @@ def test_is_vaapi_available_x86(caplog, out, expected, expected_level, expected_
 
 
 def test_is_vaapi_available_aarch64(caplog):
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
 
     def run(cmd, **kwargs):
         assert False, "On arm we should not try to use vaapi"

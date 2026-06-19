@@ -13,7 +13,7 @@ Building blocks for constructing inference pipelines:
 - ForEach: Collection iteration - apply operators to each element in a list
 - Pack: Collect positional arguments into a single tuple
 - Unpack: Mark a tuple for argument unpacking to the next operator
-- ItemGetter: Extract an element from a tuple by index (like operator.itemgetter)
+- Itemgetter: Extract an element from a tuple by index (like operator.itemgetter)
 - identity: Pass input through unchanged
 - constant: Always return a fixed value regardless of input
 
@@ -26,7 +26,7 @@ Building blocks for constructing inference pipelines:
 | [ForEach](#foreach) | Apply operators to each element in a collection, preserving the original collection. |
 | [Pack](#pack) | Collect positional arguments into a plain tuple. |
 | [Unpack](#unpack) | Mark a tuple or list for argument unpacking to the next operator. |
-| [ItemGetter](#itemgetter) | Extract element by index from a tuple value (like `operator.itemgetter`). |
+| [Itemgetter](#itemgetter) | Extract element by index from a tuple value (like `operator.itemgetter`). |
 | [identity](#identity) | Return the input unchanged. |
 | [constant](#constant) | Return the given constant value. |
 
@@ -34,13 +34,15 @@ Building blocks for constructing inference pipelines:
 
 ### Seq
 
+**Alias:** `seq`
+
 Sequential operator that executes operators in order, piping output to next input.
 
-**Input:** Any - accepts whatever the first operator in the sequence accepts
+**Input:** Any - accepts whatever the first operator in the sequence accepts.
 
-**Output:** Any - returns whatever the last operator in the sequence returns
+**Output:** Any - returns whatever the last operator in the sequence returns.
 
-**Usage:**
+**Examples:**
 
 ```python
 # Image preprocessing pipeline
@@ -57,37 +59,125 @@ op.seq(
     op.decode_detections(...),
     op.nms(),
     op.to_image_space(),
-    op.axdetection(class_id_type=op.CocoClasses),
+    op.ax_detection(class_id_type=op.CocoClasses),
 )
 # Input: np.ndarray (preprocessed image) -> Output: list[DetectedObject]
 ```
+
+**Methods:**
+
+#### optimized
+
+```python
+optimized() -> Seq
+```
+
+Return a new Seq with optimized children.
+
+Cross-boundary fusion (e.g. merging letterbox into a model's
+preprocess) is not yet supported.
+
+#### save_axe
+
+```python
+save_axe(path: str, *, name: str = '', description: str = '', task: str = 'detection') -> None
+```
+
+Save this pipeline as an .axe file.
+
+**Args:**
+
+- **path**: Output path (must end in .axe)
+- **name**: Human-readable pipeline name
+- **description**: Pipeline description
+- **task**: Task type ('detection', 'classification', etc.)
+
+**Raises:**
+
+- **ValueError**: If path doesn't end in .axe
+- **ValueError**: If pipeline contains for_each with nested model loads
+- **FileNotFoundError**: If referenced .axm file doesn't exist
+
+**Example:**
+
+pipeline = op.seq(
+    op.letterbox(640, 640),
+    op.totensor(),
+    op.load('yolov8n.axm'),
+    op.decode_detections(algo='yolov8', name='decode'),
+    op.nms(iou_threshold=0.45, name='nms'),
+    op.to_image_space(),
+    op.ax_detection(class_id_type=op.CocoClasses),
+)
+pipeline.save_axe('yolov8n-coco.axe', name='YOLOv8n COCO', task='detection')
+
+#### batch
+
+```python
+batch(*inputs: tuple[list[Tensor] | Tensor, ...]) -> list[Any]
+```
+
+Process a batch of inputs through the sequential operators.
+
+**Args:**
+
+- ***inputs**: Multiple input items to process as a batch.
+
+**Returns:** `list[Any]` -- A list of results corresponding to each input item.
+
+#### stream
+
+```python
+stream(source, *, max_in_flight: int | None = None)
+```
+
+Run this pipeline over the frames of `source`, yielding `(input, result)`.
+
+Forwards to the current scheduler (see `scheduler.current`); frames are
+pipelined across the available AIPU cores. `max_in_flight` bounds how many
+frames may be in flight at once (`None` -> the scheduler's core count);
+results are yielded in source order.
+
+**Args:**
+
+- **source**: a path/URL string, or a `cv` reader yielding frames.
+- **max_in_flight**: in-flight window; `None` uses the core count, `1` runs inline in the calling thread (handy for debugging).
+
+**Returns:** A generator of `(input, result)` pairs.
 
 ---
 
 ### Par
 
+**Alias:** `par`
+
 Parallel operator that executes multiple operators with same input, returns tuple.
 
-**Input:** Any - the same input is passed to all parallel operators
+**Input:** Any - the same input is passed to all parallel operators.
 
-**Output:** tuple or NamedTuple - if all operators have names, returns NamedTuple with
-                      named fields; otherwise returns regular tuple
+**Output:**
 
-**Usage:**
+tuple or NamedTuple - if all operators have names, returns NamedTuple
+with named fields; otherwise returns regular tuple.
+
+**Examples:**
 
 ```python
 # Run two classifiers on same image
 op.par(
-    op.seq(op.load('age-model', name='age'), op.axclassification(...), op.topk(k=1)),
-    op.seq(op.load('gender-model', name='gender'), op.axclassification(...), op.topk(k=1)),
+    op.seq(op.load('age-model', name='age'), op.ax_classification(...), op.top_k(k=1)),
+    op.seq(
+        op.load('gender-model', name='gender'),
+        op.ax_classification(...), op.top_k(k=1)
+    )
 )
 # Input: np.ndarray
 #   -> Output: NamedTuple(age=list[Classification], gender=list[Classification])
 
 # Parallel processing in cascade
-op.foreach(
+op.for_each(
     'results',
-    op.croproi(property='bbox'),
+    op.crop_roi(property='bbox'),
     op.par(
         op.seq(..., name='classifier1'),
         op.seq(..., name='classifier2'),
@@ -99,9 +189,13 @@ op.foreach(
 
 ### ForEach
 
+**Alias:** `for_each`
+
 Apply operators to each element in a collection, preserving the original collection.
 
-**Data-flow:** 1. Receives a collection (list) from the previous operator
+**Data-flow:**
+
+1. Receives a collection (list) from the previous operator
 2. Applies the contained operators to EACH element
 3. Returns NamedTuple(original_collection, processed_results)
 
@@ -115,21 +209,21 @@ results with their inputs (e.g., match classifications back to detections).
 - **name**: Alternative way to specify output name (keyword-only).
 - **save**: Optional path to save intermediate results.
 
-**Returns:** NamedTuple with two fields:
+**Returns:**
 
-**Returns:** - Field 1 (input): The original collection (named by iter parameter)
-
-**Returns:** - Field 2 (output): List of processed results (named by first positional arg or name)
+NamedTuple with two fields:
+- Field 1 (input): The original collection (named by iter parameter)
+- Field 2 (output): List of processed results (named by first positional arg or name)
 
 **Examples:**
 
 ```python
 # Basic usage - input collection named 'input' by default
 op.seq(
-    op.axdetection(...),  # Outputs list of DetectedObject
-    op.foreach(
+    op.ax_detection(...),  # Outputs list of DetectedObject
+    op.for_each(
         'classifications',  # Output field name
-        op.croproi(...),
+        op.crop_roi(...),
         op.classify(...),
     ),
 )
@@ -138,9 +232,9 @@ op.seq(
 # Custom input field name - explicitly specify iter parameter
 op.seq(
     op.filter(class_ids=[op.CocoClasses.person]),  # Outputs filtered persons
-    op.foreach(
+    op.for_each(
         'ages',             # Output field name
-        op.croproi(...),
+        op.crop_roi(...),
         op.classify(...),
         iter='persons',     # Input field name (must be explicit!)
     ),
@@ -163,12 +257,14 @@ __init__(iter_name: str = iter)
 
 ### Pack
 
+**Alias:** `pack`
+
 Collect positional arguments into a plain tuple.
 
 Opposite of `unpack()`. Takes `*args` and returns them as a regular tuple
 (not `_Unpacked`), so the next operator receives one single value.
 
-**Usage:**
+**Examples:**
 
 ```python
 # After unnamed Par produces _Unpacked, pack collects args back into a tuple
@@ -187,6 +283,8 @@ op.seq(op.pack(), op.itemgetter(0))   # accepts arbitrary number of args,
 
 ### Unpack
 
+**Alias:** `unpack`
+
 Mark a tuple or list for argument unpacking to the next operator.
 
 Takes a single value. If it is a tuple or list, wraps it in `_Unpacked`
@@ -196,7 +294,7 @@ to the next operator. Non-sequence values pass through unchanged.
 This is a pure type-cast (like `std::move` in C++): it does not call
 or wrap another operator.
 
-**Usage:**
+**Examples:**
 
 ```python
 # decode_segmentation returns (detections, protos) as a plain tuple.
@@ -211,14 +309,18 @@ op.seq(
 )
 ```
 
-**Note:** Only needed when an operator returns a plain tuple that should be
+**Note:**
+
+Only needed when an operator returns a plain tuple that should be
 unpacked. Unnamed `Par` already produces `_Unpacked` automatically.
 
 ---
 
-### ItemGetter
+### Itemgetter
 
-Extract element `index` from a tuple value (like `operator.itemgetter`).
+**Alias:** `itemgetter`
+
+Extract element by index from a tuple value (like `operator.itemgetter`).
 
 **Examples:**
 
@@ -252,7 +354,7 @@ Return the input unchanged.
 ### constant
 
 ```python
-constant(args=(), value) -> Operator
+constant(*args, value) -> Operator
 ```
 
 Return the given constant value.

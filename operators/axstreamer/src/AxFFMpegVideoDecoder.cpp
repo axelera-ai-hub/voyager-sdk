@@ -27,6 +27,18 @@ Ax::FFMpegVideoDecoder::init(AxVideoFormat format)
     // fmt = av_find_input_format("video4linux2");
   }
 
+  // Allocate format context and set interrupt callback before opening input
+  // This allows the callback to interrupt long-running operations during open
+  // (e.g., unreachable RTSP hosts, slow DNS resolution)
+  format_ctx = avformat_alloc_context();
+  if (!format_ctx) {
+    throw std::runtime_error("Could not allocate format context");
+  }
+
+  // Set interrupt callback to allow aborting blocking operations (including open)
+  format_ctx->interrupt_callback.callback = interrupt_callback;
+  format_ctx->interrupt_callback.opaque = this;
+
   // Open input file
   if (avformat_open_input(&format_ctx, input.c_str(), fmt, &opts) < 0) {
     throw std::runtime_error("Could not open input file");
@@ -96,6 +108,8 @@ Ax::FFMpegVideoDecoder::FFMpegVideoDecoder(const std::string &input,
 
 Ax::FFMpegVideoDecoder::~FFMpegVideoDecoder()
 {
+  stop_decoding();
+
   if (codec_ctx) {
     avcodec_free_context(&codec_ctx);
   }
@@ -124,6 +138,20 @@ void
 Ax::FFMpegVideoDecoder::free_aligned_buffer(void * /*opaque*/, uint8_t *data)
 {
   std::free(data);
+}
+
+int
+Ax::FFMpegVideoDecoder::interrupt_callback(void *ctx)
+{
+  // Return non-zero to interrupt FFmpeg blocking operations
+  // Check the stop token from reader_thread - this is the single source of truth
+  // Note: reader_thread must be joinable (started) for stop_token to be valid
+  auto *decoder = static_cast<FFMpegVideoDecoder *>(ctx);
+  if (decoder->reader_thread.joinable()) {
+    return decoder->reader_thread.get_stop_token().stop_requested() ? 1 : 0;
+  }
+  // Thread not started yet (constructor phase) - don't interrupt
+  return 0;
 }
 
 int
@@ -166,17 +194,23 @@ Ax::FFMpegVideoDecoder::get_buffer2_callback(AVCodecContext *ctx, AVFrame *frame
 }
 
 void
-Ax::FFMpegVideoDecoder::reader_func()
+Ax::FFMpegVideoDecoder::reader_func(std::stop_token stoken)
 {
   AVPacket *packet = av_packet_alloc();
   AVFrame *frame = av_frame_alloc();
+  bool stopped_early = false;
 
-  while (av_read_frame(format_ctx, packet) >= 0) {
+  while (!stoken.stop_requested() && av_read_frame(format_ctx, packet) >= 0) {
+    if (stoken.stop_requested()) {
+      stopped_early = true;
+      break;
+    }
+
     if (packet->stream_index == video_stream_index) {
       if (avcodec_send_packet(codec_ctx, packet) < 0) {
         break;
       }
-      while (avcodec_receive_frame(codec_ctx, frame) == 0) {
+      while (!stoken.stop_requested() && avcodec_receive_frame(codec_ctx, frame) == 0) {
         AVPixelFormat native_format = static_cast<AVPixelFormat>(frame->format);
         if (requested_format == AxVideoFormat::UNDEFINED) {
           requested_format
@@ -299,8 +333,16 @@ Ax::FFMpegVideoDecoder::reader_func()
     av_packet_unref(packet);
   }
 
-  // Notify end of stream with invalid buffer
-  frame_callback(VideoBuffer());
+  // Check if we exited due to stop request
+  if (stoken.stop_requested()) {
+    stopped_early = true;
+  }
+
+  // Only send end-of-stream callback if we reached natural end (not stopped
+  // early) This avoids GIL deadlock when destructor is stopping the thread
+  if (!stopped_early) {
+    frame_callback(VideoBuffer());
+  }
 
   av_packet_free(&packet);
   av_frame_free(&frame);

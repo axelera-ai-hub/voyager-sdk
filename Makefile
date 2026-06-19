@@ -78,3 +78,18 @@ operators-docker:
 		($(MAKE) -C operators clear-cmake-cache &> _operators.log && $(MAKE) operators &>> _operators.log) || \
 		echo "Failed to build operators, see _operators.log"; \
 	fi
+
+# Variant of operators-docker that clears a stale cmake cache (typical after
+# switching venvs). Used by containerless.sh; do not call from install.sh.
+.PHONY: operators-containerless
+operators-containerless:
+	$(Q)for build in operators/Release operators/Debug; do \
+		[ -f $$build/CMakeCache.txt ] || continue; \
+		old_cmake=$$(awk -F= '/^CMAKE_COMMAND:INTERNAL=/{print $$2; exit}' $$build/CMakeCache.txt); \
+		if [ -n "$$old_cmake" ] && [ ! -x "$$old_cmake" ]; then \
+			echo "Stale cmake $$old_cmake (likely after venv switch); clearing $$build cache"; \
+			rm -f $$build/CMakeCache.txt $$build/build.ninja; \
+		fi; \
+	done
+	$(Q)$(MAKE) operators &> _operators.log || \
+		(cat _operators.log; echo "Failed to build operators, see _operators.log"; false)

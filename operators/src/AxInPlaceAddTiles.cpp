@@ -1,4 +1,6 @@
 // Copyright Axelera AI, 2025
+#include <chrono>
+#include <filesystem>
 #include <nlohmann/json.hpp>
 #include <unordered_set>
 #include "AxDataInterface.h"
@@ -67,11 +69,15 @@ get_last_modified_time(const std::string &path)
   if (path.empty()) {
     return 0;
   }
-  struct stat file_stat;
-  if (stat(path.c_str(), &file_stat) != 0) {
+  std::error_code ec;
+  auto ftime = std::filesystem::last_write_time(path, ec);
+  if (ec) {
     return 0;
   }
-  return file_stat.st_mtime;
+  auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+      ftime - std::filesystem::file_time_type::clock::now()
+      + std::chrono::system_clock::now());
+  return std::chrono::system_clock::to_time_t(sctp);
 }
 
 void

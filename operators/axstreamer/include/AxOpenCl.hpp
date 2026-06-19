@@ -1,8 +1,9 @@
 // Copyright Axelera AI, 2023
 #pragma once
 
-#define CL_TARGET_OPENCL_VERSION 210
-#define CL_USE_DEPRECATED_OPENCL_1_2_APIS
+#ifndef CL_TARGET_OPENCL_VERSION
+#define CL_TARGET_OPENCL_VERSION 300
+#endif
 #ifdef __APPLE__
 #include <OpenCL/opencl.h>
 #else
@@ -164,9 +165,29 @@ class CLProgram
     return can_import_dmabuf(cl_details.extensions);
   }
 
+  // True when DMA-bufs are imported via cl_khr_external_memory and therefore
+  // require explicit acquire/release around kernel use.  False when the ARM
+  // import path is used (which handles synchronisation internally).
+  bool uses_khr_dmabuf_import() const
+  {
+    return cl_details.extensions.hasKhrDmaBufImport
+           && cl_details.extensions.clEnqueueAcquireExternalMemObjectsKHR
+           && cl_details.extensions.clEnqueueReleaseExternalMemObjectsKHR
+           && !cl_details.extensions.clImportMemoryARM_dmabuf;
+  }
+
+  bool has_fp16() const
+  {
+    return cl_details.extensions.has_fp16;
+  }
+
   int acquireva(std::span<cl_mem> input_buffers);
 
   int releaseva(std::span<cl_mem> input_buffers);
+
+  ax_event acquire_dmabuf_khr(std::span<cl_mem> buffers, ax_event wait_event);
+
+  ax_event release_dmabuf_khr(std::span<cl_mem> buffers, ax_event wait_event);
 
   bool can_use_va() const
   {
@@ -206,7 +227,51 @@ class CLProgram
   bool RPi_Hack{};
 };
 
-std::string get_kernel_utils(int rotate_type = 0);
+// Converts a float32 to float16 with round-to-nearest-even.
+// Assumes: f is a normal finite value in the half-precision normal range
+// [-65504, 65504]. Passing subnormals, NaN, or infinity gives wrong results.
+//
+// float32: [s:1][exp:8 bias=127][mantissa:23]
+// float16: [s:1][exp:5 bias=15 ][mantissa:10]
+inline cl_half
+float_to_half(float f)
+{
+  // 23 - 10: bits dropped when truncating f32 mantissa to f16 mantissa.
+  constexpr int kMantissaShift = 13;
+  constexpr uint32_t kRoundMask = (1u << kMantissaShift) - 1u;
+  constexpr uint32_t kRoundHalf = 1u << (kMantissaShift - 1);
+  constexpr int kF16MaxExp = 31; // 5-bit exp field: 31 = inf/NaN
+  constexpr uint16_t kF16SignBit = 0x8000u;
+  constexpr uint16_t kF16Inf = 0x7C00u;
+
+  uint32_t x{};
+  memcpy(&x, &f, sizeof(x));
+  uint16_t sign = static_cast<uint16_t>(x >> 16) & kF16SignBit;
+  int exp = ((x >> 23) & 0xFFu) - 127 + 15;
+  uint32_t mantissa = x & 0x7FFFFFu;
+  if (exp <= 0)
+    return sign;
+  if (exp >= kF16MaxExp)
+    return static_cast<cl_half>(sign | kF16Inf);
+  uint16_t half = sign | (static_cast<uint16_t>(exp) << 10)
+                  | static_cast<uint16_t>(mantissa >> kMantissaShift);
+  uint32_t remainder = mantissa & kRoundMask;
+  if (remainder > kRoundHalf || (remainder == kRoundHalf && (half & 1u)))
+    half += 1u; // carries correctly into exp on mantissa overflow
+  return static_cast<cl_half>(half);
+}
+
+template <size_t N>
+std::array<cl_half, N>
+to_half_array(const std::array<float, N> &f)
+{
+  std::array<cl_half, N> h;
+  for (size_t i = 0; i < N; ++i)
+    h[i] = float_to_half(f[i]);
+  return h;
+}
+
+std::string get_kernel_utils(int rotate_type = 0, bool use_fp16 = false);
 
 std::string get_rotation(int rotate_type);
 
@@ -217,6 +282,10 @@ int run_kernel(CLProgram &program, cl_kernel k, const buffer_details &in,
 
 std::array<float, 16> get_color_conversion_matrix(
     AxVideoFormat in_format, AxVideoFormat out_format);
+
+std::array<float, 16> get_color_conversion_matrix_with_norm(AxVideoFormat in_format,
+    AxVideoFormat out_format, const std::vector<cl_float> &mul,
+    const std::vector<cl_float> &add);
 
 std::array<cl_int, 4> build_strides(const buffer_details &in, const buffer_details &out);
 

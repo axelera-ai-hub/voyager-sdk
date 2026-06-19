@@ -36,10 +36,23 @@ Ax::OpenCVVideoDecoder::OpenCVVideoDecoder(const std::string &input,
 }
 
 void
-Ax::OpenCVVideoDecoder::reader_func()
+Ax::OpenCVVideoDecoder::reader_func(std::stop_token stoken)
 {
   cv::Mat frame;
-  while (cap.read(frame)) {
+  bool stopped_early = false;
+
+  // Check stop token before each read to allow quick exit
+  while (!stoken.stop_requested()) {
+    // cap.read() can block, but for file-based videos it should return quickly
+    if (!cap.read(frame)) {
+      break; // End of video or read error
+    }
+
+    if (stoken.stop_requested()) {
+      stopped_early = true;
+      break; // Stop requested - exit without sending end-of-stream
+    }
+
     if (frame.empty()) {
       break; // End of video
     }
@@ -95,6 +108,14 @@ Ax::OpenCVVideoDecoder::reader_func()
     frame_callback(std::move(video_buffer));
   }
 
-  // Send invalid buffer to signal end of stream
-  frame_callback(VideoBuffer());
+  // Only send end-of-stream callback if we reached natural end (not stopped
+  // early) This avoids GIL deadlock when destructor is stopping the thread
+  if (!stopped_early) {
+    frame_callback(VideoBuffer());
+  }
+}
+
+Ax::OpenCVVideoDecoder::~OpenCVVideoDecoder()
+{
+  stop_decoding();
 }

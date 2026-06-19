@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 #
 # This file is used to define the data adapter for the model.
 # The data adapter wraps the original dataset object and provides a common interface

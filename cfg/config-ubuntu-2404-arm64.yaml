@@ -13,8 +13,8 @@ vars:
   AX_PYPI_DEVELOPMENT_URL: https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple
   AX_PIP_EXTRA_ARGS: ""
   AX_CFG_DIR: cfg
-  AX_VERSION: 1.6.1
-  AX_DKMS_VERSION: 1.4.17
+  AX_VERSION: 1.7.0
+  AX_DKMS_VERSION: 1.5.5
   AX_MULTI_DEVICE_VERSION: 1.0.0
 
 installer_dependencies:
@@ -29,7 +29,7 @@ common:
   description: Common
   libs:
     - libgstreamer-plugins-base1.0-dev
-    - axelera-runtime-1.6.1
+    - axelera-runtime-1.7.0
     - systemd
 
 penv:
@@ -260,9 +260,9 @@ runtime:
 
   envs:
     - name: AXELERA_RUNTIME_DIR
-      value: "/opt/axelera/runtime-1.6.1-1"
+      value: "/opt/axelera/runtime-1.7.0-1"
     - name: AXELERA_DEVICE_DIR
-      value: "/opt/axelera/device-1.6.1-1/omega"
+      value: "/opt/axelera/device-1.7.0-1/omega"
     - name: AXELERA_RISCV_TOOLCHAIN_DIR
       value: "/opt/axelera/riscv-gnu-newlib-toolchain-409b951ba662-8"
     - name: AXELERA_FRAMEWORK
@@ -285,7 +285,7 @@ runtime:
 driver:
   description: PCIe driver
   libs:
-    - metis-dkms == 1.4.17
+    - metis-dkms == 1.5.5
     - axelera-multi-device == 1.0.0
 
 repositories:
@@ -318,8 +318,8 @@ repositories:
       - https://packages.microsoft.com/repos/code stable main
   - list: /etc/apt/sources.list.d/axelera.list
     packages:
-      - axelera-device-1.6.1
-      - axelera-runtime-1.6.1
+      - axelera-device-1.7.0
+      - axelera-runtime-1.7.0
       - axelera-riscv-gnu-newlib-toolchain-409b951ba662-8
       - axelera-riscv-openocd
       - metis-dkms

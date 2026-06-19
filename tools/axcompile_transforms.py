@@ -63,3 +63,25 @@ def imagenet_torch(image):
     mean = torch.from_numpy(_TORCH_MEAN).view(3, 1, 1)
     std = torch.from_numpy(_TORCH_STD).view(3, 1, 1)
     return (tensor - mean) / std
+
+
+def tf_caffe(image):
+    """TF Keras caffe-mode (NHWC): resize shortest-edge 256, center-crop 224,
+    BGR mean subtract, HWC float32. Matches the rt-demo runtime pipeline for an
+    NHWC-input model (preamble does NHWC pass-through, no transpose).
+    """
+    if isinstance(image, np.ndarray):
+        image = Image.fromarray(image)
+    w, h = image.size
+    if w < h:
+        new_w, new_h = 256, int(round(h * 256 / w))
+    else:
+        new_w, new_h = int(round(w * 256 / h)), 256
+    image = image.resize((new_w, new_h), Image.BILINEAR)
+    left = (new_w - 224) // 2
+    top = (new_h - 224) // 2
+    image = image.crop((left, top, left + 224, top + 224))
+    arr = np.array(image, dtype=np.float32)  # HWC RGB
+    arr = arr[:, :, ::-1]  # RGB -> BGR
+    arr = np.ascontiguousarray(arr - _CAFFE_BGR_MEAN)  # subtract per-channel BGR mean
+    return torch.from_numpy(arr)  # HWC float32

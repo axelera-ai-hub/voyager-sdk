@@ -314,7 +314,7 @@ DEFAULT_BUILD_ROOT = Path('/some_build_root')
         ('yolo dataset --build-root=temp', dict(build_root=Path('/pwd/temp'))),
         ('yolo dataset --build-root=/temp', dict(build_root=Path('/temp'))),
         ('yolo dataset --build-root=~/temp', dict(build_root=Path('/homer/temp'))),
-        ('yolo dataset', dict(show_stats=False, aipu_cores=4, show_system_fps=True)),
+        ('yolo dataset', dict(show_stats=False, aipu_cores=8, show_system_fps=True)),
         ('yolo dataset --no-show-system-fps', dict(show_system_fps=False, display='auto')),
         (
             'yolo dataset --show-system-fps --no-display',
@@ -868,6 +868,7 @@ _camera_undistort = config.ImagePreproc(
     {},
 )
 _vflip = config.ImagePreproc('videoflip', (config.VideoFlipMethod.vertical_flip,), {})
+_crop = config.ImagePreproc('crop', (320, 180, 640, 640), {})
 
 
 @pytest.mark.parametrize(
@@ -881,6 +882,8 @@ _vflip = config.ImagePreproc('videoflip', (config.VideoFlipMethod.vertical_flip,
         ('rotate270:v.mp4', 'v.mp4', [_rotate270]),
         ('videoflip[counterclockwise]:v.mp4', 'v.mp4', [_rotate270]),
         ('videoflip[method=vertical_flip]:v.mp4', 'v.mp4', [_vflip]),
+        ('crop[320,180,640,640]:v.mp4', 'v.mp4', [_crop]),
+        ('crop[left=320,top=180,width=640,height=640]:v.mp4', 'v.mp4', [_crop]),
         ('perspective[[0.1,0.2,0.3]]:v.mp4', 'v.mp4', [_perspective]),
         ('perspective[[0.1,0.2,0.3],rgb]:v.mp4', 'v.mp4', [_perspective_rgb]),
         (
@@ -951,6 +954,10 @@ def test_parse_image_preprocs_load_source(src, cfg_contents, ops):
         (
             'videoflip[too,many,args]:v.mp4',
             "Invalid arguments for videoflip: too many positional arguments",
+        ),
+        (
+            'crop[320,180,640]:v.mp4',
+            "Invalid arguments for crop: missing a required argument: 'height'",
         ),
     ],
 )

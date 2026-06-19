@@ -1,3 +1,4 @@
+// Copyright Axelera AI, 2024
 /**
  * Custom UDMABUF Allocator
  */
@@ -5,7 +6,6 @@
 #include <gst/allocators/allocators.h>
 #include <gst/gst.h>
 #include <stdio.h>
-#include <sys/types.h>
 
 GST_DEBUG_CATEGORY(alignedallocator_debug);
 #define GST_CAT_DEFAULT alignedallocator_debug

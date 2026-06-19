@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 from __future__ import annotations
 
 import contextlib
@@ -297,3 +297,189 @@ def test_configure_board_bad_input(in_env, err):
 )
 def test_human_readable(key, value, expected):
     assert device_manager._human_readable(key, value) == expected
+
+
+def test_null_device_manager_devices_property():
+    dm = device_manager._NullDeviceManager()
+    assert dm.devices == []
+
+
+def test_device_index_name_not_found():
+    devices = [_make_device_info(devicen=n) for n in range(2)]
+    with pytest.raises(ValueError, match='No device found matching nonexistent'):
+        device_manager._device_index(devices, 'nonexistent')
+
+
+def test_select_devices_invalid_selector_logs_and_raises():
+    """Out-of-range numeric index falls through to name match and raises."""
+    devices = [_make_device_info(devicen=n) for n in range(2)]
+    # '5' is a valid int but out of range; the ValueError is caught and re-raised
+    # as "No device found matching 5" because no device name equals "5".
+    with pytest.raises(ValueError, match='No device found matching 5'):
+        device_manager._select_devices(devices, '5')
+
+
+def _has_europa_board_types():
+    from axelera import runtime
+
+    return hasattr(runtime.axruntime.BoardType, 'EUROPA_PCIE')
+
+
+@pytest.mark.skipif(
+    not _has_europa_board_types(), reason='axruntime wheel predates EUROPA board types'
+)
+@pytest.mark.parametrize(
+    'board_type, expected',
+    [
+        ('EUROPA_PCIE', config.Metis.europa),
+        ('EUROPA_DEVBOARD', config.Metis.europa),
+    ],
+)
+def test_get_metis_type_europa(board_type, expected):
+    with mock_runtime([board_type]):
+        dm = device_manager.create_device_manager('gst')
+        assert dm.get_metis_type() == expected
+
+
+@pytest.mark.skipif(
+    not _has_europa_board_types(), reason='axruntime wheel predates EUROPA board types'
+)
+@pytest.mark.parametrize(
+    'board_type',
+    ['EUROPA_PCIE', 'EUROPA_DEVBOARD'],
+)
+def test_configure_boards_europa_returns_empty(board_type):
+    """Europa devices skip per-core configuration; _configure_boards returns {}."""
+    with mock_runtime([board_type]) as ctx_patch:
+        with device_manager.create_device_manager('gst') as dm:
+            result = dm._configure_boards(Mock())
+    assert result == {}
+    ctx_patch().configure_device.assert_not_called()
+
+
+def test_configure_boards_non_dl_task_skipped():
+    """Tasks where is_dl_task is False should be skipped."""
+    nn = Mock()
+    dl_task = Mock()
+    dl_task.is_dl_task = True
+    dl_task.aipu_cores = 1
+    dl_task.model_info.name = 'model1'
+
+    non_dl_task = Mock()
+    non_dl_task.is_dl_task = False
+
+    nn.tasks = [non_dl_task, dl_task]
+    nn.model_infos.clock_profile.return_value = 800
+    nn.model_infos.mvm_limitation.return_value = 100
+
+    cfg = {'clock_profile_core_0': 800}
+    with mock_runtime(['OMEGA_PCIE'], read_device_configuration=cfg):
+        with device_manager.create_device_manager('gst') as dm:
+            tracers = dm.configure_boards_and_tracers(nn, [])
+    assert tracers == []
+
+
+def test_configure_boards_waits_when_device_not_ready():
+    """When configure_device returns False, polls until device_ready is True."""
+    nn = Mock()
+    nn.tasks = [Mock()]
+    nn.tasks[0].is_dl_task = True
+    nn.tasks[0].aipu_cores = 1
+    nn.tasks[0].model_info.name = 'model'
+    nn.model_infos.clock_profile.return_value = 800
+    nn.model_infos.mvm_limitation.return_value = 100
+
+    cfg = {'clock_profile_core_0': 800}
+    with mock_runtime(['OMEGA_PCIE'], read_device_configuration=cfg) as ctx_patch:
+        ctx = ctx_patch()
+        ctx.configure_device.return_value = False
+        # Return False first (enters loop body / sleep), then True to exit
+        ctx.device_ready.side_effect = [False, True]
+        with patch('axelera.app.utils.spinner'):
+            with patch('time.sleep') as mock_sleep:
+                with device_manager.create_device_manager('gst') as dm:
+                    dm.configure_boards_and_tracers(nn, [])
+    ctx.configure_device.assert_called_once()
+    mock_sleep.assert_called_once_with(0.3)
+
+
+def test_configure_boards_and_tracers_tracer_exception_skipped(caplog):
+    """Tracers that raise on initialize_models are skipped with a warning."""
+    nn = Mock()
+    nn.tasks = []
+    nn.model_infos.clock_profile.return_value = 800
+
+    bad_tracer = Mock()
+    bad_tracer.initialize_models.side_effect = RuntimeError("tracer exploded")
+    good_tracer = Mock()
+
+    cfg = {}
+    with mock_runtime(['OMEGA_PCIE'], read_device_configuration=cfg):
+        with device_manager.create_device_manager('gst') as dm:
+            result = dm.configure_boards_and_tracers(nn, [bad_tracer, good_tracer])
+
+    assert result == [good_tracer]
+    assert 'skip trace' in caplog.text
+
+
+def test_create_device_manager_oserror_linux(caplog):
+    """OSError from _AipuDeviceManager is logged as error on linux."""
+    with patch('axelera.app.device_manager._AipuDeviceManager', side_effect=OSError("no device")):
+        with patch('sys.platform', 'linux'):
+            dm = device_manager.create_device_manager('gst')
+    assert isinstance(dm, device_manager._NullDeviceManager)
+    assert 'Failed to create device manager' in caplog.text
+
+
+def test_create_device_manager_oserror_darwin(caplog):
+    """OSError from _AipuDeviceManager is logged as info on darwin."""
+    with caplog.at_level(logging.INFO):
+        with patch(
+            'axelera.app.device_manager._AipuDeviceManager', side_effect=OSError("no device")
+        ):
+            with patch('sys.platform', 'darwin'):
+                dm = device_manager.create_device_manager('gst')
+    assert isinstance(dm, device_manager._NullDeviceManager)
+    assert 'Failed to create device manager' in caplog.text
+
+
+def test_is_europa_device_via_hw_generation():
+    """_is_europa_device returns True when hw_generation.name == 'europa'."""
+    device = Mock()
+    hw_gen = Mock()
+    hw_gen.name = 'europa'
+    device.hw_generation = hw_gen
+    assert device_manager._is_europa_device(device) is True
+
+
+def test_is_europa_device_via_hw_generation_not_europa():
+    """_is_europa_device returns False when hw_generation.name != 'europa'."""
+    device = Mock()
+    hw_gen = Mock()
+    hw_gen.name = 'omega'
+    device.hw_generation = hw_gen
+    device.board_type = Mock()
+    device.board_type.name = 'omega_pcie'
+    assert device_manager._is_europa_device(device) is False
+
+
+@pytest.mark.parametrize(
+    'global_clock, expected, warning',
+    [
+        ('800', 800, ''),
+        ('not-a-number', 800, 'Unparseable global clock_profile'),
+    ],
+)
+def test_get_core_clocks_global_clock_profile(caplog, global_clock, expected, warning):
+    """When per-core clocks are missing, fall back to global clock_profile."""
+    ctx = MagicMock()
+    ctx.read_device_configuration.return_value = {'clock_profile': global_clock}
+    device = _make_device_info()  # OMEGA board, non-europa
+
+    result = device_manager._get_core_clocks(ctx, device, 0, 2)
+
+    if warning:
+        assert warning in caplog.text
+        assert result == {0: 800, 1: 800}
+    else:
+        assert result == {0: expected, 1: expected}

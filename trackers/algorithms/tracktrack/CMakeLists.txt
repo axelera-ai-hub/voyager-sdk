@@ -10,7 +10,9 @@ add_library(tracktrack SHARED
 )
 
 target_include_directories(tracktrack
-  PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    ${OpenCV_INCLUDE_DIRS}
   PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../..  # For cmc.hpp
 )
 

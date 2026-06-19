@@ -17,13 +17,6 @@
 //
 const char *kernel_sig = R"##(
 
-uchar4 color_convert(uchar4 pixel, float16 matrix) {
-    float4 in_pixel = convert_float4(pixel);
-    float4 color = mad(in_pixel.x, matrix.s0123, mad(in_pixel.y, matrix.s4567, mad(in_pixel.z, matrix.s89ab, matrix.scdef)));
-    color.w = in_pixel.w;
-    return convert_uchar4_sat(color);
-}
-
 // Utility functions for coordinate transformations
 __kernel void informat_to_outformat(int width, int height, int4 strides,
     int4 offsets, int crop_x, int crop_y, float16 color_matrix,
@@ -60,6 +53,7 @@ ax_utils::CLProgram::ax_kernel
 build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
     AxVideoFormat out_format, int flip_type, int num_planes)
 {
+  bool fp16 = program.has_fp16();
   std::string kernel_code = kernel_sig;
   auto input_details = ax_utils::get_input_details(
       in_format, ax_utils::Interpolation::nearest, num_planes);
@@ -79,7 +73,7 @@ build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
   final_kernel += crop_code;
   final_kernel += sampler_code;
   final_kernel += output_code;
-  final_kernel = ax_utils::get_kernel_utils(flip_type) + final_kernel;
+  final_kernel = ax_utils::get_kernel_utils(flip_type, fp16) + final_kernel;
   return program.build_kernel_from_source(final_kernel, "informat_to_outformat");
 }
 
@@ -236,8 +230,15 @@ set_output_interface(const AxDataInterface &interface,
     if (is_a_rotate(prop->flip_method)) {
       std::swap(out_info.info.width, out_info.info.height);
       out_info.info.stride = out_info.info.width * stride_factor;
-      out_info.strides = { size_t(out_info.info.stride) };
     };
+    // Output is always a fresh, single-plane buffer; clear any crop/multi-plane
+    // state inherited from the input.
+    out_info.strides = { size_t(out_info.info.stride) };
+    out_info.offsets = { 0 };
+    out_info.info.cropped = false;
+    out_info.info.x_offset = 0;
+    out_info.info.y_offset = 0;
+    out_info.info.actual_height = out_info.info.height;
     auto fmt_found = std::find_if(std::begin(valid_formats), std::end(valid_formats),
         [fmt = prop->format](auto f) { return f.color == fmt; });
     if (fmt_found == std::end(valid_formats)) {
@@ -280,8 +281,11 @@ can_passthrough(const AxDataInterface &input, const AxDataInterface &output,
     throw std::runtime_error("color_convert works on single video (possibly batched) output only");
   }
   // When output is GRAY and input is NV12, NV16, or I420, we can pass through,
-  // as the yuv image already has the gray image as luminance (Y) component in the beginning of the buffer
-  bool gray_out_bypass = (input_details[0].format == AxVideoFormat::I420
+  // as the yuv image already has the gray image as luminance (Y) component in the beginning of the buffer.
+  // Only valid when there is no crop offset; otherwise the Y data for the cropped region
+  // does not start at byte 0 of the buffer.
+  bool gray_out_bypass = (input_details[0].crop_x == 0 && input_details[0].crop_y == 0)
+                         && (input_details[0].format == AxVideoFormat::I420
                              || input_details[0].format == AxVideoFormat::NV12
                              || input_details[0].format == AxVideoFormat::NV16)
                          && (output_details[0].format == AxVideoFormat::GRAY8

@@ -1,3 +1,22 @@
+Cityscapes:
+  description: Cityscapes dataset for semantic segmentation (in-house adapter, no
+    mmsegmentation dependency)
+  download_hint: "Cityscapes is research/non-commercial. Register at\nhttps://www.cityscapes-dataset.com\
+    \ and download:\n  - gtFine_val.zip\n  - leftImg8bit_val.zip\nPlace them under\
+    \ ./data/cityscapes/ and extract in place so the\nlayout becomes:\n  data/cityscapes/gtFine/val/<city>/...\n\
+    \  data/cityscapes/leftImg8bit/val/<city>/...\n"
+  splits:
+    val:
+    - check_files:
+      - gtFine/val/frankfurt/frankfurt_000000_001016_gtFine_labelIds.png
+      - gtFine/val/lindau/lindau_000000_000019_gtFine_labelIds.png
+      drop_dirs: 0
+      file: gtFine_val.zip
+    - check_files:
+      - leftImg8bit/val/frankfurt/frankfurt_000000_001016_leftImg8bit.png
+      - leftImg8bit/val/lindau/lindau_000000_000019_leftImg8bit.png
+      drop_dirs: 0
+      file: leftImg8bit_val.zip
 DOTAv1DetectionOBBDataset:
   description: DOTAv1 for oriented bounding box (OBB) detection
   download_hint: "Download and setup DOTA-v1.0 dataset (run from voyager-sdk directory):\n\

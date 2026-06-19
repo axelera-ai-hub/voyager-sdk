@@ -38,13 +38,6 @@ struct perspective_properties {
 };
 
 const char *perspective_kernel = R"##(
-uchar4 color_convert(uchar4 pixel, float16 matrix) {
-    float4 in_pixel = convert_float4(pixel);
-    float4 color = mad(in_pixel.x, matrix.s0123, mad(in_pixel.y, matrix.s4567, mad(in_pixel.z, matrix.s89ab, matrix.scdef)));
-    color.w = in_pixel.w;
-    return convert_uchar4_sat(color);
-}
-
 float2
 perspective_transform(int2 coord, float16 perspective_matrix)
 {
@@ -108,7 +101,7 @@ class CLPerspective
 
     final_kernel += sampler_code;
     final_kernel += output_code;
-    final_kernel = ax_utils::get_kernel_utils(flip_type) + final_kernel;
+    final_kernel = ax_utils::get_kernel_utils(flip_type, program.has_fp16()) + final_kernel;
 
     return program.build_kernel_from_source(final_kernel, "perspective");
   }

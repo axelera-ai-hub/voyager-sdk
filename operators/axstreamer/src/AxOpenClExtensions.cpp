@@ -1,19 +1,11 @@
 // Copyright Axelera AI, 2025
 #include "AxOpenClExtensions.hpp"
 
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
-
 #include <algorithm>
 #include <chrono>
 #include <iostream>
 #include <optional>
 #include <vector>
-
-
-#include <sys/sysmacros.h>
 
 using namespace std::string_literals;
 
@@ -21,6 +13,17 @@ namespace ax_utils
 {
 std::string cl_error_to_string(cl_int code);
 }
+
+#ifndef CL_VERSION_3_0
+cl_mem
+clCreateBufferWithProperties(cl_context, const cl_mem_properties *,
+    cl_mem_flags, size_t, void *, cl_int *errcode_ret)
+{
+  if (errcode_ret)
+    *errcode_ret = CL_INVALID_OPERATION;
+  return nullptr;
+}
+#endif
 
 bool
 has_extension(cl_platform_id platform, const std::string &name)
@@ -81,11 +84,15 @@ dmabuf_import(cl_context ctx, cl_extensions extensions, int flags,
     std::variant<void *, int, opencl_planes *, opencl_buffer *, VASurfaceID_proxy *> ptr,
     int size)
 {
-#ifdef CL_IMPORT_TYPE_DMA_BUF_ARM
   if (auto *pfd = std::get_if<int>(&ptr)) {
     if (extensions.clImportMemoryARM_dmabuf) {
-      cl_import_properties_arm properties[]
-          = { CL_IMPORT_TYPE_ARM, CL_IMPORT_TYPE_DMA_BUF_ARM, 0 };
+#ifdef CL_IMPORT_TYPE_DMA_BUF_ARM
+
+      cl_import_properties_arm properties[] = {
+        CL_IMPORT_TYPE_ARM,
+        CL_IMPORT_TYPE_DMA_BUF_ARM,
+        0,
+      };
       cl_int error{};
       auto buffer = extensions.clImportMemoryARM_dmabuf(
           ctx, flags, properties, pfd, size, &error);
@@ -94,11 +101,27 @@ dmabuf_import(cl_context ctx, cl_extensions extensions, int flags,
                                  + ax_utils::cl_error_to_string(error));
       }
       return { buffer };
+#endif
+    } else if (extensions.hasKhrDmaBufImport) {
+      cl_mem_properties properties[] = {
+        CL_EXTERNAL_MEMORY_HANDLE_DMA_BUF_KHR,
+        static_cast<cl_mem_properties>(*pfd),
+        0,
+      };
+      cl_int error{};
+      auto stripped_flags
+          = flags & ~(CL_MEM_USE_HOST_PTR | CL_MEM_ALLOC_HOST_PTR | CL_MEM_COPY_HOST_PTR);
+      auto buffer = clCreateBufferWithProperties(
+          ctx, properties, stripped_flags, size, nullptr, &error);
+      if (error != CL_SUCCESS) {
+        throw std::runtime_error("Failed to create buffer with properties, error: "
+                                 + ax_utils::cl_error_to_string(error));
+      }
+      return { buffer };
     } else {
       throw std::runtime_error("Import of dmabuf is not supported");
     }
   }
-#endif
   return {};
 }
 
@@ -138,7 +161,7 @@ get_device_id(cl_platform_id platform, cl_device_id *device_id, cl_uint *num_dev
 bool
 can_import_dmabuf(const cl_extensions &extensions)
 {
-  return extensions.clImportMemoryARM_dmabuf != nullptr;
+  return extensions.hasKhrDmaBufImport || extensions.clImportMemoryARM_dmabuf != nullptr;
 }
 
 bool
@@ -205,6 +228,14 @@ init_extensions(cl_platform_id platform, void *display)
         load_extension(platform, "cl_arm_import_memory_host", "clImportMemoryARM")),
     .clImportMemoryARM_dmabuf = reinterpret_cast<clImportMemoryARM_fn>(
         load_extension(platform, "cl_arm_import_memory_dma_buf", "clImportMemoryARM")),
+    .hasKhrDmaBufImport = has_extension(platform, "cl_khr_external_memory_dma_buf")
+                          && has_extension(platform, "cl_khr_external_memory"),
+    .clEnqueueAcquireExternalMemObjectsKHR
+    = reinterpret_cast<clEnqueueAcquireExternalMemObjectsKHR_fn>(load_extension(
+        platform, "cl_khr_external_memory", "clEnqueueAcquireExternalMemObjectsKHR")),
+    .clEnqueueReleaseExternalMemObjectsKHR
+    = reinterpret_cast<clEnqueueReleaseExternalMemObjectsKHR_fn>(load_extension(
+        platform, "cl_khr_external_memory", "clEnqueueReleaseExternalMemObjectsKHR")),
 #if defined(HAS_VAAPI_MEDIA_SHARING)
     .display = display,
     .clGetDeviceIDsFromVA = reinterpret_cast<clGetDeviceIDsFromVA_APIMediaINTEL_fn>(
@@ -294,11 +325,11 @@ create_optimal_buffer(cl_context ctx, cl_extensions extensions, int elem_size,
     int plane, int &error)
 {
   auto unaligned_size = elem_size * num_elems;
+  auto buffers = dmabuf_import(ctx, extensions, flags, ptr, unaligned_size);
+  if (!buffers.empty()) {
+    return buffers;
+  }
   if ((flags & CL_MEM_READ_ONLY) != 0) {
-    auto buffers = dmabuf_import(ctx, extensions, flags, ptr, unaligned_size);
-    if (!buffers.empty()) {
-      return buffers;
-    }
     if (auto *p = std::get_if<void *>(&ptr)) {
       auto buffer = arm_host_import(ctx, extensions, flags, *p, unaligned_size);
       if (buffer) {

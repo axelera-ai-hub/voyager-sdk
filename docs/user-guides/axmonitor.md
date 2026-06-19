@@ -14,7 +14,7 @@ title: "axmonitor"
 | Core utilization | CPU usage per core and thread |
 | Temperatures | Per-core and board temperatures with thermal threshold indicators |
 | Kernels Per Second (KPS) | Number of fused AI kernels executed per second (≈ FPS for vision pipelines) |
-| Power | Real-time power consumption (Metis PCIe 4-AIPU card only) |
+| Power | Real-time power consumption (Supported on Metis PCIe rev2, M.2 Max, PCIe 4-AIPU and Metis Compute Boards) |
 | DDR memory | Memory allocation per active application context |
 | PCIe bandwidth | DMA bandwidth per channel in MB/s |
 | Processes | Running processes with PIDs and container IDs (Linux only) |

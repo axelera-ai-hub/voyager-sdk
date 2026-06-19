@@ -193,9 +193,13 @@ def _make_multi_call_model():
     clip_max = numpy_helper.from_array(np.float32(6.0), "clip_max")
     pow_exp = numpy_helper.from_array(np.float32(3.0), "pow_exp")
 
-    fn_clip = helper.make_node("Clip", ["fn_in", "clip_min", "clip_max"], ["clipped"])
-    fn_pow = helper.make_node("Pow", ["clipped", "pow_exp"], ["powered"])
-    fn_gap = helper.make_node("GlobalAveragePool", ["powered"], ["fn_out"])
+    fn_clip = helper.make_node(
+        "Clip", ["fn_in", "clip_min", "clip_max"], ["clipped"], name="Clip_1"
+    )
+    fn_pow = helper.make_node("Pow", ["clipped", "pow_exp"], ["powered"], name="Pow_1")
+    fn_gap = helper.make_node(
+        "GlobalAveragePool", ["powered"], ["fn_out"], name="GlobalAveragePool_1"
+    )
 
     custom_func = helper.make_function(
         domain="custom_host_onnx_functions",
@@ -334,6 +338,12 @@ class TestMultiCallExpansion:
 
         expanded = onnx.load(str(onnx_path))
         onnx.checker.check_model(expanded)
+
+        # Verify no duplicate node names
+        all_node_names = [n.name for n in expanded.graph.node if n.name]
+        assert len(all_node_names) == len(
+            set(all_node_names)
+        ), f"Duplicate node names: {[n for n in all_node_names if all_node_names.count(n) > 1]}"
 
         sess = ort.InferenceSession(str(onnx_path))
         feeds = {f"head_{i}": np.random.randn(1, 3, 4, 4).astype(np.float32) for i in range(3)}

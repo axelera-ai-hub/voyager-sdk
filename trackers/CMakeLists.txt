@@ -4,7 +4,22 @@ project(Trackers)
 set(CMAKE_CXX_STANDARD 17)
 
 # Find required packages
-find_package(OpenCV 4 REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(OpenCV REQUIRED IMPORTED_TARGET opencv4)
+if(NOT OpenCV_INCLUDE_DIRS)
+  pkg_get_variable(OpenCV_INCLUDEDIR opencv4 includedir)
+  if(NOT OpenCV_INCLUDEDIR)
+    message(FATAL_ERROR "opencv4 include path is empty")
+  endif()
+  if(EXISTS "${OpenCV_INCLUDEDIR}/opencv2/core.hpp")
+    set(OpenCV_INCLUDE_DIRS ${OpenCV_INCLUDEDIR})
+  elseif(EXISTS "${OpenCV_INCLUDEDIR}/opencv4/opencv2/core.hpp")
+    set(OpenCV_INCLUDE_DIRS ${OpenCV_INCLUDEDIR}/opencv4)
+  else()
+    message(FATAL_ERROR "Cannot locate OpenCV headers under ${OpenCV_INCLUDEDIR}")
+  endif()
+endif()
+set(OpenCV_LIBS PkgConfig::OpenCV)
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 
 # Include directories for the entire project

@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 # Evaluation Data Classes: These classes are interfaces to transform evaluation
 # data from an AxTaskMeta and a ground truth in a custom dataset into a format
 # suitable for evaluators. Thus, the design of evaluation data classes is closely
@@ -601,3 +601,26 @@ class PairValidationGroundTruthSample(types.BaseEvalSample):
     @property
     def data(self) -> Union[Any, Dict[str, Any]]:
         return self.the_same
+
+
+@dataclasses.dataclass
+class SemanticSegmentationGroundTruthSample(types.BaseEvalSample):
+    # 2D uint8 label mask, shape (H, W). Values are trainIds in
+    # [0, num_classes); ignore_index (default 255) marks pixels excluded
+    # from evaluation.
+    gt_mask: np.ndarray
+    img_id: str = ''
+    raw_image_size: Tuple[int, int] = (0, 0)
+
+    @property
+    def data(self) -> Union[Any, Dict[str, Any]]:
+        return self.gt_mask
+
+
+@dataclasses.dataclass
+class SemanticSegmentationEvalSample(types.BaseEvalSample):
+    class_map: np.ndarray
+
+    @property
+    def data(self) -> Union[Any, Dict[str, Any]]:
+        return self.class_map

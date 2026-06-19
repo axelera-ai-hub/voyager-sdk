@@ -1,7 +1,7 @@
 ![image](docs/images/Ax_Voyager_SDK_Repo_Banner_1600x457_01.png)
 
 # Voyager SDK repository
-v1.6: [Release notes](/RELEASE_NOTES.md)
+v1.7: [Release notes](RELEASE_NOTES.md)
 
 - [Voyager SDK repository](#voyager-sdk-repository)
   - [Release Qualification](#release-qualification)
@@ -42,7 +42,6 @@ This is a production-ready release of Voyager SDK. Software components and featu
 | :--------------------- | :---------- |
 | [Model zoo](docs/reference/models/model-zoo.md) | Lists all models supported by this release of the Voyager SDK |
 | [Deployment manual (`deploy.py`)](docs/reference/tools/deploy-py.md) | Explains all options provided by the command-line deployment tool |
-| [Custom weights tutorial](docs/tutorials/custom-weights.md) | Explains how to deploy a model using your own weights |
 | [Custom model tutorial](docs/tutorials/custom-model.md) | Explains how to deploy a custom model |
 
 ## Run models on Metis devices
@@ -76,16 +75,16 @@ end-to-end reference pipelines are provided, which you can use as templates for 
 
 | Directory | Description |
 | :--------------------- | :---------- |
-| [`/ax_models/reference/parallel`](/ax_models/reference/parallel) | Multiple pipelines running in parallel |
-| [`/ax_models/reference/cascade`](/ax_models/reference/cascade) | Cascaded pipelines in which the output of one model is input to a secondary model |
-| [`/ax_models/reference/cascade/with_tracker`](/ax_models/reference/cascade) | Cascaded pipelines in which the output of the first model is tracked prior to being input to a secondary model |
-| [`/ax_models/reference/image_preprocess`](/ax_models/reference/image_preprocess) | Pipelines in which the camera input is first preprocessed prior to being used for inferencing |
+| [`/ax_models/reference/parallel`](ax_models/reference/parallel) | Multiple pipelines running in parallel |
+| [`/ax_models/reference/cascade`](ax_models/reference/cascade) | Cascaded pipelines in which the output of one model is input to a secondary model |
+| [`/ax_models/reference/cascade/with_tracker`](ax_models/reference/cascade) | Cascaded pipelines in which the output of the first model is tracked prior to being input to a secondary model |
+| [`/ax_models/reference/image_preprocess`](ax_models/reference/image_preprocess) | Pipelines in which the camera input is first preprocessed prior to being used for inferencing |
 
 ## \[Alpha\] Pipeline Builder API
 
 A new Python-native API for building, running, and packaging ML inference pipelines. The entire pipeline, from model loading through post-processing and tracking, can be expressed as a composable Python expression.
 
-- **Composable operators**: `op.seq()` for sequential, `op.par()` for parallel, `op.foreach()` for cascade (per-object) processing.
+- **Composable operators**: `op.seq()` for sequential, `op.par()` for parallel, `op.for_each()` for cascade (per-object) processing.
 - **Data routing**: `op.select(i)` to extract from tuples, `op.pack()` / `op.unpack()` for explicit tuple conversion.
 - **30+ operators** across preprocessing, inference, postprocessing, filtering, tracking, and result types.
 - **Model loading**:
@@ -102,7 +101,7 @@ This section provides links to additional documentation available in the Voyager
 
 | Document                                                                   | Description                                                                                                                                                                            |
 |:---------------------------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [Advanced deployment tutorials](/ax_models/tutorials/general/tutorials.md) | Advanced deployment options [experimental]                                                                                                                                             |
+| [Advanced deployment tutorials](ax_models/tutorials/general/tutorials.md) | Advanced deployment options [experimental]                                                                                                                                             |
 | [AxRunmodel manual](docs/reference/tools/axrunmodel.md)                    | AxRunModel is a tool that can run deployed models on Metis hardware using different features available in the AxRuntime API (such as DMA buffers, double buffering and multiple cores) |
 | [Compiler CLI](docs/reference/compiler/compiler-cli.md)                    | Compiler Command Line Interface [beta]                                                                                                                                                 |
 | [Compiler API](docs/reference/compiler/compiler-api.md)                    | Python Compiler API [experimental]                                                                                                                                                     |

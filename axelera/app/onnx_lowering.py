@@ -57,6 +57,8 @@ def _expand_single_function_call(
     expanded_nodes: list[onnx.NodeProto] = []
     for fn_node in func.node:
         expanded = copy.deepcopy(fn_node)
+        if expanded.name:
+            expanded.name = f"{expanded.name}_{func.name}_exp{call_idx}"
 
         for i, inp in enumerate(expanded.input):
             if inp in input_map:

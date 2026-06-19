@@ -26,23 +26,15 @@ struct resize_properties {
   bool to_tensor{};
   float quant_scale{ 1.0F / 255.0F };
   float quant_zeropoint{};
-  std::vector<cl_float> add{ 0.0F, 0.0F, 0.0F, 0.0F };
-  std::vector<cl_float> mul{ 1.0F, 1.0F, 1.0F, 1.0F };
+  bool normalization_active{};
   std::unique_ptr<CLResize> resize;
 };
 
 const char *resize_kernel = R"##(
 
-uchar4 color_convert(uchar4 pixel, float16 matrix) {
-    float4 in_pixel = convert_float4(pixel);
-    float4 color = mad(in_pixel.x, matrix.s0123, mad(in_pixel.y, matrix.s4567, mad(in_pixel.z, matrix.s89ab, matrix.scdef)));
-    color.w = in_pixel.w;
-    return convert_uchar4_sat(color);
-}
-
 __kernel void resize_kernel_cl(%s__global %s *out, int4 image_dims, int crop_x, int crop_y,
                             int4 strides, int4 offsets, float xscale, float yscale, int scaled_width,
-                            int scaled_height, uchar fill, float4 mul, float4 add, float16 color_matrix) {
+                            int scaled_height, uchar fill, float16 color_matrix) {
 
     const int col = get_global_id(0);
     const int row = get_global_id(1);
@@ -82,7 +74,7 @@ build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
 
   auto input_details = ax_utils::get_input_details(
       in_format, ax_utils::Interpolation::bilinear, num_planes);
-  auto output_details = prop.mul[0] != 0.0F ?
+  auto output_details = prop.normalization_active ?
                             ax_utils::get_output_norm_details(in_format, out_format) :
                             ax_utils::get_output_details(in_format, out_format);
   const auto &out_type = output_details.out_type;
@@ -99,7 +91,7 @@ build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
 
   final_kernel += sampler_code;
   final_kernel += output_code;
-  final_kernel = ax_utils::get_kernel_utils(flip_type) + final_kernel;
+  final_kernel = ax_utils::get_kernel_utils(flip_type, program.has_fp16()) + final_kernel;
 
   return program.build_kernel_from_source(final_kernel, "resize_kernel_cl");
 }
@@ -113,6 +105,12 @@ class CLResize
   CLResize(opencl_details *display, Ax::Logger &logger)
       : program("", display, logger)
   {
+  }
+
+  void set_normalization(std::vector<cl_float> mul, std::vector<cl_float> add)
+  {
+    mul_ = std::move(mul);
+    add_ = std::move(add);
   }
 
   cl_kernel get_converter(ax_utils::CLProgram &program, AxVideoFormat in_format,
@@ -173,11 +171,14 @@ class CLResize
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
     auto in_bufs = program.create_buffers(1, ax_utils::determine_buffer_size(in),
         CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, in.data, in.offsets.size());
-    auto matrix = ax_utils::get_color_conversion_matrix(in.format, out.format);
+    auto matrix_f32 = prop.normalization_active ?
+                          ax_utils::get_color_conversion_matrix_with_norm(
+                              in.format, out.format, mul_, add_) :
+                          ax_utils::get_color_conversion_matrix(in.format, out.format);
 
     program.set_kernel_args(converter, 0, in_bufs, *outbuf, image_dims,
         in.crop_x, in.crop_y, strides, offsets, xscale, yscale, scaled_width,
-        scaled_height, fill, prop.mul, prop.add, matrix);
+        scaled_height, fill, matrix_f32);
     return run_kernel(program, converter, in, out, in_bufs[0], outbuf, start_flush);
   }
 
@@ -189,6 +190,8 @@ class CLResize
   private:
   CLProgram program;
   int error{};
+  std::vector<cl_float> mul_{ 1.0F, 1.0F, 1.0F, 1.0F };
+  std::vector<cl_float> add_{ 0.0F, 0.0F, 0.0F, 0.0F };
   struct kernels {
     int hash;
     kernel cl_prog{ nullptr };
@@ -225,8 +228,7 @@ allowed_properties()
 
 extern "C" std::shared_ptr<void>
 init_and_set_static_properties_with_context(
-    const std::unordered_map<std::string, std::string> &input,
-    AxAllocationContext *context, Ax::Logger &logger)
+    const std::unordered_map<std::string, std::string> &input, void *context, Ax::Logger &logger)
 {
   auto prop = std::make_shared<resize_properties>();
   prop->resize = std::make_unique<CLResize>(
@@ -288,21 +290,21 @@ init_and_set_static_properties_with_context(
     throw std::runtime_error("mean and std must have equal lengths in resize_cl");
   }
   if (mean.empty() && std.empty()) {
-    prop->mul = { 0.0F, 0.0F, 0.0F, 0.0F };
-    prop->add = { 0.0F, 0.0F, 0.0F, 0.0F };
+    prop->normalization_active = false;
   } else {
+    prop->normalization_active = true;
     const auto max_size = 4;
     const auto resize_size = std::min(max_size, static_cast<int>(mean.size()));
     mean.resize(resize_size, 0.0F);
     std.resize(resize_size, 1.0F);
-    prop->add.resize(max_size, 0.0F);
-    prop->mul.resize(max_size, 1.0F);
-    for (int i = 0; i < mean.size(); ++i) {
-      prop->mul[i] = 1.0 / (255.0 * prop->quant_scale * std[i]);
-      prop->add[i] = 255 * prop->quant_zeropoint * std[i] * prop->quant_scale
-                     - (255 * mean[i]);
-      prop->add[i] *= prop->mul[i];
+    std::vector<cl_float> mul(max_size, 1.0F);
+    std::vector<cl_float> add(max_size, 0.0F);
+    for (int i = 0; i < (int) mean.size(); ++i) {
+      mul[i] = 1.0 / (255.0 * prop->quant_scale * std[i]);
+      add[i] = 255 * prop->quant_zeropoint * std[i] * prop->quant_scale - (255 * mean[i]);
+      add[i] *= mul[i];
     }
+    prop->resize->set_normalization(std::move(mul), std::move(add));
   }
   return prop;
 }
@@ -376,7 +378,7 @@ can_passthrough(const AxDataInterface &input, const AxDataInterface &output,
           && input_details[0].height == output_details[0].height
           && (input_details[0].format == output_details[0].format
               || output_details[0].format == AxVideoFormat::UNDEFINED)
-          && prop->mul[0] == 0.0F);
+          && !prop->normalization_active);
 }
 
 extern "C" void

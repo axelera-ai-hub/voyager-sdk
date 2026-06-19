@@ -73,13 +73,15 @@ Track::update(const Detection &det, int frame_id)
   time_since_update_ = 0;
   latest_detection_id_ = det.original_index;
 
-  // Update features using exponential moving average
+  // Update features using confidence-dependent EMA (matches reference TrackTrack)
+  // High-confidence detections update appearance more conservatively (trust existing model),
+  // low-confidence detections are discounted (keep existing features).
   if (det.features.size() > 0) {
     if (features_.size() == 0) {
       features_ = det.features;
     } else {
-      features_ = alpha_ * features_ + (1.0f - alpha_) * det.features;
-      // Normalize features
+      float beta = alpha_ + (1.0f - alpha_) * (1.0f - det.score);
+      features_ = beta * features_ + (1.0f - beta) * det.features;
       float norm = features_.norm();
       if (norm > 0) {
         features_ /= norm;
@@ -250,23 +252,6 @@ Track::get_prev_score() const
   return score_; // Fallback
 }
 
-void
-Track::update_features(const Eigen::VectorXf &new_features)
-{
-  if (new_features.size() == 0)
-    return;
-
-  if (features_.size() == 0) {
-    features_ = new_features;
-  } else {
-    features_ = alpha_ * features_ + (1.0f - alpha_) * new_features;
-    // Normalize
-    float norm = features_.norm();
-    if (norm > 0) {
-      features_ /= norm;
-    }
-  }
-}
 
 Eigen::VectorXf
 Track::get_mean() const

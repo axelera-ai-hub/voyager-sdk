@@ -6,12 +6,6 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstring>
-#include <fcntl.h>
-#ifdef __linux__
-#include <linux/memfd.h>
-#include <linux/udmabuf.h>
-#endif
-#include <dlfcn.h>
 #include <list>
 #include <mutex>
 #include <opencv2/opencv.hpp>
@@ -20,16 +14,19 @@
 #include <span>
 #include <stdio.h>
 #include <string>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 #include <unordered_set>
 #include <utility>
 #include "AxDataInterface.h"
 #include "AxLog.hpp"
 #include "AxPlugin.hpp"
+
+#ifdef __linux__
+#include <dlfcn.h>
+#include <fcntl.h>
+#include <linux/memfd.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#endif
 
 struct opencl_buffer_details;
 

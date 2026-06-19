@@ -1,0 +1,53 @@
+axelera-model-format: 1.0.0
+
+name: yolo26xsem-cityscapes-onnx
+
+description: yolo26x semantic segmentation, 1024x1024 letterbox (Cityscapes), exported
+  from Ultralytics v8.4.52. Ultralytics-published mIoU is at native 2048x1024; to
+  evaluate at that resolution, re-export the ONNX with imgsz=(1024,2048) and re-deploy.
+
+pipeline:
+  - segmentations:
+      model_name: yolo26xsem-cityscapes-onnx
+      input:
+        type: image
+        color_format: RGB
+      preprocess:
+        - letterbox:
+            half_pixel_centers: true
+            height: ${{input_height}}
+            width: ${{input_width}}
+        - torch-totensor:
+      inference:
+        handle_dequantization_and_depadding: false
+        handle_transpose: false
+        handle_postamble: false
+      postprocess:
+        - semantic-segmentation:
+
+models:
+  yolo26xsem-cityscapes-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    task_category: SemanticSegmentation
+    weight_path: weights/yolo26x-sem.onnx
+    weight_url: https://media.axelera.ai/artifacts/model_cards/weights/yolo/semantic_segmentation/yolo26x-sem-202605-dynamic.onnx
+    weight_md5: 4dfc649dd00e5ab078b44027a7e45d3f
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 1024, 1024]
+    input_color_format: RGB
+    num_classes: 19
+    dataset: Cityscapes
+    extra_kwargs:
+      compiler_config_file: yolo26x.toml
+
+datasets:
+  Cityscapes:
+    class: CityscapesSemSegDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/cityscapes.py
+    data_dir_name: cityscapes
+    labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/cityscapes.names
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/coco2017_400_b680128
+    repr_imgs_url: https://media.axelera.ai/artifacts/data/coco/coco2017_repr400.zip
+    repr_imgs_md5: b680128512392586e3c86b670886d9fa
+    repr_imgs_dataloader_color_format: RGB

@@ -784,6 +784,32 @@ gen_gst_marker = pytest.mark.parametrize(
         (
             OPENCL,
             1,
+            'ax_models/reference/image_preprocess/yolov5s-v7-crop-onnx.yaml',
+            YOLOV5S_V5_MANIFEST,
+            'opencl/yolov5s-v7-crop-4streams.yaml',
+            4,
+            'x86_64',
+            0,
+        ),
+        (
+            # same output as above, but with image preproc in sources, not in yaml
+            OPENCL,
+            1,
+            YOLOV5S_V5_IN_YAML,
+            YOLOV5S_V5_MANIFEST,
+            'opencl/yolov5s-v7-crop-4streams.yaml',
+            [
+                'crop[0,0,640,540]:/path/to/src0.mp4',
+                'crop[100,240,600,640]:/path/to/src1.mp4',
+                'crop[0,240,400,440]:/path/to/src2.mp4',
+                'crop[240,0,440,400]:/path/to/src3.mp4',
+            ],
+            'x86_64',
+            0,
+        ),
+        (
+            OPENCL,
+            1,
             RETINAFACE_IN_YAML,
             RETINAFCE_MANIFEST,
             'opencl/retinaface-resnet.yaml',

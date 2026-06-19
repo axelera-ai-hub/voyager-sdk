@@ -16,8 +16,9 @@
 #include "AxMetaKpts.hpp"
 #include "AxMetaTracker.hpp"
 
-#define CL_TARGET_OPENCL_VERSION 210
-#define CL_USE_DEPRECATED_OPENCL_1_2_APIS
+#ifndef CL_TARGET_OPENCL_VERSION
+#define CL_TARGET_OPENCL_VERSION 300
+#endif
 
 #ifdef __APPLE__
 #include <OpenCL/opencl.h>
@@ -81,6 +82,13 @@ struct buffer_details {
   AxVideoFormat format{};
   cl_int actual_height{};
 };
+
+inline bool
+is_dmabuf(const buffer_details &b)
+{
+  const auto *fd = std::get_if<int>(&b.data);
+  return fd && *fd != -1;
+}
 
 struct transfer_info {
   bool is_crop = false;

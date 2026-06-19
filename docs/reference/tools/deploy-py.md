@@ -38,6 +38,7 @@ See [Model Formats](../pipeline/model-formats.md) for what each file contains.
 | `--build-root <path>` | Write compiled output here instead of `build/` |
 | `--data-root <path>` | Look for datasets here instead of `data/` |
 | `--num-cal-images <N>` | Number of calibration images for quantization (default: 200; range: 100–400) |
+| `--cal-seed <N>` | Seed an RNG that shuffles the calibration image order. Omit for the default sorted-deterministic order; set a seed to sweep different orders for accuracy ablation. See [Reproducibility](#reproducibility). |
 | `--aipu-cores <N>` | Target N AIPU cores (1–4). Only valid for single-model networks. |
 | `--pipe <type>` | Pipeline type: `gst` (default, AIPU), `torch` (CPU/ONNX), `torch-aipu` (Python + AIPU) |
 | `--mode <mode>` | Deployment mode (see below) |
@@ -114,6 +115,36 @@ The compiler takes the ONNX model plus calibration data and produces:
 ### 3. Pipeline deployment
 
 The compiled model is wrapped into a GStreamer pipeline descriptor (`model.json`) that the runtime can load directly.
+
+---
+
+## Reproducibility
+
+`deploy.py` is bit-identical-reproducible by default. Two back-to-back runs against the same network and the same calibration image directory produce the same `quantized_model.pt` (sha256-equal). The behaviour is controlled by two knobs:
+
+| Knob | Behaviour |
+|------|-----------|
+| *(omit `--cal-seed`)* | **Default.** Calibration images are read in lexicographically sorted filename order with `shuffle=False`. Same inputs → same artifact every run. |
+| `--cal-seed <N>` | The image order is shuffled by a torch RNG seeded with `<N>`. Two runs with the same `<N>` produce the same artifact; different `<N>` produce different artifacts. Use this to sweep calibration orders during accuracy experiments. |
+
+### Hash determinism (advanced)
+
+`deploy.py` does **not** by itself control Python's per-process hash randomisation (used in `dict` / `set` iteration). The cli ignores `PYTHONHASHSEED` assigned at runtime because the interpreter has already started by then. If you need hash-order determinism across runs (rare; the calibration path is already covered by sorted-glob + explicit shuffle), export the seed in the shell **before** invoking `deploy.py`:
+
+```bash
+PYTHONHASHSEED=0 ./deploy.py <network>
+```
+
+### Validating reproducibility
+
+To confirm your environment produces identical artifacts:
+
+```bash
+./deploy.py <network> --mode QUANTIZE --build-root /tmp/runA
+./deploy.py <network> --mode QUANTIZE --build-root /tmp/runB
+sha256sum /tmp/run{A,B}/<network>/<network>/quantized/quantized_model.pt
+# both hashes must match
+```
 
 ---
 

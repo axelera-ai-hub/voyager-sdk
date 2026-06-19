@@ -5,6 +5,7 @@
 #include "AxDataInterface.h"
 #include "AxLog.hpp"
 #include "AxMeta.hpp"
+#include "AxOpUtils.hpp"
 #include "AxUtils.hpp"
 
 #include "AxOpenCl.hpp"
@@ -23,30 +24,30 @@ struct normalize_properties {
 
 const char *kernel_cl = R"##(
 __kernel void quantize_rgba(const int heightA, const int widthA, const int strideIn, const int strideOut,
-__global const uchar4 *in, __global char4 *out, float4 mul, float4 add) {
+__global const uchar4 *in, __global char4 *out, REAL4 mul, REAL4 add) {
     const int col = get_global_id(0);
     const int row = get_global_id(1);
     if (row < heightA && col < widthA){
       const int in_idx = row  * (strideIn >> 2) + col;
       const int out_idx = row * (strideOut >> 2) + col;
-      out[out_idx] = convert_char4_sat(mad(convert_float4(in[in_idx]), mul, add));
+      out[out_idx] = convert_char4_sat(mad(CONVERT_REAL4(in[in_idx]), mul, add));
     }
 }
 
 __kernel void quantize_rgb(const int heightA, const int widthA, const int strideIn, const int strideOut,
-__global const uchar *in, __global char4 *out, float4 mul, float4 add) {
+__global const uchar *in, __global char4 *out, REAL4 mul, REAL4 add) {
     const int col = get_global_id(0);
     const int row = get_global_id(1);
     if (row < heightA && col < widthA){
       __global const uchar * p_in = in + (row * strideIn);
       const int out_idx = row * (strideOut >> 2) + col;
       uchar4 in_val = (uchar4)(vload3(col, p_in), 0);
-      out[out_idx] = convert_char4_sat(mad(convert_float4(in_val), mul, add));
+      out[out_idx] = convert_char4_sat(mad(CONVERT_REAL4(in_val), mul, add));
     }
 }
 
 __kernel void quantize_grey(const int heightA, const int widthA, const int strideIn, const int strideOut,
-__global const uchar *in, __global char *out, float4 mul, float4 add) {
+__global const uchar *in, __global char *out, REAL4 mul, REAL4 add) {
     const int col = get_global_id(0);
     const int row = get_global_id(1);
     if (row < heightA && col < widthA){
@@ -69,12 +70,16 @@ class CLNormalize
   using buffer = CLProgram::ax_buffer;
   using kernel = CLProgram::ax_kernel;
 
-  CLNormalize(std::string source, Ax::Logger &logger)
-      : program(std::move(source), logger), //
-        quantize_rgba{ program.get_kernel("quantize_rgba") }, //
-        quantize_rgb{ program.get_kernel("quantize_rgb") }, //
-        quantize_grey{ program.get_kernel("quantize_grey") }
+  CLNormalize(ax_utils::opencl_details *context, Ax::Logger &logger)
+      : program("", context, logger),
+        quantize_rgba{ nullptr },
+        quantize_rgb{ nullptr },
+        quantize_grey{ nullptr }
   {
+    auto source = ax_utils::get_kernel_utils(0, program.has_fp16()) + kernel_cl;
+    quantize_rgba = program.build_kernel_from_source(source, "quantize_rgba");
+    quantize_rgb = program.get_kernel("quantize_rgb");
+    quantize_grey = program.get_kernel("quantize_grey");
   }
 
   cl_kernel get_kernel(const buffer_details &in)
@@ -98,18 +103,25 @@ class CLNormalize
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
 
     auto kernel = get_kernel(in);
-    program.set_kernel_args(kernel, 0, out.height, out.width, in.stride,
-        out.stride, *inpbuf, *outbuf, prop.mul, prop.add);
-
+    if (program.has_fp16()) {
+      std::array<float, 4> mul_arr{ prop.mul[0], prop.mul[1], prop.mul[2], prop.mul[3] };
+      std::array<float, 4> add_arr{ prop.add[0], prop.add[1], prop.add[2], prop.add[3] };
+      program.set_kernel_args(kernel, 0, out.height, out.width, in.stride,
+          out.stride, *inpbuf, *outbuf, ax_utils::to_half_array(mul_arr),
+          ax_utils::to_half_array(add_arr));
+    } else {
+      program.set_kernel_args(kernel, 0, out.height, out.width, in.stride,
+          out.stride, *inpbuf, *outbuf, prop.mul, prop.add);
+    }
     run_kernel(program, kernel, in, out, inpbuf, outbuf, start_flush);
   }
 
   private:
   CLProgram program;
   int error{};
-  kernel quantize_rgba;
-  kernel quantize_rgb;
-  kernel quantize_grey;
+  kernel quantize_rgba{ nullptr };
+  kernel quantize_rgb{ nullptr };
+  kernel quantize_grey{ nullptr };
 };
 
 extern "C" const std::unordered_set<std::string> &
@@ -126,8 +138,8 @@ allowed_properties()
 }
 
 extern "C" std::shared_ptr<void>
-init_and_set_static_properties(
-    const std::unordered_map<std::string, std::string> &input, Ax::Logger &logger)
+init_and_set_static_properties_with_context(
+    const std::unordered_map<std::string, std::string> &input, void *context, Ax::Logger &logger)
 {
   auto prop = std::make_shared<normalize_properties>();
   prop->to_tensor = Ax::get_property(
@@ -163,7 +175,8 @@ init_and_set_static_properties(
     constexpr float inv_255 = 1.0 / 255.0;
     prop->mul[i] *= inv_255;
   }
-  prop->normalize = std::make_unique<CLNormalize>(kernel_cl, logger);
+  prop->normalize = std::make_unique<CLNormalize>(
+      static_cast<ax_utils::opencl_details *>(context), logger);
   return prop;
 }
 

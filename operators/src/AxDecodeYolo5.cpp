@@ -1,5 +1,21 @@
-// Copyright Axelera AI, 2025
-// Highly optimized anchor-based YOLO decoder
+// Copyright Axelera AI, 2023
+//
+// Highly optimized anchor-based YOLO decoder used by the gst pipeline.
+//
+// Supports the full anchor-based YOLO family. The xy/wh activation formula is
+// driven by per-feature-map `scale_x_y` (float) and `new_coords` (bool) decoder
+// properties.
+//
+//   Ultralytics v5/v7:        scale_x_y=2.0,  new_coords=1
+//     bxy = 2 * sigmoid(t) - 0.5 + grid
+//     bwh = (2 * sigmoid(t)) ** 2 * anchor
+//
+//   Classic Darknet (v3, v4): scale_x_y=1.0..1.2 (per cfg), new_coords=0
+//     bxy = scale_x_y * sigmoid(t) - 0.5 * (scale_x_y - 1) + grid
+//     bwh = exp(t_raw) * anchor
+//
+//   Darknet new_coords=1:     scale_x_y from cfg, new_coords=1
+//     Same as Ultralytics-style wh, with cfg-driven xy scale.
 
 #include "AxDataInterface.h"
 #include "AxLog.hpp"
@@ -25,9 +41,21 @@ struct properties {
   std::string master_meta{};
   std::string association_meta{};
   std::vector<lookups> sigmoid_tables{};
+  // wh-decode LUTs per chip-tensor level, with the nc-specific transform
+  // pre-baked so the inner loop is a single table read per box dimension:
+  //   wh_tables_nc0[level][q+128] = exp(dequant(q))
+  //   wh_tables_nc1[level][q+128] = (2 * sigmoid(t))^2, where dequant(q) is t
+  //     when sigmoid_in_postprocess, else already sigmoid(t) (no extra sigmoid)
+  // Each variant is populated only when at least one feature map uses it.
+  std::vector<lookups> wh_tables_nc0{};
+  std::vector<lookups> wh_tables_nc1{};
   std::vector<float> anchors{};
   std::vector<std::string> class_labels{};
   std::vector<uint8_t> filter{};
+  // Per-feature-map activation params. Defaults reproduce Ultralytics v5
+  // (`scale_x_y=2.0`, `new_coords=1`) when these are not populated.
+  std::vector<float> scale_x_y{};
+  std::vector<uint8_t> new_coords{};
   float confidence{ 0.25F };
   int num_classes{ 0 };
   int topk{ 3 * 21 * 20 * 20 }; // Maximum number of boxes for 640*640 yolo
@@ -136,25 +164,24 @@ decode_scores(const input_type *data, const float *sigmoids, float confidence,
 /// @param ypos - y position of the cell
 /// @param outputs - output inferences
 /// @return - The number of predictions added
-template <typename input_type>
 int
-decode_cell(const input_type *data, const properties &props, int level,
-    int anchor_level, int num_anchors, int which_anchor, float recip_width,
-    int xpos, int ypos, inferences &outputs)
+decode_cell(const int8_t *data, const properties &props, const float *sigmoids,
+    const float *wh_lut, float sxy, float xy_offset, int anchor_level, int num_anchors,
+    int which_anchor, float recip_width, int xpos, int ypos, inferences &outputs)
 {
-  float dummy{};
-  const auto &sigmoids
-      = props.sigmoid_tables.empty() ? &dummy : props.sigmoid_tables[level].data();
   auto confidence = props.confidence;
   auto num_predictions = decode_scores(data, sigmoids, confidence, props, outputs);
   if (num_predictions != 0) {
-    // Create the bounding box
     auto *anchor = std::next(
         props.anchors.data(), 2 * (anchor_level * num_anchors + which_anchor));
-    float x = (ax_utils::sigmoid(data[0], sigmoids) * 2.0F - 0.5F + xpos) * recip_width;
-    float y = (ax_utils::sigmoid(data[1], sigmoids) * 2.0F - 0.5F + ypos) * recip_width;
-    float w = std::pow(ax_utils::sigmoid(data[2], sigmoids) * 2.0F, 2) * anchor[0] * recip_width;
-    float h = std::pow(ax_utils::sigmoid(data[3], sigmoids) * 2.0F, 2) * anchor[1] * recip_width;
+
+    float x = (ax_utils::sigmoid(data[0], sigmoids) * sxy - xy_offset + xpos) * recip_width;
+    float y = (ax_utils::sigmoid(data[1], sigmoids) * sxy - xy_offset + ypos) * recip_width;
+    // wh_lut bakes the nc-specific transform at init time: exp(dequant(q)) for
+    // new_coords=0, (2*sigmoid(dequant(q)))^2 for new_coords=1. Single table
+    // read per dim, no branch and no transcendental in the hot loop.
+    float w = ax_utils::sigmoid(data[2], wh_lut) * anchor[0] * recip_width;
+    float h = ax_utils::sigmoid(data[3], wh_lut) * anchor[1] * recip_width;
 
     for (int i = 0; i != num_predictions; ++i) {
       outputs.boxes.push_back({
@@ -180,9 +207,8 @@ decode_cell(const input_type *data, const properties &props, int level,
 /// @param num_anchors - number of anchors for this level
 /// @param outputs - output inferences
 /// @return - The number of predictions added
-template <typename input_type>
 int
-decode_tensor(const input_type *tensor, const properties &props, int width, int height,
+decode_tensor(const int8_t *tensor, const properties &props, int width, int height,
     int depth, int level, int anchor_level, int num_anchors, inferences &outputs)
 {
   auto x_stride = depth;
@@ -190,13 +216,37 @@ decode_tensor(const input_type *tensor, const properties &props, int width, int 
   const auto tensor_size = props.num_classes + 5;
   auto total = 0;
   auto recip_width = 1.0F / std::max(width, height);
+
+  // Hoist per-level activation params and LUT pointers out of the cell loop.
+  // Defaults match Ultralytics v5 when the property vectors are not populated.
+  // `level` is the chip-tensor index (per-tensor dequant/quant scale).
+  // `anchor_level` is the stride-ordered index (matches the cfg yolo-block
+  // order in which scale_x_y / new_coords / anchors were emitted).
+  float dummy{};
+  const float *sigmoids
+      = props.sigmoid_tables.empty() ? &dummy : props.sigmoid_tables[level].data();
+  const float sxy = anchor_level < static_cast<int>(props.scale_x_y.size()) ?
+                        props.scale_x_y[anchor_level] :
+                        2.0F;
+  const bool nc = anchor_level < static_cast<int>(props.new_coords.size()) ?
+                      static_cast<bool>(props.new_coords[anchor_level]) :
+                      true;
+  const float xy_offset = 0.5F * (sxy - 1.0F);
+  // Pick the per-level wh LUT for this anchor_level's nc variant. Falls back
+  // to &dummy if the matching variant is unpopulated (input validation
+  // upstream catches mismatched property combos).
+  const auto &wh_variant_tables = nc ? props.wh_tables_nc1 : props.wh_tables_nc0;
+  const float *wh_lut = level < static_cast<int>(wh_variant_tables.size()) ?
+                            wh_variant_tables[level].data() :
+                            &dummy;
+
   for (auto y = 0; y != height; ++y) {
     auto *ptr = std::next(tensor, y_stride * y);
     for (auto x = 0; x != width; ++x) {
       for (auto which = size_t{}; which != num_anchors; ++which) {
         auto *p = std::next(ptr, tensor_size * which);
-        total += decode_cell(p, props, level, anchor_level, num_anchors, which,
-            recip_width, x, y, outputs);
+        total += decode_cell(p, props, sigmoids, wh_lut, sxy, xy_offset,
+            anchor_level, num_anchors, which, recip_width, x, y, outputs);
       }
       ptr = std::next(ptr, x_stride);
     }
@@ -231,19 +281,15 @@ decode_tensors(const AxTensorsInterface &tensors, const properties &props)
     if (num_anchors * (props.num_classes + 5) > depth) {
       throw std::runtime_error("decode_tensors : too many anchors for the depth of the tensor");
     }
-    if (tensors[level].bytes == 1) {
-      if (props.sigmoid_tables.empty()) {
-        throw std::runtime_error(
-            "decode_tensors : zero_points and scales must be provided for dequantization");
-      }
-      decode_tensor(static_cast<const int8_t *>(tensors[level].data), props,
-          width, height, depth, level, lev, num_anchors, output);
-    } else if (tensors[level].bytes == 4) {
-      decode_tensor(static_cast<const float *>(tensors[level].data), props,
-          width, height, depth, level, lev, num_anchors, output);
-    } else {
-      throw std::runtime_error("decode_tensors : tensors must be int8_t or float32");
+    if (tensors[level].bytes != 1) {
+      throw std::runtime_error("decode_tensors : tensors must be int8_t");
     }
+    if (props.sigmoid_tables.empty()) {
+      throw std::runtime_error(
+          "decode_tensors : zero_points and scales must be provided for dequantization");
+    }
+    decode_tensor(static_cast<const int8_t *>(tensors[level].data), props,
+        width, height, depth, level, lev, num_anchors, output);
   }
 
   return output;
@@ -336,6 +382,42 @@ init_and_set_static_properties(
   } else {
     props->sigmoid_tables = ax_utils::build_dequantization_tables(zero_points, scales);
   }
+
+  props->scale_x_y = Ax::get_property(
+      input, "scale_x_y", "yolo_decode_static_properties", std::vector<float>{});
+  std::vector<int> nc_int = Ax::get_property(
+      input, "new_coords", "yolo_decode_static_properties", std::vector<int>{});
+  props->new_coords.assign(nc_int.begin(), nc_int.end());
+
+  // Build per-level wh LUTs, one variant per nc value actually used by the
+  // model. Default (empty `new_coords`) treats every level as nc=1.
+  const bool any_nc0 = std::any_of(props->new_coords.begin(),
+      props->new_coords.end(), [](uint8_t v) { return v == 0; });
+  const bool any_nc1
+      = props->new_coords.empty()
+        || std::any_of(props->new_coords.begin(), props->new_coords.end(),
+            [](uint8_t v) { return v != 0; });
+  if (any_nc0) {
+    // exp(dequant(q)) per level for classic-Darknet wh.
+    props->wh_tables_nc0
+        = ax_utils::build_exponential_tables_with_zero_point(zero_points, scales);
+  }
+  if (any_nc1) {
+    // (2 * sigmoid(t))^2 per level for Ultralytics-style wh. When sigmoid is
+    // not done in postprocess the network has already applied it, so the
+    // dequantized value is sigmoid(t) and the table must not apply it again
+    // (mirrors the sigmoid_tables split above).
+    if (props->sigmoid_in_postprocess) {
+      props->wh_tables_nc1 = ax_utils::build_general_dequantization_tables(
+          zero_points, scales, [](float x) {
+            float s = ax_utils::to_sigmoid(x) * 2.0F;
+            return s * s;
+          });
+    } else {
+      props->wh_tables_nc1 = ax_utils::build_general_dequantization_tables(
+          zero_points, scales, [](float x) { return (2.0F * x) * (2.0F * x); });
+    }
+  }
   return props;
 }
 
@@ -357,6 +439,8 @@ allowed_properties()
     "transpose",
     "label_filter",
     "sigmoid_in_postprocess",
+    "scale_x_y",
+    "new_coords",
     "scale_up",
     "letterbox",
     "model_width",

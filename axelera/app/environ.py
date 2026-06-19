@@ -328,6 +328,20 @@ class Environment:
         return 3
 
     @_var
+    def torch_aipu_batch_size(self) -> int:
+        '''Number of sub-devices to reserve for torch-aipu inference.
+
+        This controls how many sub-devices (cores) worth of resources are allocated
+        when running torch-aipu. A value of 1 (default) uses a single core's resources.
+        For large models that exceed the memory of a single core, increase this to
+        allow the model to use the combined memory of multiple cores.
+
+        For example, set to 4 on a 4-core AIPU to give a model access to all DDR.
+        The model still runs on one core but has access to more memory resources.
+        '''
+        return 1
+
+    @_var
     def use_double_buffer(self) -> bool:
         '''Enable double buffering in the inference pipeline.
 

@@ -807,7 +807,7 @@ def path_sanity_check(path) -> None:
 
 def _exec_grep(cmd, detect, matchers, no_match, log_level=logging.DEBUG):
     try:
-        LOG.debug("$ %s", cmd)
+        LOG.trace("$ %s", cmd)
         p = subprocess.run([cmd], encoding='utf8', check=True, capture_output=True, shell=True)
         lines = p.stdout.splitlines()
         matching, values = [], []
@@ -829,7 +829,7 @@ def _exec_grep(cmd, detect, matchers, no_match, log_level=logging.DEBUG):
             return no_match
         return values[0]
     except subprocess.CalledProcessError as e:
-        LOG.log(log_level, f"Could not exec {cmd}: {e}")
+        LOG.debug(f"Could not exec {cmd}: {e}")
         LOG.debug(e.stderr)
         return no_match
 
@@ -837,7 +837,7 @@ def _exec_grep(cmd, detect, matchers, no_match, log_level=logging.DEBUG):
 def is_vaapi_available():
     if platform.uname().machine != 'x86_64':
         return False
-    level = logging.INFO
+    level = logging.DEBUG
     return _exec_grep(
         'vainfo', 'VA-API', [('vainfo: Supported profile and entrypoints', True)], False, level
     )

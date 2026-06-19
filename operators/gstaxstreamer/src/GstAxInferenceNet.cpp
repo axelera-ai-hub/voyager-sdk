@@ -285,6 +285,7 @@ gst_axinferencenet_get_property(
 
   if (property_id == PROP_MARGIN) {
     g_value_set_float(value, inf->properties->margin);
+    return;
   }
   G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
 }

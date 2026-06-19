@@ -211,11 +211,10 @@ rmdir /s /q windows-packages 2>nul
 mkdir windows-packages
 cd windows-packages
 
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.6.x/axelera-win-device-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.6.x/axelera-win-runtime-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.6.x/axelera-win-syslibs-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.6.x/axelera-win-toolchain-deps-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.6.x/axelera-win-services-installer.exe
+curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.7.x/axelera-win-device-installer.exe
+curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.7.x/axelera-win-runtime-installer.exe
+curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.7.x/axelera-win-toolchain-deps-installer.exe
+curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.7.x/axelera-win-services-installer.exe
 
 cd ..
 ```
@@ -231,13 +230,11 @@ After installation, verify via **Settings → Apps & features** (or **Add or rem
 
 ![Add Remove Programs](../images/windows/add_remove_choice.png)
 
-All five packages must be listed:
+All four packages must be listed:
 
-![First Four Packages](../images/windows/add_remove_first_4_packs.png)
+![Axelera Packages](../images/windows/add_remove_axelera_packages.png)
 
-![Last Package](../images/windows/add_remove_last.png)
-
-You must see: **Axelera Cross Compiled Libraries Package**, **Axelera Device Package**, **Axelera Runtime**, **Axelera Services**, and **RISC-V Toolchain and Dependencies for Axelera**. Exact version numbers will vary.
+You must see: **Axelera Device Package**, **Axelera Runtime**, **Axelera Services**, and **RISC-V Toolchain and Dependencies for Axelera**. Exact version numbers will vary.
 
 **Close all Command Prompt and PowerShell windows** after the installers complete, then open a new Command Prompt before continuing.
 
@@ -248,7 +245,7 @@ Activate the virtual environment and install the packages:
 ```cmd
 venv-win\Scripts\activate.bat
 
-pip install --extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple axelera-runtime==1.6.1 axelera-llm==1.6.1 axelera-types==1.6.1
+pip install --extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple axelera-runtime==1.7.0 axelera-llm==1.7.0 axelera-types==1.7.0
 ```
 
 > [!TIP]

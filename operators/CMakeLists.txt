@@ -320,6 +320,7 @@ if (GMODULE_FOUND AND GLIB_FOUND AND GST_FOUND AND GST_VIDEO_FOUND AND GTEST_FOU
         tests/ax/unittest_transform_facealign.cc
         tests/ax/unittest_transform_roicrop.cc
         tests/ax/unittest_utils.cc
+        tests/ax/unittest_videodecoder.cc
         ${OPENCL_TEST_FILES}
     )
 

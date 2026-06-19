@@ -1,13 +1,20 @@
 // Copyright Axelera AI, 2025
 #pragma once
 
-#define CL_TARGET_OPENCL_VERSION 210
-#define CL_USE_DEPRECATED_OPENCL_1_2_APIS
+#ifndef CL_TARGET_OPENCL_VERSION
+#define CL_TARGET_OPENCL_VERSION 300
+#endif
 #ifdef __APPLE__
 #include <OpenCL/opencl.h>
 #else
 #include <CL/cl.h>
 #include <CL/cl_ext.h>
+#endif
+
+#ifndef CL_VERSION_3_0
+typedef cl_ulong cl_mem_properties;
+cl_mem clCreateBufferWithProperties(cl_context context, const cl_mem_properties *properties,
+    cl_mem_flags flags, size_t size, void *host_ptr, cl_int *errcode_ret);
 #endif
 
 #ifdef HAVE_LIBVA
@@ -132,6 +139,14 @@ extern "C" {
 using clImportMemoryARM_fn = cl_mem (*)(cl_context context, cl_mem_flags flags,
     const cl_import_properties_arm *properties, void *memory, size_t size,
     cl_int *errorcode_ret);
+
+using clEnqueueAcquireExternalMemObjectsKHR_fn = cl_int (*)(cl_command_queue command_queue,
+    cl_uint num_mem_objects, const cl_mem *mem_objects, cl_uint num_events_in_wait_list,
+    const cl_event *event_wait_list, cl_event *event);
+
+using clEnqueueReleaseExternalMemObjectsKHR_fn = cl_int (*)(cl_command_queue command_queue,
+    cl_uint num_mem_objects, const cl_mem *mem_objects, cl_uint num_events_in_wait_list,
+    const cl_event *event_wait_list, cl_event *event);
 #if defined(HAS_VAAPI_MEDIA_SHARING)
 using clGetDeviceIDsFromVA_APIMediaINTEL_fn
     = cl_int (*)(cl_platform_id, cl_va_api_device_source_intel, void *,
@@ -153,6 +168,9 @@ using clEnqueueReleaseVA_fn = cl_int (*)(cl_command_queue command_queue,
 struct cl_extensions {
   clImportMemoryARM_fn clImportMemoryARM_host{};
   clImportMemoryARM_fn clImportMemoryARM_dmabuf{};
+  bool hasKhrDmaBufImport{ false };
+  clEnqueueAcquireExternalMemObjectsKHR_fn clEnqueueAcquireExternalMemObjectsKHR{};
+  clEnqueueReleaseExternalMemObjectsKHR_fn clEnqueueReleaseExternalMemObjectsKHR{};
   void *display{};
 #if defined(HAS_VAAPI_MEDIA_SHARING)
   clGetDeviceIDsFromVA_APIMediaINTEL_fn clGetDeviceIDsFromVA{};
@@ -161,6 +179,7 @@ struct cl_extensions {
   clEnqueueReleaseVA_fn clEnqueueReleaseVA{};
 #endif
   bool unified_memory{ false };
+  bool has_fp16{ false };
 };
 
 cl_extensions init_extensions(cl_platform_id platform, void *display);

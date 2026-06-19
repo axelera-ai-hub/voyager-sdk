@@ -30,5 +30,6 @@ class ImageMeta(AxTaskMeta):
         height = int.from_bytes(data.get('height'), byteorder='little')
         channels = int.from_bytes(data.get('channels'), byteorder='little')
         dtype = np.float32 if is_float else np.uint8
-        depth = np.frombuffer(data.get('data'), dtype=dtype).reshape(height, width, channels)
+        # Layout is CHW (matching the NCHW tensor byte order from C++ decoder)
+        depth = np.frombuffer(data.get('data'), dtype=dtype).reshape(channels, height, width)
         return cls(img=depth)

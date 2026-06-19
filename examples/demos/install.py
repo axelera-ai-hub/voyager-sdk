@@ -5,7 +5,7 @@
 import argparse
 import os
 from os import listdir
-from os.path import isfile, join
+from os.path import isdir, join
 from pathlib import Path
 import subprocess
 
@@ -13,7 +13,7 @@ from axelera.app import config
 
 # Define path and get list of demo files
 demos_path = os.path.join(config.env.framework, 'examples/demos')
-files = [f for f in listdir(demos_path) if isfile(join(demos_path, f)) and f.endswith('demo.py')]
+demos = [f[:-5] for f in listdir(demos_path) if isdir(join(demos_path, f)) and f.endswith('demo')]
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(
@@ -22,15 +22,12 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     'demo',
     type=str,
-    help='Name of the demo to install. You can choose from the following: '
-    + ', '.join([f[:-8] for f in files]),
+    help='Name of the demo to install. You can choose from the following: ' + ', '.join(demos),
 )
 args = parser.parse_args()
 
-if args.demo not in [f[:-8] for f in files]:
-    print(
-        f"Demo '{args.demo}' not found. Available demos are: " + ', '.join([f[:-8] for f in files])
-    )
+if args.demo not in demos:
+    print(f"Demo '{args.demo}' not found. Available demos are: " + ', '.join(demos))
     exit(1)
 
 home = Path.home()
@@ -77,7 +74,9 @@ with open(os.path.join(home, runfile), 'w') as f:
     f.write("#!/bin/bash\n")
     f.write(f"cd {config.env.framework}\n")
     f.write("source venv/bin/activate\n")
-    f.write(f"./examples/demos/{demo_name}_demo.py {extra}--window-size=fullscreen\n")
+    f.write(
+        f"./examples/demos/{demo_name}_demo/{demo_name}_demo.py {extra}--window-size=fullscreen\n"
+    )
 
 # Make runfile executable
 os.chmod(os.path.join(home, runfile), 0o777)
@@ -89,7 +88,7 @@ with open(os.path.join(home, 'Desktop', desktop_file), 'w') as f:
     f.write(f"Name={str(demo_name).title()} demo\n")
     f.write(f"Exec={os.path.join(home, runfile)}\n")
     f.write(
-        f"Icon={os.path.join(config.env.framework, 'axelera/app/render_assets/axelera-ai-logo.png')}\n"
+        f"Icon={os.path.join(config.env.framework, 'render_assets/axelera-ai-logo.png')}\n"
     )  # Placeholder icon
     f.write("Terminal=true\n")
     f.write("Categories=AxeleraAI;Demo;\n")

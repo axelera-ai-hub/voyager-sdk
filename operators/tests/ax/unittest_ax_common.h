@@ -3,12 +3,17 @@
 
 #include <gmodule.h>
 
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
-
-#include <filesystem>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 #include "AxDataInterface.h"
 #include "AxLog.hpp"
 #include "AxMeta.hpp"
@@ -26,23 +31,26 @@ class tempfile
   public:
   explicit tempfile(const std::string &content)
   {
-    int fd = ::mkstemp(name.data());
+#ifdef _WIN32
+    char buf[MAX_PATH];
+    if (!GetTempFileNameA(fs::temp_directory_path().string().c_str(), "ax_", 0, buf)) {
+      throw std::runtime_error("Failed to create temporary file");
+    }
+    path_ = buf;
+#else
+    auto tmpl = (fs::temp_directory_path() / "ax.XXXXXX").string();
+    int fd = ::mkstemp(tmpl.data());
     if (fd == -1) {
       throw std::runtime_error("Failed to create temporary file");
     }
-    auto total_written = ssize_t{ 0 };
-    auto to_write = content.size();
-    const char *p = content.c_str();
-    while (total_written != content.size()) {
-      auto num_written = ::write(fd, p, to_write - total_written);
-      if (num_written == -1) {
-        ::close(fd);
-        throw std::runtime_error("Failed to write temporary file");
-      }
-      total_written += num_written;
-      p += num_written;
-    }
     ::close(fd);
+    path_ = tmpl;
+#endif
+    std::ofstream f(path_, std::ios::out | std::ios::binary | std::ios::trunc);
+    if (!f.write(content.data(), content.size())) {
+      fs::remove(path_);
+      throw std::runtime_error("Failed to write temporary file");
+    }
   }
 
   tempfile(const tempfile &) = delete;
@@ -50,16 +58,16 @@ class tempfile
 
   ~tempfile()
   {
-    ::unlink(name.c_str());
+    fs::remove(path_);
   }
 
   std::string filename() const
   {
-    return name;
+    return path_.string();
   }
 
   private:
-  std::string name = "/tmp/ax.XXXXXX";
+  fs::path path_;
 };
 
 template <typename T>
@@ -72,7 +80,11 @@ tensors_from_vector(std::vector<T> &tensors)
 inline bool
 has_dma_heap()
 {
+#ifdef _WIN32
+  return false;
+#else
   return fs::is_directory("/dev/dma_heap");
+#endif
 }
 
 struct FormatParam {

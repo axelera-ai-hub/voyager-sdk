@@ -11,7 +11,9 @@ add_library(oc_sort SHARED
 )
 
 target_include_directories(oc_sort
-  PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    ${OpenCV_INCLUDE_DIRS}
 )
 
 target_link_libraries(oc_sort PUBLIC Eigen3::Eigen ${OpenCV_LIBS})

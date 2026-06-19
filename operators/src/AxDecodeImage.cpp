@@ -40,6 +40,7 @@ init_and_set_static_properties(
 
   prop->master_meta
       = Ax::get_property(input, "master_meta", "static_properties", prop->master_meta);
+
   return prop;
 }
 
@@ -69,15 +70,22 @@ decode_to_meta(const AxTensorsInterface &tensors, const depth_properties *prop,
     throw std::runtime_error("image_decode_to_meta: NN must return float");
   }
 
-  const auto *data = static_cast<const float *>(tensors[0].data);
-  const auto size = tensor.sizes[1] * tensor.sizes[2] * tensor.sizes[3];
+  if (4 != tensor.sizes.size()) {
+    throw std::runtime_error("image_decode_to_meta: Tensor must be 4-D (NCHW)");
+  }
 
+  // Extract NCHW dimensions explicitly
+  const int c = tensor.sizes[1];
+  const int h = tensor.sizes[2];
+  const int w = tensor.sizes[3];
+
+  const auto *data = static_cast<const float *>(tensors[0].data);
+  const auto size = c * h * w;
 
   if (prop->output_datatype == "float32" && prop->scale == false) {
     VectorType output(std::vector<float>(data, data + size));
     ax_utils::insert_meta<AxMetaImage>(map, prop->meta_key, prop->master_meta,
-        current_frame, total_frames, std::move(output), tensor.sizes[3],
-        tensor.sizes[2], tensor.sizes[1]);
+        current_frame, total_frames, std::move(output), c, w, h);
     return;
   }
 
@@ -107,6 +115,5 @@ decode_to_meta(const AxTensorsInterface &tensors, const depth_properties *prop,
   }
 
   ax_utils::insert_meta<AxMetaImage>(map, prop->meta_key, prop->master_meta,
-      current_frame, total_frames, std::move(output), tensor.sizes[3],
-      tensor.sizes[2], tensor.sizes[1]);
+      current_frame, total_frames, std::move(output), c, w, h);
 }

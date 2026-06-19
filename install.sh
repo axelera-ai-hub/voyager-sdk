@@ -6,6 +6,14 @@
 # shellcheck disable=SC2154
 # shellcheck disable=SC2155
 
+is_set() {
+  if [ -z "$1" ]; then
+    false
+  else
+    true
+  fi
+}
+
 is_called_from_docker_launcher() {
   # Docker variable set by script that sources install.sh
   # shellcheck disable=SC2154
@@ -17,7 +25,7 @@ is_called_from_docker_launcher() {
 }
 
 # guard against accidental sourcing of this script
-if [[ "${BASH_SOURCE[0]}" != "${0}" && ! is_called_from_docker_launcher ]]; then
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]] && ! is_called_from_docker_launcher; then
     echo "Error: This script must be executed directly, not sourced"
     return
 fi
@@ -213,14 +221,6 @@ trace() {
 }
 
 function urldecode() { : "${*//+/ }"; echo -e "${_//%/\\x}"; }
-
-is_set() {
-  if [ -z "$1" ]; then
-    false
-  else
-    true
-  fi
-}
 
 streq() {
   if [[ "$1" == "$2" ]]; then
@@ -940,7 +940,7 @@ VAR_name_width=15
 
 print_multi() {
   # print $1 $2 times
-  # shellcheck disable=SC2183}
+  # shellcheck disable=SC2183
   printf "%0.s$1" $(eval echo {1..$2})
 }
 
@@ -2098,6 +2098,7 @@ install_python_libs() {
     cmd_stem="python3 -m pip --disable-pip-version-check install --index-url ${index_url} ${pip_extra_args} --no-deps -c ${AX_penv_requirements}"
 
     progress_info Installing ${1} libraries
+    # shellcheck disable=SC2068
     for lib in ${list[@]}; do
       progress_info "Install $lib"
       if ! cmd ${cmd_stem} "\"$lib\""; then
@@ -2119,7 +2120,7 @@ drop_package() {
   local match=
   local pkg="$1"
   for match in "${to_be_stripped[@]}"; do
-    if [[ "${pkg,,}" =~ ^$match[=\ ] ]]; then
+    if [[ "${pkg,,}" =~ ^${match}[=\ ] ]]; then
       dropped=true
     else
       new_list+=("$match")

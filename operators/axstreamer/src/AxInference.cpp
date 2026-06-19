@@ -1,8 +1,9 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #include "AxInference.hpp"
 #include <array>
 #include <axruntime/axruntime.hpp>
 #include <chrono>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <queue>
@@ -167,7 +168,7 @@ class SaveInference : public Ax::BasicInference
       shapes += ',';
     }
     shapes.pop_back();
-    mkdir(path_.c_str(), 0755);
+    std::filesystem::create_directories(path_);
     std::ofstream file(path_ + "/shapes.txt");
     file << shapes << std::endl;
   }

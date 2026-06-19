@@ -289,18 +289,19 @@ build_cl_details(Ax::Logger &logger, const char *cl_choice, void *display)
     cl_command_queue_properties cq_props{};
     clGetDeviceInfo(details.device_id, CL_DEVICE_QUEUE_PROPERTIES,
         sizeof(cq_props), &cq_props, NULL);
-    auto ooo_enable = (cq_props & CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE) ?
-                          CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE :
-                          0;
-    details.commands
-        = clCreateCommandQueue(details.context, details.device_id, ooo_enable, &error);
+    cl_queue_properties ooo_enable = (cq_props & CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE) ?
+                                         CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE :
+                                         0;
+    cl_queue_properties props[] = { CL_QUEUE_PROPERTIES, ooo_enable, 0 };
+    details.commands = clCreateCommandQueueWithProperties(details.context,
+        details.device_id, ooo_enable ? props : nullptr, &error);
     if (error != CL_SUCCESS) {
       clReleaseContext(details.context);
       logger.throw_error("OpenCL not functional: Failed to create OpenCL command queue, error: "
                          + cl_error_to_string(error));
     }
-    details.map_commands
-        = clCreateCommandQueue(details.context, details.device_id, 0, &error);
+    details.map_commands = clCreateCommandQueueWithProperties(
+        details.context, details.device_id, nullptr, &error);
     if (error != CL_SUCCESS) {
       clReleaseContext(details.context);
       logger.throw_error("OpenCL not functional: Failed to create OpenCL command queue, error: "
@@ -310,6 +311,13 @@ build_cl_details(Ax::Logger &logger, const char *cl_choice, void *display)
     clGetDeviceInfo(details.device_id, CL_DEVICE_HOST_UNIFIED_MEMORY,
         sizeof(unified), &unified, NULL);
     details.extensions.unified_memory = unified;
+
+    cl_device_fp_config half_fp_config{};
+    clGetDeviceInfo(details.device_id, CL_DEVICE_HALF_FP_CONFIG,
+        sizeof(half_fp_config), &half_fp_config, nullptr);
+    // Only enable fp16 for native hardware support; exclude software-only emulation.
+    details.extensions.has_fp16
+        = (half_fp_config != 0) && (half_fp_config != CL_FP_SOFT_FLOAT);
 
   } catch (std::exception &e) {
     logger(AX_ERROR) << "OpenCL initialization failed: " << e.what() << std::endl;
@@ -503,6 +511,39 @@ CLProgram::releaseva(std::span<cl_mem> input_buffers)
   return release_va(cl_details.commands, cl_details.extensions, input_buffers);
 }
 
+static CLProgram::ax_event
+enqueue_dmabuf_khr_op(cl_command_queue commands, clEnqueueAcquireExternalMemObjectsKHR_fn fn,
+    std::span<cl_mem> buffers, CLProgram::ax_event wait_event)
+{
+  if (!fn || buffers.empty())
+    return wait_event;
+  auto result = CLProgram::ax_event{ nullptr };
+  auto num_waits = cl_uint(wait_event ? 1 : 0);
+  auto *wait = wait_event ? &*wait_event : nullptr;
+  if (auto err = fn(commands, buffers.size(), buffers.data(), num_waits, wait, &*result);
+      err != CL_SUCCESS) {
+    throw std::runtime_error("clEnqueueExternalMemObjectsKHR failed: "
+                             + ax_utils::cl_error_to_string(err));
+  }
+  return result;
+}
+
+CLProgram::ax_event
+CLProgram::acquire_dmabuf_khr(std::span<cl_mem> buffers, ax_event wait_event)
+{
+  return enqueue_dmabuf_khr_op(cl_details.commands,
+      cl_details.extensions.clEnqueueAcquireExternalMemObjectsKHR, buffers,
+      std::move(wait_event));
+}
+
+CLProgram::ax_event
+CLProgram::release_dmabuf_khr(std::span<cl_mem> buffers, ax_event wait_event)
+{
+  return enqueue_dmabuf_khr_op(cl_details.commands,
+      cl_details.extensions.clEnqueueReleaseExternalMemObjectsKHR, buffers,
+      std::move(wait_event));
+}
+
 
 CLProgram::ax_event
 CLProgram::execute_kernel(cl_kernel kernel, int num_dims,
@@ -545,20 +586,41 @@ CLProgram::~CLProgram()
 }
 
 std::string
-get_kernel_utils(int rotate_type)
+get_kernel_utils(int rotate_type, bool use_fp16)
 {
+  const char *precision_preamble_fp32 = R"##(
+typedef float  REAL;
+typedef float2 REAL2;
+typedef float4 REAL4;
+typedef float16 REAL16;
+#define CONVERT_REAL4(x)  convert_float4(x)
+#define CONVERT_REAL2(x)  convert_float2(x)
+#define CONVERT_REAL(x)   convert_float(x)
+)##";
 
-  std::string utils = R"##(
+  const char *precision_preamble_fp16 = R"##(
+#pragma OPENCL EXTENSION cl_khr_fp16 : enable
+typedef half   REAL;
+typedef half2  REAL2;
+typedef half4  REAL4;
+typedef half16 REAL16;
+#define CONVERT_REAL4(x)  convert_half4(x)
+#define CONVERT_REAL2(x)  convert_half2(x)
+#define CONVERT_REAL(x)   convert_half(x)
+)##";
+
+  std::string utils = use_fp16 ? precision_preamble_fp16 : precision_preamble_fp32;
+  utils += R"##(
 
 #define advance_uchar_ptr(ptr, offset) ((__global uchar *)ptr + offset)
 #define advance_uchar2_ptr(ptr, offset) ((__global uchar2 *)((__global uchar *)ptr + offset))
 #define advance_uchar3_ptr(ptr, offset) ((__global uchar3 *)((__global uchar *)ptr + offset))
 #define advance_uchar4_ptr(ptr, offset) ((__global uchar4 *)((__global uchar *)ptr + offset))
 
-float4 bilinear(float4 p00, float4 p01, float4 p10, float4 p11, float xfrac, float yfrac) {
-    float4 i1 = mix(p00, p01, xfrac);
-    float4 i2 = mix(p10, p11, xfrac);
-    return mix(i1, i2, yfrac);
+REAL4 bilinear(REAL4 p00, REAL4 p01, REAL4 p10, REAL4 p11, float xfrac, float yfrac) {
+    REAL4 i1 = mix(p00, p01, (REAL)xfrac);
+    REAL4 i2 = mix(p10, p11, (REAL)xfrac);
+    return mix(i1, i2, (REAL)yfrac);
 }
 
 typedef struct image_description {
@@ -570,7 +632,7 @@ typedef struct image_description {
 } image_description;
 
 
-#define NV12_READ(x, y, p, stride) convert_float2(p[y * stride + x])
+#define NV12_READ(x, y, p, stride) CONVERT_REAL2(p[y * stride + x])
 
 uchar4 nv12_sampler_two_plane(__global const uchar *y_image, __global const uchar *uv_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
   if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
@@ -602,10 +664,10 @@ uchar4 nv12_sampler_two_plane(__global const uchar *y_image, __global const ucha
   y2 += img->crop.y;
 
   int ystride = img->strides.x;
-  float y00 = convert_float(y_image[y1 * ystride + x1]);
-  float y01 = convert_float(y_image[y1 * ystride + x2]);
-  float y10 = convert_float(y_image[y2 * ystride + x1]);
-  float y11 = convert_float(y_image[y2 * ystride + x2]);
+  REAL y00 = CONVERT_REAL(y_image[y1 * ystride + x1]);
+  REAL y01 = CONVERT_REAL(y_image[y1 * ystride + x2]);
+  REAL y10 = CONVERT_REAL(y_image[y2 * ystride + x1]);
+  REAL y11 = CONVERT_REAL(y_image[y2 * ystride + x2]);
 
   int ux1 = x1 / 2;
   int uy1 = y1 / 2;
@@ -617,17 +679,17 @@ uchar4 nv12_sampler_two_plane(__global const uchar *y_image, __global const ucha
 
   __global uchar2 *in_uv2 = (__global uchar2 *)uv_image;
   int uvstride = img->strides.y / 2;
-  float2 uv00 = NV12_READ(ux1, uy1, in_uv2, uvstride);
-  float2 uv01 = need_right ? NV12_READ(ux2, uy1, in_uv2, uvstride) : uv00;
-  float2 uv10 = need_bottom ? NV12_READ(ux1, uy2, in_uv2, uvstride) : uv00;
-  float2 uv11 = need_right ? (need_bottom ? NV12_READ(ux2, uy2, in_uv2, uvstride) : uv01) : uv10;
+  REAL2 uv00 = NV12_READ(ux1, uy1, in_uv2, uvstride);
+  REAL2 uv01 = need_right ? NV12_READ(ux2, uy1, in_uv2, uvstride) : uv00;
+  REAL2 uv10 = need_bottom ? NV12_READ(ux1, uy2, in_uv2, uvstride) : uv00;
+  REAL2 uv11 = need_right ? (need_bottom ? NV12_READ(ux2, uy2, in_uv2, uvstride) : uv01) : uv10;
 
-  float4 yuv0 = (float4)(y00, uv00, 255);
-  float4 yuv1 = (float4)(y01, uv01, 255);
-  float4 yuv2 = (float4)(y10, uv10, 255);
-  float4 yuv3 = (float4)(y11, uv11, 255);
+  REAL4 yuv0 = (REAL4)(y00, uv00, 255);
+  REAL4 yuv1 = (REAL4)(y01, uv01, 255);
+  REAL4 yuv2 = (REAL4)(y10, uv10, 255);
+  REAL4 yuv3 = (REAL4)(y11, uv11, 255);
 
-  float4 yuv = bilinear(yuv0, yuv1, yuv2, yuv3, xfrac, yfrac);
+  REAL4 yuv = bilinear(yuv0, yuv1, yuv2, yuv3, xfrac, yfrac);
   return convert_uchar4_sat(yuv);
 }
 
@@ -664,10 +726,10 @@ uchar4 nv16_sampler_two_plane(__global const uchar *y_image, __global const ucha
   y2 += img->crop.y;
 
   int ystride = img->strides.x;
-  float y00 = convert_float(y_image[y1 * ystride + x1]);
-  float y01 = convert_float(y_image[y1 * ystride + x2]);
-  float y10 = convert_float(y_image[y2 * ystride + x1]);
-  float y11 = convert_float(y_image[y2 * ystride + x2]);
+  REAL y00 = CONVERT_REAL(y_image[y1 * ystride + x1]);
+  REAL y01 = CONVERT_REAL(y_image[y1 * ystride + x2]);
+  REAL y10 = CONVERT_REAL(y_image[y2 * ystride + x1]);
+  REAL y11 = CONVERT_REAL(y_image[y2 * ystride + x2]);
 
   int ux1 = x1 / 2;
   int uy1 = y1;
@@ -679,17 +741,17 @@ uchar4 nv16_sampler_two_plane(__global const uchar *y_image, __global const ucha
 
   __global uchar2 *in_uv2 = (__global uchar2 *)uv_image;
   int uvstride = img->strides.y / 2;
-  float2 uv00 = NV12_READ(ux1, uy1, in_uv2, uvstride);
-  float2 uv01 = need_right ? NV12_READ(ux2, uy1, in_uv2, uvstride) : uv00;
-  float2 uv10 = need_bottom ? NV12_READ(ux1, uy2, in_uv2, uvstride) : uv00;
-  float2 uv11 = need_right ? (need_bottom ? NV12_READ(ux2, uy2, in_uv2, uvstride) : uv01) : uv10;
+  REAL2 uv00 = NV12_READ(ux1, uy1, in_uv2, uvstride);
+  REAL2 uv01 = need_right ? NV12_READ(ux2, uy1, in_uv2, uvstride) : uv00;
+  REAL2 uv10 = need_bottom ? NV12_READ(ux1, uy2, in_uv2, uvstride) : uv00;
+  REAL2 uv11 = need_right ? (need_bottom ? NV12_READ(ux2, uy2, in_uv2, uvstride) : uv01) : uv10;
 
-  float4 yuv0 = (float4)(y00, uv00, 255);
-  float4 yuv1 = (float4)(y01, uv01, 255);
-  float4 yuv2 = (float4)(y10, uv10, 255);
-  float4 yuv3 = (float4)(y11, uv11, 255);
+  REAL4 yuv0 = (REAL4)(y00, uv00, 255);
+  REAL4 yuv1 = (REAL4)(y01, uv01, 255);
+  REAL4 yuv2 = (REAL4)(y10, uv10, 255);
+  REAL4 yuv3 = (REAL4)(y11, uv11, 255);
 
-  float4 yuv = bilinear(yuv0, yuv1, yuv2, yuv3, xfrac, yfrac);
+  REAL4 yuv = bilinear(yuv0, yuv1, yuv2, yuv3, xfrac, yfrac);
   return convert_uchar4_sat(yuv);
 }
 
@@ -698,7 +760,7 @@ uchar4 nv16_sampler(__global const uchar *y_image, int out_x, int out_y, float f
 }
 
 
-#define I420_READ(x, y, pu, pv, ustride, vstride) convert_float2((uchar2)(pu[y * ustride + x], pv[y * vstride + x]))
+#define I420_READ(x, y, pu, pv, ustride, vstride) CONVERT_REAL2((uchar2)(pu[y * ustride + x], pv[y * vstride + x]))
 
 // I420 three-plane: Y in y_image, U in u_image, V in v_image (all offsets = 0).
 uchar4 i420_sampler_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
@@ -741,17 +803,17 @@ uchar4 i420_sampler_three_plane(__global const uchar *y_image, __global const uc
   bool need_right = ux1 != ux2;
   bool need_bottom = uy1 != uy2;
 
-  float2 uv00 = I420_READ(ux1, uy1, u_image, v_image, img->strides.y, img->strides.z);
-  float2 uv01 = need_right ? I420_READ(ux2, uy1, u_image, v_image, img->strides.y, img->strides.z) : uv00;
-  float2 uv10 = need_bottom ? I420_READ(ux1, uy2, u_image, v_image, img->strides.y, img->strides.z) : uv00;
-  float2 uv11 = need_right ? (need_bottom ? I420_READ(ux2, uy2, u_image, v_image, img->strides.y, img->strides.z) : uv01) : uv10;
+  REAL2 uv00 = I420_READ(ux1, uy1, u_image, v_image, img->strides.y, img->strides.z);
+  REAL2 uv01 = need_right ? I420_READ(ux2, uy1, u_image, v_image, img->strides.y, img->strides.z) : uv00;
+  REAL2 uv10 = need_bottom ? I420_READ(ux1, uy2, u_image, v_image, img->strides.y, img->strides.z) : uv00;
+  REAL2 uv11 = need_right ? (need_bottom ? I420_READ(ux2, uy2, u_image, v_image, img->strides.y, img->strides.z) : uv01) : uv10;
 
-  float4 yuv0 = (float4)(y00, uv00, 255);
-  float4 yuv1 = (float4)(y01, uv01, 255);
-  float4 yuv2 = (float4)(y10, uv10, 255);
-  float4 yuv3 = (float4)(y11, uv11, 255);
+  REAL4 yuv0 = (REAL4)(y00, uv00, 255);
+  REAL4 yuv1 = (REAL4)(y01, uv01, 255);
+  REAL4 yuv2 = (REAL4)(y10, uv10, 255);
+  REAL4 yuv3 = (REAL4)(y11, uv11, 255);
 
-  float4 yuv = bilinear(yuv0, yuv1, yuv2, yuv3, xfrac, yfrac);
+  REAL4 yuv = bilinear(yuv0, yuv1, yuv2, yuv3, xfrac, yfrac);
   return convert_uchar4_sat(yuv);
 }
 
@@ -766,7 +828,7 @@ uchar4 i420_sampler(__global const uchar *y_image, int out_x, int out_y, float f
 }
 
 
-uchar4  yuyv_sampler(__global const uchar *in, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+uchar4 yuyv_sampler(__global const uchar *in, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
   __global const uchar4 *in4 = (__global const uchar4 *)in;
   if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
     return (uchar4)(16, 128, 128, 255);
@@ -798,18 +860,18 @@ uchar4  yuyv_sampler(__global const uchar *in, int out_x, int out_y, float fx, f
   int idx3 = y2 * stride + (x1 >> 1);
   int idx4 = y2 * stride + (x2 >> 1);
 
-  float4 p00 = convert_float4(in4[idx1]);
-  float4 p01 = convert_float4(in4[idx2]);
-  float4 p10 = convert_float4(in4[idx3]);
-  float4 p11 = convert_float4(in4[idx4]);
+  REAL4 p00 = CONVERT_REAL4(in4[idx1]);
+  REAL4 p01 = CONVERT_REAL4(in4[idx2]);
+  REAL4 p10 = CONVERT_REAL4(in4[idx3]);
+  REAL4 p11 = CONVERT_REAL4(in4[idx4]);
 
   // Select correct Y and UV values based on even/odd position
-  float4 in00 = (x1 & 1) ? (float4)(p00.z, p00.y, p00.w, 255) : (float4)(p00.x, p00.y, p00.w, 255);
-  float4 in01 = (x2 & 1) ? (float4)(p01.z, p01.y, p01.w, 255) : (float4)(p01.x, p01.y, p01.w, 255);
-  float4 in10 = (x1 & 1) ? (float4)(p10.z, p10.y, p10.w, 255) : (float4)(p10.x, p10.y, p10.w, 255);
-  float4 in11 = (x2 & 1) ? (float4)(p11.z, p11.y, p11.w, 255) : (float4)(p11.x, p11.y, p11.w, 255);
+  REAL4 in00 = (x1 & 1) ? (REAL4)(p00.z, p00.y, p00.w, 255) : (REAL4)(p00.x, p00.y, p00.w, 255);
+  REAL4 in01 = (x2 & 1) ? (REAL4)(p01.z, p01.y, p01.w, 255) : (REAL4)(p01.x, p01.y, p01.w, 255);
+  REAL4 in10 = (x1 & 1) ? (REAL4)(p10.z, p10.y, p10.w, 255) : (REAL4)(p10.x, p10.y, p10.w, 255);
+  REAL4 in11 = (x2 & 1) ? (REAL4)(p11.z, p11.y, p11.w, 255) : (REAL4)(p11.x, p11.y, p11.w, 255);
 
-  float4 yuv = bilinear(in00, in01, in10, in11, xfrac, yfrac);
+  REAL4 yuv = bilinear(in00, in01, in10, in11, xfrac, yfrac);
   return convert_uchar4_sat(yuv);
 }
 
@@ -841,15 +903,15 @@ uchar gray8_sampler_bl(__global const uchar *image, int out_x, int out_y, float 
     x2 += img->crop.x;
     y2 += img->crop.y;
 
-    float p00 = (float)image[y1 * img->strides.x + x1];
-    float p01 = (float)image[y1 * img->strides.x + x2];
-    float p10 = (float)image[y2 * img->strides.x + x1];
-    float p11 = (float)image[y2 * img->strides.x + x2];
+    REAL p00 = (REAL)image[y1 * img->strides.x + x1];
+    REAL p01 = (REAL)image[y1 * img->strides.x + x2];
+    REAL p10 = (REAL)image[y2 * img->strides.x + x1];
+    REAL p11 = (REAL)image[y2 * img->strides.x + x2];
 
     //  Performs bilinear interpolation with higher precision
-    float i1 = mix(p00, p01, xfrac);
-    float i2 = mix(p10, p11, xfrac);
-    float value = mix(i1, i2, yfrac);
+    REAL i1 = mix(p00, p01, (REAL)xfrac);
+    REAL i2 = mix(p10, p11, (REAL)xfrac);
+    REAL value = mix(i1, i2, (REAL)yfrac);
 
     return convert_uchar_sat(value);
 }
@@ -884,18 +946,18 @@ uchar4 rgba_sampler_bl(__global const uchar *image, int out_x, int out_y, float 
     x2 += img->crop.x;
     y2 += img->crop.y;
     int stride = img->strides.x / sizeof(uchar4);
-    float4 p00 = convert_float4(image4[y1 * stride + x1]);
-    float4 p01 = convert_float4(image4[y1 * stride + x2]);
-    float4 p10 = convert_float4(image4[y2 * stride + x1]);
-    float4 p11 = convert_float4(image4[y2 * stride + x2]);
+    REAL4 p00 = CONVERT_REAL4(image4[y1 * stride + x1]);
+    REAL4 p01 = CONVERT_REAL4(image4[y1 * stride + x2]);
+    REAL4 p10 = CONVERT_REAL4(image4[y2 * stride + x1]);
+    REAL4 p11 = CONVERT_REAL4(image4[y2 * stride + x2]);
 
     //  Performs bilinear interpolation
     //  frac is the fraction of the pixel that is color2
     //  color = color1 + (color2 - color1) * frac
 
-    float4 i1 = mix(p00, p01, xfrac);
-    float4 i2 = mix(p10, p11, xfrac);
-    uchar4 result = convert_uchar4_sat(mix(i1, i2, yfrac));
+    REAL4 i1 = mix(p00, p01, (REAL)xfrac);
+    REAL4 i2 = mix(p10, p11, (REAL)xfrac);
+    uchar4 result = convert_uchar4_sat(mix(i1, i2, (REAL)yfrac));
     return result;
 }
 
@@ -929,20 +991,27 @@ uchar4 rgb_sampler_bl(__global const uchar *image, int out_x, int out_y, float f
     y2 += img->crop.y;
     int stride = img->strides.x;
     __global const uchar * p_in = advance_uchar_ptr(image, y1 * stride);
-    float4 p00 = convert_float4((uchar4)(vload3(x1, p_in), 255));
-    float4 p01 = convert_float4((uchar4)(vload3(x2, p_in), 255));
+    REAL4 p00 = CONVERT_REAL4((uchar4)(vload3(x1, p_in), 255));
+    REAL4 p01 = CONVERT_REAL4((uchar4)(vload3(x2, p_in), 255));
     p_in = advance_uchar_ptr(image, y2 * stride);
-    float4 p10 = convert_float4((uchar4)(vload3(x1, p_in), 255));
-    float4 p11 = convert_float4((uchar4)(vload3(x2, p_in), 255));
+    REAL4 p10 = CONVERT_REAL4((uchar4)(vload3(x1, p_in), 255));
+    REAL4 p11 = CONVERT_REAL4((uchar4)(vload3(x2, p_in), 255));
 
     //  Performs bilinear interpolation
     //  frac is the fraction of the pixel that is color2
     //  color = color1 + (color2 - color1) * frac
 
-    float4 i1 = mix(p00, p01, xfrac);
-    float4 i2 = mix(p10, p11, xfrac);
-    uchar4 result = convert_uchar4_sat(mix(i1, i2, yfrac));
+    REAL4 i1 = mix(p00, p01, (REAL)xfrac);
+    REAL4 i2 = mix(p10, p11, (REAL)xfrac);
+    uchar4 result = convert_uchar4_sat(mix(i1, i2, (REAL)yfrac));
     return result;
+}
+
+float4 color_convert_float(uchar4 pixel, float16 matrix) {
+    float4 in_pixel = convert_float4(pixel);
+    float4 color = mad(in_pixel.x, matrix.s0123, mad(in_pixel.y, matrix.s4567, mad(in_pixel.z, matrix.s89ab, matrix.scdef)));
+    color.w = in_pixel.w;
+    return color;
 }
 
 )##";
@@ -1013,7 +1082,8 @@ get_rotation(int rotate_type)
 
 CLProgram::flush_details
 exec_kernel(CLProgram &program, cl_kernel k, const buffer_details &in,
-    const buffer_details &out, CLProgram::ax_buffer &outbuf, bool start_flush)
+    const buffer_details &out, CLProgram::ax_buffer &inbuf,
+    CLProgram::ax_buffer &outbuf, bool start_flush)
 {
   auto event = CLProgram::ax_event{ nullptr };
   if (auto *p = std::get_if<opencl_buffer *>(&in.data); p && *p) {
@@ -1029,13 +1099,30 @@ exec_kernel(CLProgram &program, cl_kernel k, const buffer_details &in,
       event = std::move(y->event);
     }
   }
+
+  //  KHR-imported DMA-bufs require explicit acquire/release around kernel use;
+  //  ARM-imported ones handle synchronisation internally.
+  cl_mem khr_bufs[2] = {};
+  size_t khr_count = 0;
+  if (program.uses_khr_dmabuf_import()) {
+    if (ax_utils::is_dmabuf(in))
+      khr_bufs[khr_count++] = *inbuf;
+    if (ax_utils::is_dmabuf(out))
+      khr_bufs[khr_count++] = *outbuf;
+  }
+
+  event = program.acquire_dmabuf_khr({ khr_bufs, khr_count }, std::move(event));
+
   size_t global_work_size[3] = { 1, 1, 1 };
   global_work_size[0] = out.width;
   global_work_size[1] = out.height;
   auto ev = program.execute_kernel(k, 2, global_work_size, std::move(event));
-  if (start_flush) {
-    //  Here the downstream does not support OpenCL buffers, so start the
-    //  mapping now.
+
+  ev = program.release_dmabuf_khr({ khr_bufs, khr_count }, std::move(ev));
+
+  //  If the output is a dmabuf the downstream takes the fd directly — no
+  //  mapping to host memory is needed or appropriate.
+  if (start_flush && !ax_utils::is_dmabuf(out)) {
     return program.start_flush_output_buffer(
         outbuf, out.stride * out.height, std::move(ev));
   }
@@ -1047,7 +1134,7 @@ run_kernel(CLProgram &program, cl_kernel k, const buffer_details &in,
     const buffer_details &out, CLProgram::ax_buffer &inbuf,
     CLProgram::ax_buffer &outbuf, bool start_flush)
 {
-  auto details = exec_kernel(program, k, in, out, outbuf, start_flush);
+  auto details = exec_kernel(program, k, in, out, inbuf, outbuf, start_flush);
   if (details.event) {
     // The downstream does not support OpenCL buffers so the buffer has begun
     //  mapping to system memory. The event will be signalled when complete.
@@ -1056,7 +1143,11 @@ run_kernel(CLProgram &program, cl_kernel k, const buffer_details &in,
     if (auto *p = std::get_if<opencl_buffer *>(&out.data)) {
       (*p)->event = std::move(details.event);
       (*p)->mapped = details.mapped;
+    } else if (ax_utils::is_dmabuf(out)) {
+      clWaitForEvents(1, &*details.event);
+      details.event.reset();
     } else {
+      // Non-dmabuf, non-opencl_buffer output: wait for the host-mapped buffer.
       clWaitForEvents(1, &*details.event);
       if (details.mapped) {
         program.unmap_buffer(CLProgram::ax_event{ {} }, outbuf, details.mapped);
@@ -1066,6 +1157,7 @@ run_kernel(CLProgram &program, cl_kernel k, const buffer_details &in,
   }
   return 0;
 }
+
 
 bool
 is_rgb(AxVideoFormat format)
@@ -1199,6 +1291,24 @@ get_color_conversion_matrix(AxVideoFormat in_format, AxVideoFormat out_format)
   }
   throw std::runtime_error("Unsupported color conversion from " + AxVideoFormatToString(in_format)
                            + " to " + AxVideoFormatToString(out_format));
+}
+
+std::array<float, 16>
+get_color_conversion_matrix_with_norm(AxVideoFormat in_format, AxVideoFormat out_format,
+    const std::vector<cl_float> &mul, const std::vector<cl_float> &add)
+{
+  auto M = get_color_conversion_matrix(in_format, out_format);
+  // Fuse per-channel affine norm (out_i = color_i * mul_i + add_i) into the
+  // matrix. Rows 0-2 are input channel weights; row 3 is the bias vector.
+  for (int i = 0; i < 4; ++i) {
+    float m = mul[i];
+    float a = add[i];
+    M[0 * 4 + i] *= m;
+    M[1 * 4 + i] *= m;
+    M[2 * 4 + i] *= m;
+    M[3 * 4 + i] = M[3 * 4 + i] * m + a;
+  }
+  return M;
 }
 
 std::array<cl_int, 4>
@@ -1368,22 +1478,21 @@ const char *i420_nn_sampler_three_plane = R"##(
 const char *rgb_output_cl = R"##(
     int strideOut = strides.w;
     __global uchar* prgb = advance_uchar_ptr(out, row * strideOut);
-    vstore3(color_convert(pixel, color_matrix).xyz, col, prgb);
+    vstore3(convert_uchar3_sat(color_convert_float(pixel, color_matrix).xyz), col, prgb);
 }
 )##";
 
 const char *rgba_output_cl = R"##(
     int strideOut = strides.w;
     __global uchar4* prgb = advance_uchar4_ptr(out, row * strideOut);
-    prgb[col] = color_convert(pixel, color_matrix);
+    prgb[col] = convert_uchar4_sat(color_convert_float(pixel, color_matrix));
 }
 )##";
 
 const char *gray_output_cl = R"##(
     int strideOut = strides.w;
     __global uchar* p_gray = advance_uchar_ptr(out, row * strideOut);
-    uchar4 rgba = color_convert(pixel, color_matrix);
-    p_gray[col] = rgba.x;
+    p_gray[col] = convert_uchar_sat(color_convert_float(pixel, color_matrix).x);
 }
 )##";
 
@@ -1397,31 +1506,26 @@ const char *gray_in_output_cl = R"##(
 const char *rgb_output_norm_cl = R"##(
     int strideOut = strides.w;
     __global uchar* prgb = advance_uchar_ptr(out, row * strideOut);
-    uchar4 new_pixel = color_convert(pixel, color_matrix);
-    char4 pix = convert_char4_sat(mad(convert_float4(new_pixel), mul, add));
-    new_pixel = convert_uchar4(pix);
-    vstore3(new_pixel.xyz, col, prgb);
+    float4 new_pixel = color_convert_float(pixel, color_matrix);
+    char4 pix = convert_char4_sat_rte(new_pixel);
+    vstore3(convert_uchar3(pix.xyz), col, prgb);
 }
 )##";
 
 const char *rgba_output_norm_cl = R"##(
     int strideOut = strides.w;
     __global uchar4* prgb = advance_uchar4_ptr(out, row * strideOut);
-    uchar4 new_pixel = color_convert(pixel, color_matrix);
-    char4 pix = convert_char4_sat(mad(convert_float4(new_pixel), mul, add));
-    new_pixel = convert_uchar4(pix);
-    prgb[col] = new_pixel;
+    float4 new_pixel = color_convert_float(pixel, color_matrix);
+    char4 pix = convert_char4_sat_rte(new_pixel);
+    prgb[col] = convert_uchar4(pix);
 }
 )##";
 
 const char *gray_output_norm_cl = R"##(
     int strideOut = strides.w;
     __global uchar* p_gray = advance_uchar_ptr(out, row * strideOut);
-    uchar4 new_pixel = color_convert(pixel, color_matrix);
-    float fgray = convert_float(new_pixel.x);
-    fgray = fgray * mul.x + add.x;
-    uchar gray = convert_uchar_sat(fgray);
-    p_gray[col] = gray;
+    float4 new_pixel = color_convert_float(pixel, color_matrix);
+    p_gray[col] = convert_uchar(convert_char_sat_rte(new_pixel.x));
 }
 )##";
 
@@ -1429,9 +1533,8 @@ const char *gray_in_output_norm_cl = R"##(
     int strideOut = strides.w;
     __global uchar* p_gray = advance_uchar_ptr(out, row * strideOut);
     float fgray = convert_float(pixel);
-    fgray = fgray * mul.x + add.x;
-    pixel = convert_uchar_sat(fgray);
-    p_gray[col] = pixel;
+    fgray = fgray * color_matrix.s0 + color_matrix.sc;
+    p_gray[col] = convert_uchar(convert_char_sat_rte(fgray));
 }
 )##";
 

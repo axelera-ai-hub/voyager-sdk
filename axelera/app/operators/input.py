@@ -344,32 +344,33 @@ class InputFromROI(AxOperator):
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, frame_height)
 
         result = []
-        for box, idx in zip(boxes, indices):
-            x1, y1, x2, y2 = box
-            # TODO: consider to filter out these boxes
-            if x2 == x1 or y2 == y1:
-                continue
-            cropped_image = image.asarray()[y1:y2, x1:x2]
-            roi_image = types.Image.fromarray(cropped_image, image.color_format)
+        with image.as_ndarray_view() as frame_view:
+            for box, idx in zip(boxes, indices):
+                x1, y1, x2, y2 = box
+                # TODO: consider to filter out these boxes
+                if x2 == x1 or y2 == y1:
+                    continue
+                cropped_image = frame_view[y1:y2, x1:x2].copy()
+                roi_image = types.Image.fromarray(cropped_image, image.color_format)
 
-            if self.image_processing_on_roi:
-                for op in self.image_processing_on_roi:
-                    try:
-                        match = op.stream_check_match(stream_id)
-                        if match:
-                            # Check if the operator's exec_torch accepts metadata
-                            sig = inspect.signature(op.exec_torch)
-                            if len(sig.parameters) > 1 and 'meta' in sig.parameters:
-                                roi_image = op.exec_torch(roi_image, axmeta)
-                            else:
-                                roi_image = op.exec_torch(roi_image)
-                    except Exception as e:
-                        raise ValueError(
-                            f"Operator {op.__class__.__name__} failed to process ROI due to: {str(e)}"
-                        )
+                if self.image_processing_on_roi:
+                    for op in self.image_processing_on_roi:
+                        try:
+                            match = op.stream_check_match(stream_id)
+                            if match:
+                                # Check if the operator's exec_torch accepts metadata
+                                sig = inspect.signature(op.exec_torch)
+                                if len(sig.parameters) > 1 and 'meta' in sig.parameters:
+                                    roi_image = op.exec_torch(roi_image, axmeta)
+                                else:
+                                    roi_image = op.exec_torch(roi_image)
+                        except Exception as e:
+                            raise ValueError(
+                                f"Operator {op.__class__.__name__} failed to process ROI due to: {str(e)}"
+                            )
 
-            result.append(roi_image)
-            axmeta[self.where].add_secondary_frame_index(self.task_name, idx)
+                result.append(roi_image)
+                axmeta[self.where].add_secondary_frame_index(self.task_name, idx)
         return image, result, axmeta
 
 

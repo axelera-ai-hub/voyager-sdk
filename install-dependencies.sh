@@ -21,6 +21,7 @@ sudo apt-get install -y \
     libgirepository1.0-dev \
     libgstreamer-plugins-base1.0-dev \
     libgstreamer1.0-dev \
+    libavdevice-dev \
     libopencv-dev \
     libsimde-dev \
     libswscale-dev \

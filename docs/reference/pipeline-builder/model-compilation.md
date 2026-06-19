@@ -5,7 +5,7 @@ title: "Model Compilation"
 
 > [!IMPORTANT]
 > **Alpha**
-> Core operators (detection, classification, pose, segmentation, tracking) are stable. Cascade (`op.foreach`, `op.croproi`) and streaming APIs are still in development.
+> Core operators (detection, classification, pose, segmentation, tracking) are stable. Cascade (`op.for_each`, `op.crop_roi`) and streaming APIs are still in development.
 
 
 The Voyager SDK compiler quantizes your model to mixed-precision and compiles it for the Metis

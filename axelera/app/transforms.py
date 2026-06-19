@@ -158,6 +158,24 @@ def opencl_colorconvert_with_perspective(
 
 @builtin
 @transformer(priority=60, hardware_caps=['opencl'])
+def opencl_colorconvert_with_crop(
+    convert: operators.ConvertColorInput,
+    crop: operators.preprocessing.Crop,
+):
+    '''Mega operators for opencl crop transformation
+    This simply puts the crop operator first so that it can take advantage
+    of using crop metadata'''
+
+    return [
+        operators.preprocessing.Crop(
+            left=crop.left, top=crop.top, width=crop.width, height=crop.height
+        ),
+        operators.ConvertColorInput(format=convert.format),
+    ]
+
+
+@builtin
+@transformer(priority=60, hardware_caps=['opencl'])
 def opencl_colorconvert_with_cameraundistort(
     convert: operators.ConvertColorInput,
     barrel: operators.custom_preprocessing.CameraUndistort,

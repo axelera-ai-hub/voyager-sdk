@@ -17,7 +17,7 @@ perform the final step of wrapping numeric data into domain objects.
 
 Note: These wrappers are optional. Without them, your pipeline returns raw numpy arrays
 which you can inspect, process, or pass to other tools directly. Reasons to use the
-wrappers: they enable cascade pipelines (op.foreach + op.croproi read the typed bbox
+wrappers: they enable cascade pipelines (op.for_each + op.crop_roi read the typed bbox
 attribute), accuracy measurement tools, and high-performance rendering via the draw()
 method -- all planned or available features.
 
@@ -26,7 +26,9 @@ method -- all planned or available features.
 | Name | Description |
 |------|-------------|
 | [AxClassification](#axclassification) | Decode classification results into list[Classification]. |
+| [AxDepthMap](#axdepthmap) | Convert model output tensor to a DepthMap instance. |
 | [AxDetection](#axdetection) | Convert detection array to list of DetectedObject instances. |
+| [AxObb](#axobb) | Convert OBB detection array to list of OrientedObject instances. |
 | [AxPose](#axpose) | Convert pose detection array to list of PoseObject instances. |
 | [AxSegmentation](#axsegmentation) | Convert segmentation data to list of SegmentedObject instances. |
 
@@ -34,10 +36,12 @@ method -- all planned or available features.
 
 ### AxClassification
 
+**Alias:** `ax_classification`
+
 Decode classification results into list[Classification].
 
 Takes either a raw np.ndarray of class scores or a (values, indices) tuple
-from topk and returns a list[Classification].
+from top_k and returns a list[Classification].
 
 **Args:**
 
@@ -47,13 +51,13 @@ from topk and returns a list[Classification].
 
 ```python
 # Pattern 1: All classes (less common)
-op.seq(op.load('model'), op.axclassification(...))
+op.seq(op.load('model'), op.ax_classification(...))
 
 # Pattern 2: Top-k classes (recommended, matches detection pattern)
 op.seq(
     op.load('model'),
-    op.topk(k=5),              # -> (values, indices)
-    op.axclassification(...),  # -> list[Classification] for top 5
+    op.top_k(k=5),              # -> (values, indices)
+    op.ax_classification(...),  # -> list[Classification] for top 5
 )
 ```
 
@@ -65,11 +69,38 @@ __init__(class_id_type: type = int)
 
 ---
 
+### AxDepthMap
+
+**Alias:** `ax_depth_map`
+
+Convert model output tensor to a DepthMap instance.
+
+Squeezes all size-1 dimensions from the model output and validates the
+result is a 2D (H, W) depth array. Raises ValueError if the squeezed
+result is not 2D (e.g., a 3-channel model output).
+
+**Examples:**
+
+```python
+op.seq(
+    op.color_convert('RGB', 'BGR'),
+    op.resize((224, 224)),
+    op.totensor(),
+    op.load('fastdepth-nyudepthv2-onnx.axm'),
+    op.ax_depth_map(),
+)
+# Input: np.ndarray (1, 1, 224, 224) -> Output: DepthMap
+```
+
+---
+
 ### AxDetection
+
+**Alias:** `ax_detection`
 
 Convert detection array to list of DetectedObject instances.
 
-Takes an np.ndarray with coordinates in IMAGE_PIXEL space and returns a
+Takes an np.ndarray with coordinates in NORMALIZED [0,1] space and returns a
 list[DetectedObject] with index, class_id, bbox, and score.
 
 **Args:**
@@ -86,13 +117,49 @@ op.seq(
     op.load('yolov8n-coco'),
     op.decode_detections(algo='yolov8', num_classes=80, confidence_threshold=0.25),
     op.nms(),
-    op.to_image_space(),  # MODEL_PIXEL -> IMAGE_PIXEL
-    op.axdetection(class_id_type=op.CocoClasses),
+    op.to_image_space(),  # MODEL_PIXEL -> NORMALIZED
+    op.ax_detection(class_id_type=op.CocoClasses),
 )
-# Input: np.ndarray (N, 6) in IMAGE_PIXEL -> Output: list[DetectedObject]
+# Input: np.ndarray (N, 6) in NORMALIZED [0,1] -> Output: list[DetectedObject]
 ```
 
-**Note:** Call `to_image_space()` before `axdetection()` to convert coordinates from MODEL_PIXEL to IMAGE_PIXEL.
+**Note:**
+
+This operator expects NORMALIZED [0,1] coordinates. Use to_image_space()
+before ax_detection() to convert from MODEL_PIXEL to NORMALIZED.
+
+**Constructor:**
+
+```python
+__init__(class_id_type: type = int)
+```
+
+---
+
+### AxObb
+
+**Alias:** `ax_obb`
+
+Convert OBB detection array to list of OrientedObject instances.
+
+Takes an np.ndarray (N, 7) with columns [cx, cy, w, h, score, class_id, angle]
+in NORMALIZED [0,1] space and returns a list[OrientedObject].
+
+**Args:**
+
+- **class_id_type**: Type to cast class IDs to (default: int). Common: op.DotaClasses.
+
+**Examples:**
+
+```python
+op.seq(
+    op.load('yolo11n-obb.axm'),
+    op.decode_obb(num_classes=15),
+    op.nms(box_format='xywhr'),
+    op.to_image_space(box_format='xywhr'),
+    op.ax_obb(class_id_type=op.DotaClasses),
+)
+```
 
 **Constructor:**
 
@@ -104,9 +171,11 @@ __init__(class_id_type: type = int)
 
 ### AxPose
 
+**Alias:** `ax_pose`
+
 Convert pose detection array to list of PoseObject instances.
 
-Takes an np.ndarray (N, 6+K*3) with coordinates in IMAGE_PIXEL space and
+Takes an np.ndarray (N, 6+K*3) with coordinates in NORMALIZED [0,1] space and
 returns a list[PoseObject] with index, bbox, keypoints, score, and class_id.
 
 **Args:**
@@ -124,13 +193,16 @@ op.seq(
     op.load('yolov8npose-coco'),
     op.decode_pose(algo='yolov8', num_keypoints=17),
     op.nms(),
-    op.to_image_space(keypoint_cols=range(6, 57, 3)),  # MODEL_PIXEL -> IMAGE_PIXEL
-    op.axpose(num_keypoints=17, keypoint_names=COCO_KEYPOINT_NAMES),
+    op.to_image_space(keypoint_cols=range(6, 57, 3)),  # MODEL_PIXEL -> NORMALIZED
+    op.ax_pose(num_keypoints=17, keypoint_names=COCO_KEYPOINT_NAMES),
 )
-# Input: np.ndarray (M, 57) in IMAGE_PIXEL -> Output: list[PoseObject]
+# Input: np.ndarray (M, 57) in NORMALIZED [0,1] -> Output: list[PoseObject]
 ```
 
-**Note:** Call `to_image_space()` with the `keypoint_cols` parameter before `axpose()` to convert coordinates from MODEL_PIXEL to IMAGE_PIXEL.
+**Note:**
+
+This operator expects NORMALIZED [0,1] coordinates. Use to_image_space()
+with keypoint_cols parameter before ax_pose() to convert from MODEL_PIXEL.
 
 **Constructor:**
 
@@ -142,10 +214,12 @@ __init__(num_keypoints: int = 17, keypoint_names: list[str] | None = None, class
 
 ### AxSegmentation
 
+**Alias:** `ax_segmentation`
+
 Convert segmentation data to list of SegmentedObject instances.
 
 Takes (detections, masks) where detections is an (M, 38) array in
-IMAGE_PIXEL space and masks is a list of binary mask arrays. Returns
+NORMALIZED [0,1] space and masks is a list of binary mask arrays. Returns
 a list[SegmentedObject].
 
 **Args:**
@@ -168,7 +242,7 @@ op.seq(
         op.seq(op.pack(), op.itemgetter(0), op.to_image_space()),
         op.seq(op.pack(), op.itemgetter(1)),
     ),
-    op.axsegmentation(class_id_type=op.CocoClasses),
+    op.ax_segmentation(class_id_type=op.CocoClasses),
 )
 ```
 

@@ -220,9 +220,6 @@ def set_random_seed(seed=42):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-    # Python hash seed for consistent ordering
+    # Python hash seed for consistent ordering in subprocesses (no-op in current
+    # process; the interpreter already sampled PYTHONHASHSEED at startup).
     os.environ['PYTHONHASHSEED'] = str(seed)
-
-    # generator = torch.Generator()
-    # generator.manual_seed(seed)
-    # return generator

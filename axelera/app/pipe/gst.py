@@ -559,7 +559,7 @@ def _report_missing_plugins(gst_missing: list[str], ax_missing: list[str]) -> No
         )
     LOG.error(
         "Please ensure all GStreamer elements and operators are built by running:\n"
-        "  make clobber operators"
+        "  make clobber-libs operators"
     )
 
 

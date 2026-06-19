@@ -149,6 +149,12 @@ class DecodeYolo(AxOperator):
     nms_top_k: int = 300
     generic_gst_decoder: bool = False
     nms_free: bool = False  # Currently only used for YOLO26-OBB without focal loss
+    # Per-feature-map xy/wh decode params. When None, values are read from
+    # `model_info.extra_kwargs["YOLO"]` (Darknet path auto-populates from .cfg);
+    # otherwise the YAML values override. Set explicitly when the model was
+    # trained with a custom decoder convention not derivable from the loader.
+    scale_x_y: Optional[List[float]] = None
+    new_coords: Optional[List[bool]] = None
 
     def _post_init(self):
         self.label_filter = utils.parse_labels_filter(self.label_filter)
@@ -172,7 +178,11 @@ class DecodeYolo(AxOperator):
             self.x_indexes = [0, 2]  # x1, x2
             self.y_indexes = [1, 3]  # y1, y2
 
-        # TODO: check config to determine the value of sigmoid_in_postprocess
+        # When True the C++ decoder's int8->float LUT bakes in sigmoid. The
+        # default False matches models that fuse sigmoid into the chip kernel
+        # (e.g. Ultralytics v5/v7/v8 ONNX exports). The Darknet loader sets
+        # this True via extra_kwargs since YOLOLayer's sigmoid stays in the
+        # postamble graph and the gst pipe bypasses the postamble.
         self.sigmoid_in_postprocess = False
         super()._post_init()
 
@@ -238,6 +248,19 @@ class DecodeYolo(AxOperator):
                         f"Invalid anchors in extra_kwargs for {model_info.name}:"
                         f" should be list of N lists of 6 elements, got {self._anchors!r}"
                     )
+                # Per-feature-map xy/wh activation params. YAML override beats
+                # loader-derived (extra_kwargs). When neither is set we leave
+                # `_scale_x_y` / `_new_coords` as None and the gst decoder falls
+                # back to its hard-coded Ultralytics v5 defaults -- this keeps
+                # the gst option string byte-identical for v5/v7/v8 models that
+                # do not need explicit values.
+                yolo_kw = model_info.extra_kwargs['YOLO']
+                self._scale_x_y = self.scale_x_y or yolo_kw.get('scale_x_y')
+                self._new_coords = (
+                    self.new_coords if self.new_coords is not None else yolo_kw.get('new_coords')
+                )
+                if 'sigmoid_in_postprocess' in yolo_kw:
+                    self.sigmoid_in_postprocess = bool(yolo_kw['sigmoid_in_postprocess'])
         self.scaled = context.resize_status
         self.model_width = model_info.input_width
         self.model_height = model_info.input_height
@@ -331,6 +354,13 @@ class DecodeYolo(AxOperator):
             )
         elif self.model_type == YoloFamily.YOLOv5:
             anchors = ','.join(str(s) for s in itertools.chain.from_iterable(self._anchors))
+            activation_opts = ''
+            if self._scale_x_y is not None:
+                activation_opts += f'scale_x_y:{",".join(str(s) for s in self._scale_x_y)};'
+            if self._new_coords is not None:
+                activation_opts += (
+                    f'new_coords:{",".join(str(int(bool(s))) for s in self._new_coords)};'
+                )
             gst.decode_muxer(
                 name=f'decoder_task{self._taskn}{stream_idx}',
                 lib='libdecode_yolov5.so',
@@ -346,6 +376,7 @@ class DecodeYolo(AxOperator):
                 f'topk:{self.max_nms_boxes};'
                 f'multiclass:{int(self.use_multi_label)};'
                 f'sigmoid_in_postprocess:{int(self.sigmoid_in_postprocess)};'
+                f'{activation_opts}'
                 f'transpose:1;'
                 f'classlabels_file:{self._tmp_labels};'
                 f'model_width:{self.model_width};'

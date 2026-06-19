@@ -1,7 +1,6 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #include "GstAxInPlace.hpp"
 #include <gmodule.h>
-#include <gst/allocators/gstfdmemory.h>
 #include <gst/gst.h>
 #include <gst/video/video.h>
 

@@ -1,13 +1,5 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #include "unittest_ax_common.h"
-
-#define CL_TARGET_OPENCL_VERSION 210
-#define CL_USE_DEPRECATED_OPENCL_1_2_APIS
-#ifdef __APPLE__
-#include <OpenCL/opencl.h>
-#else
-#include <CL/cl.h>
-#endif
 
 extern bool has_opencl_platform();
 

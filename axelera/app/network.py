@@ -395,7 +395,12 @@ class ModelInfos:
         return default
 
     def clock_profile(self, model: str, metis: config.Metis) -> int:
-        return self._hw_option(model, metis, 'clock_profile', config.DEFAULT_CORE_CLOCK, int)
+        default = (
+            config.DEFAULT_CORE_CLOCK_EUROPA
+            if metis.hw_generation == config.HWGeneration.europa
+            else config.DEFAULT_CORE_CLOCK
+        )
+        return self._hw_option(model, metis, 'clock_profile', default, int)
 
     def mvm_limitation(self, model: str, metis: config.Metis) -> int:
         return self._hw_option(model, metis, 'mvm_limitation', 100, int)
@@ -417,7 +422,12 @@ class ModelInfos:
             max_compiler = 1
         else:
             max_compiler = overrides.get('max_compiler_cores', config.env.max_compiler_cores)
-        max_exec = overrides.get('max_execution_cores', config.DEFAULT_MAX_EXECUTION_CORES)
+        default_max_exec = (
+            config.DEFAULT_MAX_EXECUTION_CORES_EUROPA
+            if metis.hw_generation == config.HWGeneration.europa
+            else config.DEFAULT_MAX_EXECUTION_CORES
+        )
+        max_exec = overrides.get('max_execution_cores', default_max_exec)
         ncores = min(desired, max_compiler)
         if max_compiler < desired:
             due_to = f'max_compiler_cores setting (for metis: {metis.name})'
@@ -444,12 +454,19 @@ class ModelInfos:
                     f"The pipeline has multiple models but model {name} does not specify aipu_cores"
                 )
         desired = overrides.get('aipu_cores', requested_cores)
-        max_exec = overrides.get('max_execution_cores', config.DEFAULT_MAX_EXECUTION_CORES)
+        default_max_exec = (
+            config.DEFAULT_MAX_EXECUTION_CORES_EUROPA
+            if metis.hw_generation == config.HWGeneration.europa
+            else config.DEFAULT_MAX_EXECUTION_CORES
+        )
+        max_exec = overrides.get('max_execution_cores', default_max_exec)
         if max_exec < requested_cores:
             # TODO if we could distinguish between the user setting a value and the default then this
             # would be a warning
             due_to = f'max_execution_cores setting (for metis: {metis.name})'
-            LOG.info(f"Executing on {max_exec} cores instead of {requested_cores} due to {due_to}")
+            LOG.debug(
+                f"Executing on {max_exec} cores instead of {requested_cores} due to {due_to}"
+            )
         return min(desired, max_exec)
 
     def manifest_path(self, model_name: str) -> Path:

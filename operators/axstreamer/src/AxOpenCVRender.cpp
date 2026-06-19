@@ -1,7 +1,7 @@
+// Copyright Axelera AI, 2025
 #include "AxOpenCVRender.hpp"
 #include <chrono>
 #include <iostream>
-#include <sys/ioctl.h>
 #include "AxStreamerUtils.hpp"
 
 using std::chrono::high_resolution_clock;

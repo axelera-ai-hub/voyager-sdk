@@ -34,4 +34,3 @@ target_link_directories(${PROJECT_NAME} PUBLIC
 )
 
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
-install(PROGRAMS ${PROJECT_NAME}.py DESTINATION bin)

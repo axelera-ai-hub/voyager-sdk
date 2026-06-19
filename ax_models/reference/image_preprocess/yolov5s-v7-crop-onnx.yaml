@@ -1,8 +1,8 @@
 axelera-model-format: 1.0.0
 
-name: yolov5s-v7-crop-onnx
+name: yolov5s-v7-crop-perstream-onnx
 
-description: YOLOv5s-v7.0 with crop transform, SiLU, 640x640 (COCO)
+description: YOLOv5s-v7.0 with per-stream crop preprocessing, SiLU, 640x640 (COCO)
 # converted from https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5s.pt
 # !python export.py --weights yolov5s.pt --include onnx [--opset 17]
 
@@ -13,11 +13,30 @@ pipeline:
       input:
         source: image_processing
         image_processing:
-        - crop:
-            left: 320
-            top: 180
-            width: 1280
-            height: 720
+          - crop:
+              stream_match: 0
+              left: 0
+              top: 0
+              width: 640
+              height: 540
+          - crop:
+              stream_match: 1
+              left: 100
+              top: 240
+              width: 600
+              height: 640
+          - crop:
+              stream_match: 2
+              left: 0
+              top: 240
+              width: 400
+              height: 440
+          - crop:
+              stream_match: 3
+              left: 240
+              top: 0
+              width: 440
+              height: 400
       postprocess:
         - decodeyolo:
             max_nms_boxes: 30000
@@ -41,14 +60,9 @@ models:
     dataset: CocoDataset-COCO2017
     extra_kwargs:
       YOLO:
-        anchors_path: training_yamls/yolov5s.yaml # anchors are the same as yolov5s
+        anchors_path: training_yamls/yolov5s.yaml
         anchors_url: https://media.axelera.ai/artifacts/model_cards/artifacts/yolo/object_detection/cfgs/yolov5s.yaml
         anchors_md5: a41970402a188912070d5694bc62ed83
-        #anchors: # or, specified explicitly
-        #- [anchor, anchor, anchor]
-        #- [anchor, anchor, anchor]
-        #- [anchor, anchor, anchor]
-        # strides: [8, 16, 32]  # specify if you are using a special version
 
 datasets:
   CocoDataset-COCO2017:
@@ -56,7 +70,4 @@ datasets:
     class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
     data_dir_name: coco
     labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/coco.names
-          #    # If using a custom dataset, comment out download year and add either
-    # repr_imgs or cal_data for calibration and add val_data for validation.
-    # You can use your existing training dataset as cal_data
     label_type: COCO2017

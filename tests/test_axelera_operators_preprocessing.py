@@ -1,7 +1,8 @@
 # Copyright Axelera AI, 2023
 import inspect
+from pathlib import Path
 import re
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from axelera.types import img
 import cv2
@@ -159,12 +160,65 @@ def test_normalise_bad_values(params, exp_cls, exp_err):
 
 
 def test_normalise():
-    data = np.arange((3 * 1 * 4)).reshape(3, 1, 4).astype(np.float32) / 100.0
     op = operators.Normalize(mean='0.5', std='0.8', tensor_layout='NCHW')
-    with pytest.raises(
-        NotImplementedError, match="None fused Normalize not implemented in gst pipeline"
-    ):
-        _gen_gst(op)
+    assert _gen_gst(op) == [
+        {
+            'instance': 'axtransform',
+            'lib': 'libtransform_normalize_cl.so',
+            'options': (
+                'to_tensor:0;mean:0.5,0.5,0.5;std:0.8,0.8,0.8;'
+                'quant_scale:1.0;quant_zeropoint:0.0'
+            ),
+        },
+    ]
+
+
+def test_normalise_standalone_with_manifest_quant():
+    mi = types.ModelInfo(
+        'modelname',
+        types.TaskCategory.Classification,
+        [3, 224, 224],
+    )
+    mi.manifest = types.Manifest(
+        'modellib',
+        input_shapes=[(1, 3, 224, 224)],
+        input_dtypes=['uint8'],
+        output_shapes=[(1, 1000)],
+        output_dtypes=['float32'],
+        quantize_params=[(0.1, -14)],
+        dequantize_params=[(0.3, 0.4)],
+        model_lib_file='model.json',
+    )
+    op = operators.Normalize(mean='0.485, 0.456, 0.406', std='0.229, 0.224, 0.225')
+    mock_task_graph = MagicMock()
+    mock_task_graph.get_master.return_value = "mocked_master_value"
+    op.configure_model_and_context_info(
+        mi, operators.PipelineContext(), "task_name", 0, Path('.'), task_graph=mock_task_graph
+    )
+    assert _gen_gst(op) == [
+        {
+            'instance': 'axtransform',
+            'lib': 'libtransform_normalize_cl.so',
+            'options': (
+                'to_tensor:0;mean:0.485,0.456,0.406;std:0.229,0.224,0.225;'
+                'quant_scale:0.1;quant_zeropoint:-14.0'
+            ),
+        },
+    ]
+
+
+def test_normalise_standalone_scale_only():
+    op = operators.Normalize(std='255')
+    assert _gen_gst(op) == [
+        {
+            'instance': 'axtransform',
+            'lib': 'libtransform_normalize_cl.so',
+            'options': (
+                'to_tensor:0;mean:0.,0.,0.;std:255.,255.,255.;'
+                'quant_scale:1.0;quant_zeropoint:0.0'
+            ),
+        },
+    ]
 
 
 def test_linearscaling_expects_tensor():

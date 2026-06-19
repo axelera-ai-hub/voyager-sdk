@@ -577,7 +577,9 @@ get_buffer_details(const AxTensorInterface &input)
   details.height = input.sizes[1] * input.sizes[0];
   details.channels = input.sizes[3];
   details.stride = details.width * details.channels;
-  if (input.ocl_buffer) {
+  if (input.fd != -1) {
+    details.data = input.fd;
+  } else if (input.ocl_buffer) {
     details.data = input.ocl_buffer;
   } else {
     details.data = input.data;

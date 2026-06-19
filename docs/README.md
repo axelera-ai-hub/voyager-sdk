@@ -95,6 +95,7 @@ Complete, runnable examples demonstrating different integration patterns.
 | [AxInferenceNet (tensor)](tutorials/examples/axinferencenet-tensor.md) | C++ direct tensor access |
 | [Classification](tutorials/examples/classification.md) | Image classification with generator-based input |
 | [Cross-line counting](tutorials/examples/cross-line-count.md) | Vehicle counting across a virtual line |
+| [Multiple pipelines](tutorials/examples/multiple-pipelines.md) | Dynamic pipeline management and hot-swapping |
 | [Remote monitor](tutorials/examples/remote-monitor.md) | TCP broadcast of real-time JSON telemetry |
 
 ## Reference

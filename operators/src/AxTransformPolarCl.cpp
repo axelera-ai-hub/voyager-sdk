@@ -33,13 +33,6 @@ const char *polar_transform_kernel = R"##(
 #undef M_PI
 #define M_PI 3.14159265358979323846f
 
-uchar4 color_convert(uchar4 pixel, float16 matrix) {
-    float4 in_pixel = convert_float4(pixel);
-    float4 color = mad(in_pixel.x, matrix.s0123, mad(in_pixel.y, matrix.s4567, mad(in_pixel.z, matrix.s89ab, matrix.scdef)));
-    color.w = in_pixel.w;
-    return convert_uchar4_sat(color);
-}
-
 float2 polar_to_cartesian(float start_angle, float rho, float theta, float center_x, float center_y, float max_radius, int linear_polar)
 {
     if (linear_polar) {
@@ -183,7 +176,7 @@ class CLPolarTransform
 
     final_kernel += sampler_code;
     final_kernel += output_code;
-    final_kernel = ax_utils::get_kernel_utils(flip_type) + final_kernel;
+    final_kernel = ax_utils::get_kernel_utils(flip_type, program.has_fp16()) + final_kernel;
 
     return program.build_kernel_from_source(final_kernel, "polar_transform");
   }

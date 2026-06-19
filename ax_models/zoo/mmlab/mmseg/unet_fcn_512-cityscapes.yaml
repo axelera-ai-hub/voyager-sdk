@@ -20,6 +20,7 @@ pipeline:
             mean: 123.675, 116.28, 103.53
             std: 58.395, 57.12, 57.375
       inference:
+        handle_dequantization_and_depadding: false
         handle_transpose: false
         handle_postamble: false
       postprocess:

@@ -60,7 +60,21 @@ class SemanticSegmentationMeta(AxTaskMeta):
             raise ValueError("shape must be a list with length 3")
 
     def to_evaluation(self):
-        raise NotImplementedError("Haven't implemented in-house evaluator yet")
+        from ..eval_interfaces import (
+            SemanticSegmentationEvalSample,
+            SemanticSegmentationGroundTruthSample,
+        )
+
+        ground_truth = self.access_ground_truth()
+        if ground_truth is None:
+            raise ValueError("Ground truth is not set")
+        if not isinstance(ground_truth, SemanticSegmentationGroundTruthSample):
+            raise NotImplementedError(
+                f"Ground truth type {type(ground_truth).__name__} is not supported "
+                f"by the in-house semantic-segmentation evaluator; expected "
+                f"SemanticSegmentationGroundTruthSample."
+            )
+        return SemanticSegmentationEvalSample(class_map=np.asarray(self.class_map))
 
     def draw(self, draw: display.Draw):
         if not self.task_render_config.show_annotations or draw.options.show_segmentation is False:

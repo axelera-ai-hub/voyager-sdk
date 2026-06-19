@@ -1,13 +1,6 @@
 // Copyright Axelera AI, 2025
 #include "unittest_ax_common.h"
 
-#define CL_TARGET_OPENCL_VERSION 210
-#define CL_USE_DEPRECATED_OPENCL_1_2_APIS
-#ifdef __APPLE__
-#include <OpenCL/opencl.h>
-#else
-#include <CL/cl.h>
-#endif
 #include "AxOpenCl.hpp"
 
 static Ax::Logger defaultLogger(Ax::Severity::warning);

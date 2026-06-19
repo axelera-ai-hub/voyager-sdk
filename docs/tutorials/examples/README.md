@@ -13,6 +13,7 @@ Complete, runnable examples from the Voyager SDK. Each example is a standalone s
 | [Extended Application](application-extended.md) | Hardware caps, frame rate control, temperature monitoring |
 | [Tensor Access](application-tensor.md) | Direct tensor output for custom postprocessing |
 | [Classification](classification.md) | Image classification with generator-based input |
+| [Multiple Pipelines](multiple-pipelines.md) | Running several models concurrently |
 | [Cross-Line Counter](cross-line-count.md) | Vehicle counting using tracker metadata |
 | [Remote Monitor](remote-monitor.md) | TCP broadcast server for remote cross-line monitoring |
 

@@ -6,7 +6,7 @@ title: "Pipeline Builder Quickstart"
 > [!IMPORTANT]
 > **Alpha**
 > Core operators (detection, classification, pose, segmentation, tracking)
-> are stable. Cascade (`op.foreach`, `op.croproi`) and streaming APIs are still in development.
+> are stable. Cascade (`op.for_each`, `op.crop_roi`) and streaming APIs are still in development.
 
 
 The Voyager SDK Pipeline Builder runs ML pipelines on the Axelera Metis AIPU.
@@ -62,19 +62,19 @@ model.export(format="axelera")
 # Output: yolo11n_axelera_model/yolo11n.axm
 
 # --- Step 2: Run (your application) ---
-from axelera.runtime2 import op
+from axelera.runtime import op
 import urllib.request
 import cv2
 
 pipeline = op.seq(
-    op.colorconvert("RGB", src="BGR"),  # OpenCV gives BGR; YOLO wants RGB
+    op.color_convert("RGB", src="BGR"),  # OpenCV gives BGR; YOLO wants RGB
     op.letterbox(640, 640),
-    op.totensor(),
+    op.to_tensor(),
     op.load("yolo11n_axelera_model/yolo11n.axm"),
     op.decode_detections(algo="yolov8", num_classes=80),
     op.nms(),
     op.to_image_space(),
-    op.axdetection(class_id_type=op.CocoClasses),
+    op.ax_detection(class_id_type=op.CocoClasses),
 )
 
 # Grab Ultralytics' sample image (swap for your own file anytime).
@@ -116,14 +116,14 @@ Two things in the runtime snippet then change:
    MyClasses = op.load_classes("my_dataset.yaml")
 
    pipeline = op.seq(
-       op.colorconvert("RGB", src="BGR"),
+       op.color_convert("RGB", src="BGR"),
        op.letterbox(640, 640),
-       op.totensor(),
+       op.to_tensor(),
        op.load("my_trained_axelera_model/my_trained.axm"),
        op.decode_detections(algo="yolov8", num_classes=len(MyClasses)),
        op.nms(),
        op.to_image_space(),
-       op.axdetection(class_id_type=MyClasses),
+       op.ax_detection(class_id_type=MyClasses),
    )
    ```
 

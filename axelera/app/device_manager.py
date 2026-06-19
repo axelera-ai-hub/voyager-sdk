@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 # Utility functions used by the Voyager SDK
 from __future__ import annotations
 
@@ -131,7 +131,12 @@ class _AipuDeviceManager(DeviceManager):
 
     def _configure_boards(self, nn) -> dict[int, int]:
         core_index = 0
+        last = 0
         configures = {}
+        if bool(self.devices) and _is_europa_device(self.devices[0]):
+            # Europa clock and MVM configuration is handled by the firmware power limiter.
+            # No per-core or per-model configuration is needed from the host side.
+            return {}
         for task in nn.tasks:
             if not task.is_dl_task:
                 continue
@@ -224,9 +229,19 @@ def _board_type_as_metis(board_type: runtime.BoardType, name: str) -> config.Met
         return config.Metis.m2
     if board_type.name.startswith('alpha'):
         raise RuntimeError(f"Failed to detect {name}")
-    if board_type.name not in ('pcie', 'sbc'):
-        LOG.warning(f"Unknown board type {board_type.name} from device {name}, assuming pcie")
+    if board_type.name in ('europa_pcie', 'europa_devboard'):
+        return config.Metis.europa
+    if board_type.name in ('pcie', 'sbc'):
+        return config.Metis.pcie  # Metis PCIe / SBC boards
+    LOG.warning(f"Unknown board type {board_type.name} from device {name}, assuming pcie")
     return config.Metis.pcie
+
+
+def _is_europa_device(device: runtime.DeviceInfo) -> bool:
+    hw_generation = getattr(device, 'hw_generation', None)
+    if hw_generation is not None and getattr(hw_generation, 'name', '') == 'europa':
+        return True
+    return getattr(getattr(device, 'board_type', None), 'name', '').startswith('europa')
 
 
 def _get_core_clocks(
@@ -235,8 +250,20 @@ def _get_core_clocks(
     '''Get the current clock frequencies of the cores AIPU device in MHz'''
     cfg = ctx.read_device_configuration(d)
     clocks = {n: cfg.get(f'clock_profile_core_{n}', None) for n in range(first, last)}
-    default = {n: config.DEFAULT_CORE_CLOCK for n in range(first, last)}
+    default_clock = (
+        config.DEFAULT_CORE_CLOCK_EUROPA if _is_europa_device(d) else config.DEFAULT_CORE_CLOCK
+    )
+    default = {n: default_clock for n in range(first, last)}
     if any(v is None for v in clocks.values()):
+        if global_clock := cfg.get('clock_profile', None):
+            try:
+                clock = int(global_clock)
+            except ValueError:
+                LOG.warning(
+                    "Unparseable global clock_profile %r, assuming %s", global_clock, default
+                )
+                return default
+            return {n: clock for n in range(first, last)}
         LOG.warning("No clock profile found in device configuration")
         return default
     try:
