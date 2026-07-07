@@ -1,35 +1,37 @@
 # Voyager SDK release notes v1.7
 
 - [Voyager SDK release notes v1.7](#voyager-sdk-release-notes-v17)
-    - [Voyager SDK release notes v1.7.0](#voyager-sdk-release-notes-v170)
-        - [Release Qualification](#release-qualification)
-    - [Installation and Compatibility](#installation-and-compatibility)
-        - [Installation](#installation)
-        - [Release Compatibility Matrix](#release-compatibility-matrix)
-        - [Metis M.2 Max upgrade notes](#metis-m2-max-upgrade-notes)
-    - [New Features / Support](#new-features--support)
-        - [New Axelera AI Cards and Systems](#new-axelera-ai-cards-and-systems)
-        - [Host Platform Support](#host-platform-support)
-            - [Validated hardware platforms](#validated-hardware-platforms)
-            - [Operating Systems](#operating-systems)
-            - [Virtualization support](#virtualization-support)
-        - [New Networks Supported](#new-networks-supported)
-            - [New models for Image Classification](#new-models-for-image-classification)
-            - [New models for Object Detection](#new-models-for-object-detection)
-            - [New models for Semantic Segmentation](#new-models-for-semantic-segmentation)
-        - [AI Pipeline Builder](#ai-pipeline-builder)
-            - [\[Alpha\] Pipeline Builder API](#alpha-pipeline-builder-api)
-            - [Video decode and sources](#video-decode-and-sources)
-            - [New task types](#new-task-types)
-            - [YAML Pipeline Builder](#yaml-pipeline-builder)
-        - [\[Beta\] Model Compiler](#beta-model-compiler)
-        - [Tools](#tools)
-    - [Breaking Changes](#breaking-changes)
-    - [Known Issues and Limitations](#known-issues-and-limitations)
-    - [System Requirement](#system-requirement)
-        - [Development Environment](#development-environment)
-        - [Runtime Environment](#runtime-environment)
-    - [Further Support](#further-support)
+  - [Voyager SDK release notes v1.7.0](#voyager-sdk-release-notes-v170)
+    - [Release Qualification](#release-qualification)
+  - [Installation and Compatibility](#installation-and-compatibility)
+    - [Installation](#installation)
+    - [Release Compatibility Matrix](#release-compatibility-matrix)
+    - [Metis M.2 Max upgrade notes](#metis-m2-max-upgrade-notes)
+  - [New Features / Support](#new-features--support)
+    - [New Axelera AI Cards and Systems](#new-axelera-ai-cards-and-systems)
+    - [Host Platform Support](#host-platform-support)
+      - [Validated hardware platforms](#validated-hardware-platforms)
+      - [Operating Systems](#operating-systems)
+      - [Virtualization support](#virtualization-support)
+    - [New Networks Supported](#new-networks-supported)
+      - [New models for Image Classification](#new-models-for-image-classification)
+      - [New models for Object Detection](#new-models-for-object-detection)
+      - [New models for Semantic Segmentation](#new-models-for-semantic-segmentation)
+    - [AI Pipeline Builder](#ai-pipeline-builder)
+      - [\[Alpha\] Pipeline Builder API](#alpha-pipeline-builder-api)
+      - [Video decode and sources](#video-decode-and-sources)
+      - [New task types](#new-task-types)
+      - [YAML Pipeline Builder](#yaml-pipeline-builder)
+    - [\[Beta\] Model Compiler](#beta-model-compiler)
+    - [Tools](#tools)
+  - [Breaking Changes](#breaking-changes)
+  - [Known Issues and Limitations](#known-issues-and-limitations)
+    - [IMPORTANT - Memory leak in GStreamer software video decode (`gst-libav` 1.24.2)](#important---memory-leak-in-gstreamer-software-video-decode-gst-libav-1242)
+    - [Other](#other)
+  - [System Requirement](#system-requirement)
+    - [Development Environment](#development-environment)
+    - [Runtime Environment](#runtime-environment)
+  - [Further Support](#further-support)
 
 ## Voyager SDK release notes v1.7.0
 
@@ -73,11 +75,11 @@ Note: Other versions may work but are not actively tested. An upgrade of the car
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | v1.6.0 | 7.4 | 7.0 | 1.6.0 | 1.5.0<br>1.4.0 | 1.4.16 | 1.4.10<br>1.4.4 | 1.3.4 | 1.3.1<br>1.3.0 |
 | v1.6.1 | 7.4 | 7.0 | 1.6.0 | 1.5.0<br>1.4.0 | 1.4.17 | 1.4.16<br>1.4.10<br>1.4.4 | 1.3.11 | 1.3.4<br>1.3.1<br>1.3.0 |
-| v1.7.0 | 7.4 | 7.0 | 1.7.0 | 1.6.0<br>1.5.0<br>1.4.0 | 1.5.5 |  | 1.3.11 | 1.3.5<br>1.3.4<br>1.3.1<br>1.3.0 |
+| v1.7.0 | 7.4 | 7.0 | 1.7.0 | 1.6.0<br>1.5.0<br>1.4.0 | 1.5.7 | 1.5.5 | 1.3.11 | 1.3.5<br>1.3.4<br>1.3.1<br>1.3.0 |
 
 ### Metis M.2 Max upgrade notes
 
-1. [Metis M.2 Max](https://axelera.ai/ai-accelerators/metis-m2-ai-acceleration-card) is required to be updated to recommended board controller and firmware versions. The `axdevice interactive_flash_update` script handles board variant selection automatically. Enable the average power controller if deploying on hosts with limited power delivery. See the [Power Management Guide](docs/reference/thermal_and_power_guide.md#2-power-management-guide).
+1. [Metis M.2 Max](https://axelera.ai/ai-accelerators/metis-m2-ai-acceleration-card) is required to be updated to recommended board controller and firmware versions. The `axdevice interactive_flash_update` script handles board variant selection automatically. Enable the average power controller if deploying on hosts with limited power delivery. See the [Power Management Guide](docs/user-guides/thermal.md).
 
 ## New Features / Support
 
@@ -238,6 +240,17 @@ The leak grows linearly with runtime and scales with the number of decoded strea
 - YOLO26\* models (e.g. `yolo26x-obb-dotav1-onnx`) sometimes fail to deploy unexpectedly.
 - MobileNetV3 may yield degraded accuracy on some combinations of hosts and cards.
 - Device monitoring with AxMonitor is not supported on single-MSI hosts. For some systems with single-MSI hosts, device monitoring with `AxMonitor` does not display any data. An example of a host with this issue is Arduino Portenta X8 Mini.
+- On hosts with multiple Axelera cards, you may see the error `[libaxldev_linux.c:1889] AXL_IOCTL_FWTRACE_OPEN_SESSION failed: Cannot allocate memory`. If you encounter this, upgrade your device driver by running `axdevice driver --install 1.5.7`.
+- Cards with flashed firmware v1.3.2 and board controller firmware v1.4 must be upgraded to the v1.7.0 recommended versions (see the [Release Compatibility Matrix](#release-compatibility-matrix)).
+- Since v1.7.0 was released, a new `scipy` release relaxed its NumPy version constraints such that NumPy 2.4+ may be installed (whether this happens depends on the other packages in your environment and your Python version). This can cause errors during model compilation, either via `scipy` or directly in the Axelera model compiler, for example:
+  ```
+  ERROR   : module 'numpy' has no attribute 'long'
+  ERROR   : TypeError: only 0-dimensional arrays can be converted to Python scalars
+  ```
+  The workaround is to explicitly install an older NumPy version:
+  ```bash
+  pip install "numpy<2.4"
+  ```
 
 ## System Requirement
 

@@ -63,7 +63,7 @@ There are two ways of installing the device driver, Option a) is the easiest.
 #### Option a) Use axdevice
 
 ```bash
-axdevice driver --install 1.5.5
+axdevice driver --install 1.5.7
 ```
 
 #### Option b) Use apt
@@ -79,7 +79,7 @@ sudo sh -c "echo 'deb [signed-by=/etc/apt/keyrings/axelera.gpg] https://software
 sudo sh -c "echo 'deb [signed-by=/etc/apt/keyrings/axelera.gpg] https://software.axelera.ai/artifactory/axelera-apt-source ubuntu24 main' > /etc/apt/sources.list.d/axelera.list"
 
 sudo apt-get update
-sudo apt-get install -y metis-dkms=1.5.5
+sudo apt-get install -y metis-dkms=1.5.7
 ```
 
 #### After installation

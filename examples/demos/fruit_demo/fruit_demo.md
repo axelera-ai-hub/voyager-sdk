@@ -8,4 +8,4 @@ For a longer explanation, please view https://www.youtube.com/watch?v=JL3ULSC-f6
 
 You may run this demo using the following command from your voyager-sdk home: `./examples/demos/fruit_demo.py usb:0 --window-size=fullscreen`
 
-If your end_to_end fps drops when many people are in the screen, this is caused by the duplication of RoIs for the cascaded segmentation model. Each RoI generates images that the segmentation model needs to process, causing a multiplication of input images for this model. This can be changed by using the `top_k` for the input part of the segmentations entry of the [yaml file](/ax_models/reference/cascade/fruit-demo.yaml)
+If your end_to_end fps drops when many people are in the screen, this is caused by the duplication of RoIs for the cascaded segmentation model. Each RoI generates images that the segmentation model needs to process, causing a multiplication of input images for this model. This can be changed by using the `top_k` for the input part of the segmentations entry of the [yaml file](../../../ax_models/reference/cascade/fruit-demo.yaml)

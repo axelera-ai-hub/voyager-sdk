@@ -3,11 +3,14 @@ title: "Additional Models"
 ---
 # Additional Models
 
+## Additional Models without a YAML configuration
+
 Models that have been verified on Metis but are not yet listed in the Model Zoo with dedicated YAML configurations. You can deploy them by adapting an existing template.
+Accuracy drop is measured as FP32 top-1 accuracy minus quantized (int8 on AIPU) top-1 accuracy.
 
 ---
 
-## Image Classification
+### Image Classification
 
 These classification models have been compiled and accuracy-verified on Metis. To use one, copy the `mobilenetv4_small-imagenet.yaml` template and update the `timm_model_args.name` field and preprocessing configuration to match your target model.
 
@@ -53,7 +56,45 @@ These classification models have been compiled and accuracy-verified on Metis. T
 | `tf_mobilenetv3_large_minimal_100.in1k` | 1.68 |
 | `wide_resnet101_2.tv2_in1k` | 0.26 |
 
-Accuracy drop is measured as FP32 top-1 accuracy minus quantized (int8 on AIPU) top-1 accuracy.
+
+## Additional Models with a YAML configuration
+These models have a YAML configuration but they have yet to be fully verified for full speed and accuracy before they eventually move to the Model Zoo.
+
+
+### Image Classification
+| Model                                                                                          | ONNX                                                                                        | Repo                                                             | Resolution | Dataset     | Ref FP32 Top1 | Model license |
+| :--------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------ | :--------------------------------------------------------------- | :--------- | :---------- | ----------: | ------------: |
+| [MobileNetV3-large](../../../ax_models/zoo/torchvision/classification/mobilenetv3_large-imagenet.yaml) | [&#x1F517;](../../../ax_models/zoo/torchvision/classification/mobilenetv3_large-imagenet-onnx.yaml) | [&#x1F517;](https://github.com/pytorch/vision)                   | 224x224    | ImageNet-1K | 74.05         | BSD-3-Clause  |
+| [MobileNetV3-small](../../../ax_models/zoo/torchvision/classification/mobilenetv3_small-imagenet.yaml) | [&#x1F517;](../../../ax_models/zoo/torchvision/classification/mobilenetv3_small-imagenet-onnx.yaml) | [&#x1F517;](https://github.com/pytorch/vision)                   | 224x224    | ImageNet-1K | 67.67         | BSD-3-Clause  |
+
+
+### Object Detection
+| Model                                                                                                             | ONNX                        | Repo                                                                | Resolution | Dataset                   | Ref FP32 mAP | Model license |
+| :---------------------------------------------------------------------------------------------------------------- | :-------------------------- | :------------------------------------------------------------------ | :--------- | :------------------------ | -----------: | ------------: |
+| [YOLOv4](../../../ax_models/zoo/yolo/object_detection/yolov4-416-coco.yaml)                                               |                             | [&#x1F517;](https://github.com/AlexeyAB/darknet)                    | 416x416    | COCO2017                  | 25.00        | GPL-3.0       |
+| [YOLOv4-CSP-Leaky](../../../ax_models/zoo/yolo/object_detection/yolov4-csp-leaky-coco.yaml)                               |                             | [&#x1F517;](https://github.com/WongKinYiu/CrossStagePartialNetworks)| 640x640    | COCO2017                  | 29.57        | GPL-3.0       |
+
+
+### Keypoint Detection
+| Model                                                                        | ONNX                                                                           | Repo                                                    | Resolution | Dataset  | Ref FP32 mAP | Model license |
+| :--------------------------------------------------------------------------- | :----------------------------------------------------------------------------- | :------------------------------------------------------ | :--------- | :------- | -----------: | ------------: |
+| [YOLO26x-pose](https://github.com/ultralytics/ultralytics)                   | [&#x1F517;](../../../ax_models/zoo/yolo/keypoint_detection/yolo26xpose-coco-onnx.yaml) | [&#x1F517;](https://github.com/ultralytics/ultralytics) | 640x640    | COCO2017 | 72.75        | AGPL-3.0      |
+
+
+### Semantic Segmentation
+| Model                                                                                | ONNX                                                                                   | Repo                                                                             | Resolution | Dataset    | Ref FP32 mIoU | Model license |
+| :----------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------- | :--------- | :--------- | ------------: | ------------: |
+| [YOLO26n-sem](https://github.com/ultralytics/ultralytics)                            | [&#x1F517;](../../../ax_models/zoo/yolo/semantic_segmentation/yolo26nsem-cityscapes-onnx.yaml) | [&#x1F517;](https://github.com/ultralytics/ultralytics)                          | 1024x1024  | Cityscapes | 71.42         | AGPL-3.0      |
+| [YOLO26s-sem](https://github.com/ultralytics/ultralytics)                            | [&#x1F517;](../../../ax_models/zoo/yolo/semantic_segmentation/yolo26ssem-cityscapes-onnx.yaml) | [&#x1F517;](https://github.com/ultralytics/ultralytics)                          | 1024x1024  | Cityscapes | 76.50         | AGPL-3.0      |
+| [YOLO26m-sem](https://github.com/ultralytics/ultralytics)                            | [&#x1F517;](../../../ax_models/zoo/yolo/semantic_segmentation/yolo26msem-cityscapes-onnx.yaml) | [&#x1F517;](https://github.com/ultralytics/ultralytics)                          | 1024x1024  | Cityscapes | 79.23         | AGPL-3.0      |
+| [YOLO26l-sem](https://github.com/ultralytics/ultralytics)                            | [&#x1F517;](../../../ax_models/zoo/yolo/semantic_segmentation/yolo26lsem-cityscapes-onnx.yaml) | [&#x1F517;](https://github.com/ultralytics/ultralytics)                          | 1024x1024  | Cityscapes | 79.73         | AGPL-3.0      |
+| [YOLO26x-sem](https://github.com/ultralytics/ultralytics)                            | [&#x1F517;](../../../ax_models/zoo/yolo/semantic_segmentation/yolo26xsem-cityscapes-onnx.yaml) | [&#x1F517;](https://github.com/ultralytics/ultralytics)                          | 1024x1024  | Cityscapes | 80.76         | AGPL-3.0      |
+
+
+### Image Enhancement Super Resolution
+| Model                                                        | ONNX                                                           | Repo                                                | Resolution | Dataset                         | Ref FP32 PSNR | Model license |
+| :----------------------------------------------------------- | :------------------------------------------------------------- | :-------------------------------------------------- | :--------- | :------------------------------ | ------------: |  ------------: |
+| [Real-ESRGAN-x4plus](https://github.com/xinntao/Real-ESRGAN) | [&#x1F517;](../../../ax_models/zoo/torch/real-esrgan-x4plus-onnx.yaml) | [&#x1F517;](https://github.com/xinntao/Real-ESRGAN) | 128x128    | SuperResolutionCustomSet128x128 | 24.77         |  BSD-3-Clause  |
 
 ---
 

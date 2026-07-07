@@ -1,4 +1,4 @@
-![](/docs/images/Ax_Page_Banner_2500x168_01.png)
+![](../../../docs/images/Ax_Page_Banner_2500x168_01.png)
 # Preparing PyTorch Models for Metis Platform
 
 - [Preparing PyTorch Models for Metis Platform](#preparing-pytorch-models-for-metis-platform)
@@ -78,4 +78,4 @@ rm ~/.cache/axelera/fruits-360-100x100/fruits-360-100x100-repr200.zip
 
 ## Next Steps
 
-Once your model is set up using either of the above options, you’re ready to move on to the next tutorials in this series. These will cover advanced techniques for model and pipeline deployment using the Voyager SDK. Refer to [tutorials.md](/ax_models/tutorials/general/tutorials.md) for detailed instructions.
+Once your model is set up using either of the above options, you’re ready to move on to the next tutorials in this series. These will cover advanced techniques for model and pipeline deployment using the Voyager SDK. Refer to [tutorials.md](../../../ax_models/tutorials/general/tutorials.md) for detailed instructions.
