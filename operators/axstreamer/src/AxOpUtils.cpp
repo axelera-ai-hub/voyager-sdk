@@ -669,7 +669,9 @@ determine_height(const buffer_details &info, int which_channel)
     case AxVideoFormat::NV12:
       return which_channel == 0 ? info.actual_height : info.actual_height / 2;
     case AxVideoFormat::NV16:
-      return info.actual_height; // Both Y and UV planes have full height
+    case AxVideoFormat::Y42B:
+    case AxVideoFormat::Y444:
+      return info.actual_height;
     case AxVideoFormat::UNDEFINED:
       if (which_channel == 0) {
         return info.actual_height;
@@ -937,6 +939,8 @@ get_bytes_per_pixel(AxVideoFormat format)
     case AxVideoFormat::I420:
     case AxVideoFormat::NV12:
     case AxVideoFormat::NV16:
+    case AxVideoFormat::Y42B:
+    case AxVideoFormat::Y444:
     case AxVideoFormat::GRAY8:
       return 1; // Y channel
     case AxVideoFormat::UNDEFINED:

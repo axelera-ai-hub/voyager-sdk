@@ -420,7 +420,8 @@ class LowLatencyExecutor : public Executor
     while (auto p = inq_.wait_one()) {
       auto frame_id = p.frame_id;
       instance.execute(std::move(p));
-      callback_(frame_id);
+      // execute() throws on failure, so reaching here always means success.
+      callback_(frame_id, true);
     }
   }
 
@@ -429,33 +430,59 @@ class LowLatencyExecutor : public Executor
   Ax::InferenceReadyCallback callback_;
 };
 
+// Shared model-load/shape-discovery/per-device-subprops setup, used by both
+// MultiThreadedInference (blocking) and AsyncPipelinedInference (async_mode).
+struct ModelSetup {
+  axr::ptr<axrContext> context;
+  axr::ptr<axrModel> model;
+  AxTensorsInterface input_shapes;
+  AxTensorsInterface output_shapes;
+  std::vector<Ax::InferenceProperties> subprops;
+};
+
+ModelSetup
+setup_model(Ax::Logger &logger, const Ax::InferenceProperties &props)
+{
+  ModelSetup setup;
+  setup.context = create_context(logger);
+  setup.model
+      = axr::ptr<axrModel>(axr_load_model(setup.context.get(), props.model.c_str()));
+  if (!setup.model) {
+    throw std::runtime_error("Failed to load model: "s
+                             + axr_last_error_string(AXR_OBJECT(setup.context.get())));
+  }
+  std::tie(setup.input_shapes, setup.output_shapes)
+      = get_shapes_from_model(setup.model.get());
+
+  const auto num_cores = std::max(props.num_children, 1);
+  auto devices = Ax::Internal::split(props.devices, ",");
+  if (devices.empty()) {
+    devices.push_back("");
+  }
+  for (auto n = 0; n != num_cores; ++n) {
+    for (auto &&device : devices) {
+      auto subprops = props;
+      subprops.devices = device;
+      setup.subprops.emplace_back(subprops);
+    }
+  }
+  return setup;
+}
+
 class MultiThreadedInference : public Ax::Inference
 {
   public:
   MultiThreadedInference(Ax::Logger &logger,
       const Ax::InferenceProperties &props, Ax::InferenceReadyCallback callback)
-      : logger_(logger),
-        context_(create_context(logger)),
-        model_(axr_load_model(context_.get(), props.model.c_str()))
+      : logger_(logger)
   {
-    if (!model_) {
-      throw std::runtime_error("Failed to load model: "s
-                               + axr_last_error_string(AXR_OBJECT(context_.get())));
-    }
-    std::tie(input_shapes_, output_shapes_) = get_shapes_from_model(model_.get());
+    auto setup = setup_model(logger, props);
+    context_ = std::move(setup.context);
+    model_ = std::move(setup.model);
+    input_shapes_ = std::move(setup.input_shapes);
+    output_shapes_ = std::move(setup.output_shapes);
+    subprops_ = std::move(setup.subprops);
 
-    const auto num_cores = std::max(props.num_children, 1);
-    auto devices = Ax::Internal::split(props.devices, ",");
-    if (devices.empty()) {
-      devices.push_back("");
-    }
-    for (auto n = 0; n != num_cores; ++n) {
-      for (auto &&device : devices) {
-        auto subprops = props;
-        subprops.devices = device;
-        subprops_.emplace_back(subprops);
-      }
-    }
     is_low_latency_ = callback && !props.double_buffer
                       && input_shapes_.front().sizes.front() == 1;
     if (is_low_latency_) {
@@ -533,11 +560,117 @@ class MultiThreadedInference : public Ax::Inference
   std::unique_ptr<Executor> executor_;
   bool is_low_latency_ = false;
 };
+
+// Fully-pipelined async_mode implementation. Unlike MultiThreadedInference,
+// there are no dedicated worker threads: dispatch() submits directly to one
+// of the per-device AsyncAxRuntimeInference instances, which returns without
+// blocking except to respect its own max_pending backlog. Completions arrive
+// via callback from axruntime's own scheduler thread(s), so this always
+// behaves as low-latency mode (see AxInferenceNet::inference_low_latency_ready,
+// which already tolerates out-of-order, arbitrary-thread completions).
+class AsyncPipelinedInference : public Ax::Inference
+{
+  public:
+  AsyncPipelinedInference(Ax::Logger &logger,
+      const Ax::InferenceProperties &props, Ax::InferenceReadyCallback callback)
+      : logger_(logger),
+        callback_(std::move(callback))
+  {
+    auto setup = setup_model(logger, props);
+    context_ = std::move(setup.context);
+    model_ = std::move(setup.model);
+    input_shapes_ = std::move(setup.input_shapes);
+    output_shapes_ = std::move(setup.output_shapes);
+
+    // async_mode only supports single-frame-per-invocation (batch size 1)
+    // models: a batched model forces this class's is_low_latency()==true
+    // through AxInferenceNet's assert(batch_size==1), which is compiled out
+    // in release builds. Checking it here, independent of any Python-side
+    // gate, turns that into a clear, always-enabled error instead of silent
+    // undefined behavior if async_mode is ever requested for a batched model
+    // (e.g. via a hand-built properties string, bypassing the normal pipeline).
+    if (input_shapes_.front().sizes.front() != 1) {
+      throw std::runtime_error(
+          "async_mode does not support batched models (batch_size="s
+          + std::to_string(input_shapes_.front().sizes.front()) + ")");
+    }
+
+    for (const auto &subprop : setup.subprops) {
+      instances_.push_back(create_async_axruntime_inference(logger_, context_.get(),
+          model_.get(), subprop, [this](Ax::InferenceParams p, bool ok) {
+            on_complete(std::move(p), ok);
+          }));
+    }
+    logger_(AX_INFO) << "Done creating async runtime instances" << std::endl;
+  }
+
+  bool is_low_latency() const override
+  {
+    return true;
+  }
+
+  int batch_size() const override
+  {
+    return input_shapes_.front().sizes[0];
+  }
+
+  const AxTensorsInterface &input_shapes() const override
+  {
+    return input_shapes_;
+  }
+
+  const AxTensorsInterface &output_shapes() const override
+  {
+    return output_shapes_;
+  }
+
+  void dispatch(Ax::InferenceParams params) override
+  {
+    auto &instance = instances_[next_instance_];
+    next_instance_ = (next_instance_ + 1) % instances_.size();
+    instance->submit(std::move(params));
+  }
+
+  void collect() override
+  {
+    // no-op: completion is delivered via the ready callback, see on_complete()
+  }
+
+  ~AsyncPipelinedInference()
+  {
+    // Ensure no completion callback can fire after this object starts being
+    // destroyed.
+    for (auto &&instance : instances_) {
+      instance->drain();
+    }
+  }
+
+  private:
+  void on_complete(Ax::InferenceParams p, bool ok)
+  {
+    if (!ok) {
+      logger_(AX_ERROR) << "Async inference failed for frame " << p.frame_id << std::endl;
+    }
+    callback_(p.frame_id, ok);
+  }
+
+  Ax::Logger &logger_;
+  Ax::InferenceReadyCallback callback_;
+  axr::ptr<axrContext> context_;
+  axr::ptr<axrModel> model_;
+  AxTensorsInterface input_shapes_;
+  AxTensorsInterface output_shapes_;
+  std::vector<std::unique_ptr<Ax::AsyncBasicInference>> instances_;
+  size_t next_instance_ = 0;
+};
 } // namespace
 
 std::unique_ptr<Ax::Inference>
 Ax::create_inference(Ax::Logger &logger, const InferenceProperties &props,
     InferenceReadyCallback callback)
 {
+  if (props.async_mode) {
+    return std::make_unique<AsyncPipelinedInference>(logger, props, callback);
+  }
   return std::make_unique<MultiThreadedInference>(logger, props, callback);
 }

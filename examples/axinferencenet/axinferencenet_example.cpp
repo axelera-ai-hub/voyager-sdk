@@ -164,9 +164,32 @@ main(int argc, char **argv)
       cv::cvtColor(yuv_mat, rgb_frame, cv::COLOR_YUV2BGR_NV12);
     } else if (frame->buffer.format() == AxVideoFormat::I420) {
       cv::cvtColor(yuv_mat, rgb_frame, cv::COLOR_YUV2BGR_I420);
+    } else if (frame->buffer.format() == AxVideoFormat::Y444) {
+      // yuv_mat is (3*height x width) single-channel: Y plane, then U, then V
+      int h = frame->buffer.height();
+      cv::Mat y = yuv_mat.rowRange(0, h);
+      cv::Mat u = yuv_mat.rowRange(h, h * 2);
+      cv::Mat v = yuv_mat.rowRange(h * 2, h * 3);
+      cv::Mat ycrcb;
+      cv::merge(std::vector<cv::Mat>{ y, v, u }, ycrcb); // OpenCV YCrCb: Y, Cr(V), Cb(U)
+      cv::cvtColor(ycrcb, rgb_frame, cv::COLOR_YCrCb2BGR);
+    } else if (frame->buffer.format() == AxVideoFormat::Y42B) {
+      // yuv_mat is (2*height x width) single-channel: Y plane, then U and V
+      // planes packed back-to-back, each half-width but full-height.
+      int h = frame->buffer.height();
+      int w = frame->buffer.width();
+      cv::Mat y = yuv_mat.rowRange(0, h);
+      cv::Mat uv = yuv_mat.rowRange(h, h * 2);
+      cv::Mat u_half(h, w / 2, CV_8UC1, uv.data);
+      cv::Mat v_half(h, w / 2, CV_8UC1, uv.data + static_cast<size_t>(h) * (w / 2));
+      cv::Mat u, v;
+      cv::resize(u_half, u, cv::Size(w, h), 0, 0, cv::INTER_LINEAR);
+      cv::resize(v_half, v, cv::Size(w, h), 0, 0, cv::INTER_LINEAR);
+      cv::Mat ycrcb;
+      cv::merge(std::vector<cv::Mat>{ y, v, u }, ycrcb); // OpenCV YCrCb: Y, Cr(V), Cb(U)
+      cv::cvtColor(ycrcb, rgb_frame, cv::COLOR_YCrCb2BGR);
     } else if (frame->buffer.format() == AxVideoFormat::RGB) {
-      cv::cvtColor(yuv_mat, rgb_frame,
-          cv::COLOR_RGB2BGR); // No conversion needed, but this will ensure the Mat is in the correct format
+      cv::cvtColor(yuv_mat, rgb_frame, cv::COLOR_RGB2BGR);
     } else {
       rgb_frame = yuv_mat; // Assume it's already BGR
     }

@@ -387,6 +387,15 @@ def _get_model_path(model_root: Path, model_file) -> Path | None:
     return json_path
 
 
+def _supports_async_executor(model_cores: int) -> bool:
+    '''axruntime's async executor only supports models compiled to a single core.
+
+    A batched model (model_cores > 1) compiles to a different kernel
+    ("kernel_function_batched") that the async executor rejects.
+    '''
+    return model_cores <= 1
+
+
 @dataclasses.dataclass
 class InferenceOpConfig:
     """
@@ -740,6 +749,7 @@ class Inference:
         model_info: types.ModelInfo,
         inference_op_config: InferenceOpConfig,
         low_latency: bool,
+        async_mode: bool = False,
     ):
         self.compiled_model_dir = compiled_model_dir
         self.model_name = model_name
@@ -755,6 +765,7 @@ class Inference:
         self.pre_ort_sess, self.post_ort_sess = None, None
         self._core_model_output_shapes_cached = None
         self._low_latency = low_latency
+        self._async_mode = async_mode
         self.devices = []
 
         self.device = _determine_device(self.model)
@@ -947,6 +958,15 @@ class Inference:
             dmabuf_outputs=config.env.UseDmaBuf.OUTPUTS in config.env.use_dmabuf,
             num_children=num_children,
         )
+        if self._async_mode:
+            if _supports_async_executor(self._model_cores):
+                inf['async_mode'] = True
+            else:
+                LOG.info(
+                    f"Ignoring --enable-async-executor for {self.model_name}: model is "
+                    f"batched (model_cores={self._model_cores}), which axruntime's async "
+                    "executor does not support"
+                )
         if gst.tiling and gst.add_tiles:
             inf['meta'] = 'axelera-tiles-internal'
         if options:

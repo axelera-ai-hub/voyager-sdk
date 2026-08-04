@@ -427,7 +427,8 @@ def test_check_dataset_status_without_mocking(mock_filesystem, tmp_path):
         os.environ,
         {'AXELERA_FRAMEWORK': str(mock_filesystem), 'AXELERA_S3_AVAILABLE': '0'},
     ):
-        from axelera.app.data_utils import DatasetConfig, _check_dataset_status
+        from axelera.app.data_utils import DatasetConfig
+        from axelera.app.data_utils import _check_dataset_status
 
         config = DatasetConfig(
             mock_filesystem / "ax_datasets" / DatasetYamlFile.DATASET_PRIVATE.value,
@@ -439,14 +440,16 @@ def test_check_dataset_status_without_mocking(mock_filesystem, tmp_path):
         dataset_root.mkdir()
         (dataset_root / 'ILSVRC2012_img_val.tar').touch()
         (dataset_root / 'ILSVRC2012_devkit_t12.tar.gz').touch()
-        status, _ = _check_dataset_status(dataset_root, 'ImageNet', 'val', config, is_private=True)
+        status, _ = _check_dataset_status(
+            dataset_root, 'ImageNet', 'val', config, is_private=True, s3_available='0'
+        )
         assert status == DatasetStatus.IGNORE_CHECK
 
         # Customer datasets always skip validation
         dataset_root = tmp_path / "customer_dataset"
         dataset_root.mkdir()
         status, _ = _check_dataset_status(
-            dataset_root, 'Customer.Test', 'val', config, is_private=True
+            dataset_root, 'Customer.Test', 'val', config, is_private=True, s3_available='0'
         )
         assert status == DatasetStatus.IGNORE_CHECK
 
@@ -468,7 +471,8 @@ def test_dataset_status_invariants(
         os.environ,
         {'AXELERA_FRAMEWORK': str(mock_filesystem), 'AXELERA_S3_AVAILABLE': s3_available},
     ):
-        from axelera.app.data_utils import DatasetConfig, _check_dataset_status
+        from axelera.app.data_utils import DatasetConfig
+        from axelera.app.data_utils import _check_dataset_status
 
         config = DatasetConfig(
             mock_filesystem / "ax_datasets" / DatasetYamlFile.DATASET_PRIVATE.value,
@@ -479,7 +483,7 @@ def test_dataset_status_invariants(
         dataset_root.mkdir(parents=True)
 
         status, _ = _check_dataset_status(
-            dataset_root, dataset_name, 'val', config, is_private=True
+            dataset_root, dataset_name, 'val', config, is_private=True, s3_available=s3_available
         )
         assert status == expected_status
 
@@ -509,7 +513,8 @@ def test_imagenet_ignore_check_in_customer_environment(
         os.environ,
         {'AXELERA_FRAMEWORK': str(mock_filesystem), 'AXELERA_S3_AVAILABLE': s3_available},
     ):
-        from axelera.app.data_utils import DatasetConfig, _check_dataset_status
+        from axelera.app.data_utils import DatasetConfig
+        from axelera.app.data_utils import _check_dataset_status
 
         # Load config
         config = DatasetConfig(
@@ -518,7 +523,7 @@ def test_imagenet_ignore_check_in_customer_environment(
         )
 
         status, msg = _check_dataset_status(
-            dataset_root, 'ImageNet', 'val', config, is_private=True
+            dataset_root, 'ImageNet', 'val', config, is_private=True, s3_available=s3_available
         )
 
         if s3_available == '0':

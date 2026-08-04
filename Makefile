@@ -35,9 +35,23 @@ AXELERA_RUNTIME_DIR  != [ -n "$(AXELERA_RUNTIME_DIR)" ] && echo "$(AXELERA_RUNTI
 help:
 	@python3 -c 'from axelera.app import yaml_parser; yaml_parser.gen_model_help()'
 
+# Fast editable reinstall of the Python packages after a pull. Incremental --
+# does not clear orphan C++ artifacts; use `rebuild` when extensions change.
+.PHONY: develop
+develop:
+	$(Q)$(MAKE) -C axelera_runtime2 develop
+	$(Q)$(MAKE) -C axelera_zoo develop
+
+# Clean rebuild of the Python packages. rt2 recompiles C++ from scratch (drops
+# stale/orphan .so in the source tree); use when develop looks out of sync.
+.PHONY: rebuild
+rebuild:
+	$(Q)$(MAKE) -C axelera_runtime2 rebuild
+	$(Q)$(MAKE) -C axelera_zoo clean develop
+
 .PHONY: operators
 operators: _check-activated-runtime
-	AXELERA_RUNTIME_DIR=$(AXELERA_RUNTIME_DIR) $(MAKE) -C operators
+	AXELERA_RUNTIME_DIR=$(AXELERA_RUNTIME_DIR) $(MAKE) -C operators CFG=$(CFG)
 
 .PHONY: trackers
 trackers: _check-activated-runtime

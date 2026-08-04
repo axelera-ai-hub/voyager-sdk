@@ -34,13 +34,12 @@ GST_DEBUG_CATEGORY_STATIC(gst_axinferencenet_debug);
 GST_ELEMENT_REGISTER_DEFINE(
     axinferencenet, "axinferencenet", GST_RANK_NONE, GST_TYPE_AXINFERENCENET);
 
-static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE("sink_%u",
-    GST_PAD_SINK, GST_PAD_REQUEST,
-    GST_STATIC_CAPS("video/x-raw,format={RGBA,BGRA,RGB,BGR,GRAY8,I420,YUY2,NV12,NV16}"));
+static GstStaticPadTemplate sink_template
+    = GST_STATIC_PAD_TEMPLATE("sink_%u", GST_PAD_SINK, GST_PAD_REQUEST,
+        GST_STATIC_CAPS("video/x-raw,format=" AX_GST_VIDEO_FORMATS_CAPS));
 
-static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE("src",
-    GST_PAD_SRC, GST_PAD_ALWAYS,
-    GST_STATIC_CAPS("video/x-raw,format={RGBA,BGRA,RGB,BGR,GRAY8,I420,YUY2,NV12,NV16}"));
+static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE("src", GST_PAD_SRC,
+    GST_PAD_ALWAYS, GST_STATIC_CAPS("video/x-raw,format=" AX_GST_VIDEO_FORMATS_CAPS));
 
 G_DEFINE_TYPE_WITH_CODE(GstAxInferenceNet, gst_axinferencenet, GST_TYPE_ELEMENT,
     GST_DEBUG_CATEGORY_INIT(gst_axinferencenet_debug, "axinferencenet", 0,
@@ -945,7 +944,7 @@ gst_axinferencenet_class_init(GstAxInferenceNetClass *klass)
   Ax::add_string_property(object_klass, Ax::AXINFERENCE_PROP_WHICH_CL,
       "cl_platform", "String with key to OpenCL platform");
 
-  Ax::add_inference_properties(object_klass, true, true);
+  Ax::add_inference_properties(object_klass, true, true, /*include_async_mode=*/true);
 
   Ax::add_string_property(object_klass, PROP_STREAM_SELECT, "stream_select",
       "Select stream to output");

@@ -495,6 +495,12 @@ TEST(axstreamer_utils, set_inference_property)
       props.double_buffer, true, false);
   test_inference_property(
       props, Ax::AXINFERENCE_PROP_NUM_CHILDREN, props.num_children, 4, 0);
+  test_inference_property(
+      props, Ax::AXINFERENCE_PROP_ASYNC_MODE, props.async_mode, true, false);
+  test_inference_property(
+      props, Ax::AXINFERENCE_PROP_MAX_INFLIGHT, props.max_inflight, 8, 4);
+  test_inference_property(
+      props, Ax::AXINFERENCE_PROP_MAX_PENDING, props.max_pending, 16, 8);
 
   auto type_string = static_cast<std::string *>(nullptr);
 
@@ -696,6 +702,9 @@ TEST(axinferencenet, read_inferencenet_properties)
       "dmabuf_inputs=1\n"
       "dmabuf_outputs=true\n"
       "num_children=3\n"
+      "async_mode=1\n"
+      "max_inflight=4\n"
+      "max_pending=8\n"
       "options=blahblah\n"
       "meta=master_detections\n"
       "preprocess0_lib=libtransform_roicrop.so\n"
@@ -717,6 +726,9 @@ TEST(axinferencenet, read_inferencenet_properties)
   EXPECT_EQ(props.skip_stride, 1);
   EXPECT_EQ(props.skip_count, 0);
   EXPECT_EQ(props.num_children, 3);
+  EXPECT_EQ(props.async_mode, true);
+  EXPECT_EQ(props.max_inflight, 4);
+  EXPECT_EQ(props.max_pending, 8);
   EXPECT_EQ(props.options, "blahblah");
   EXPECT_EQ(props.meta, "master_detections");
   EXPECT_EQ(props.preproc[0].lib, "libtransform_roicrop.so");

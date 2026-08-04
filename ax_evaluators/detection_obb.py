@@ -2,6 +2,11 @@
 
 import cv2
 import numpy as np
+
+if np.lib.NumpyVersion(np.__version__) >= '2.0.0':
+    from numpy import trapezoid as trapz
+else:
+    from numpy import trapz as trapz
 from tqdm import tqdm
 
 from axelera import types
@@ -27,7 +32,7 @@ def ap_from_pr(precision: np.ndarray, recall: np.ndarray) -> float:
     mpre = np.flip(np.maximum.accumulate(np.flip(mpre)))
     # 101-point interpolation over recall
     x = np.linspace(0.0, 1.0, 101)
-    ap = np.trapz(np.interp(x, mrec, mpre), x)
+    ap = trapz(np.interp(x, mrec, mpre), x)
     return float(ap)
 
 

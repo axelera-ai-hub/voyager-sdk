@@ -2120,7 +2120,7 @@ drop_package() {
   local match=
   local pkg="$1"
   for match in "${to_be_stripped[@]}"; do
-    if [[ "${pkg,,}" =~ ^${match}[=\ ] ]]; then
+    if [[ "${pkg,,}" =~ ^${match}(\[|=|[[:space:]]|$) ]]; then
       dropped=true
     else
       new_list+=("$match")
@@ -2621,6 +2621,8 @@ gen_pipfile() {
     elif [[ "${!var}" == $'{'*$'}' ]]; then
       if $ARG_repair_pin; then
         echo "$requirement = ${!var}" >> "Pipfile"
+      elif [[ "${!var}" =~ ^\{.*index[[:space:]]*=[[:space:]]*\"([^\"]*)\".*extras[[:space:]]*=[[:space:]]*\[([^\]]*)\].*\}$ ]]; then
+        echo "$requirement = {index = \"${BASH_REMATCH[1]}\", extras = [${BASH_REMATCH[2]}]}" >> "Pipfile"
       elif [[ "${!var}" =~ ^\{.*index\ =\ \"([^\"]*)\".*\}$ ]]; then
         echo "$requirement = {index = \"${BASH_REMATCH[1]}\"}" >> "Pipfile"
       else

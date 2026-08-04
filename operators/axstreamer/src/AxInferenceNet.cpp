@@ -11,6 +11,7 @@
 #include "AxStreamerUtils.hpp"
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -246,7 +247,8 @@ class AxInferenceNet : public InferenceNet
 
   void inference_thread(const int batch_size);
   void inference_thread_low_latency();
-  void inference_low_latency_ready(uint64_t idx);
+  void inference_low_latency_ready(uint64_t idx, bool ok);
+  void drain_reorder_queue();
   std::unique_ptr<Frame> new_frame();
   void initialise_pipeline(const AxVideoInterface &video);
   void update_stream_latency(int which, std::chrono::microseconds latency);
@@ -287,7 +289,11 @@ class AxInferenceNet : public InferenceNet
   // used in low-latency inference mode only
   std::atomic_uint64_t global_frame_idx{ 0 };
   std::mutex reorder_mutex;
+  std::condition_variable reorder_cv;
   std::deque<std::unique_ptr<Ax::Frame>> reorder_queue;
+  // Frames popped from reorder_queue but not yet pushed to post_ops; guarded
+  // by reorder_mutex. See inference_low_latency_ready()/drain_reorder_queue().
+  size_t pending_forward_count = 0;
 };
 
 class TransformOp : public Ax::Operator
@@ -827,7 +833,7 @@ AxInferenceNet::AxInferenceNet(Ax::LoadedInferenceNetProperties &&properties,
       pre_ops(logger, latency_callback, *allocator, *null_allocator,
           std::move(properties.preproc)),
       inference(create_inference(logger, properties,
-          [this](uint64_t idx) { inference_low_latency_ready(idx); })),
+          [this](uint64_t idx, bool ok) { inference_low_latency_ready(idx, ok); })),
       post_ops(logger, latency_callback, *allocator, *null_allocator,
           std::move(properties.postproc))
 {
@@ -1034,6 +1040,12 @@ AxInferenceNet::inference_thread_low_latency()
     const auto idx = frame->global_frame_idx = global_frame_idx++;
     frame->inference_ready = false;
     if (frame->end_of_input) {
+      // Wait for all previously-dispatched frames to complete and be
+      // forwarded before propagating end-of-input, otherwise this marker can
+      // reach post_ops ahead of frames still completing asynchronously (e.g.
+      // async_mode's dispatch() returns before the hardware result is back),
+      // starving post_ops of the final frame(s) of real data.
+      drain_reorder_queue();
       auto moved_frame = frame.get();
       post_ops.input_queue().push(std::move(frame));
       log_latency("inference", moved_frame->timestamp);
@@ -1057,7 +1069,7 @@ AxInferenceNet::inference_thread_low_latency()
 }
 
 void
-AxInferenceNet::inference_low_latency_ready(uint64_t idx)
+AxInferenceNet::inference_low_latency_ready(uint64_t idx, bool ok)
 {
   // This is called whenever a frame's inference is done, but it is called from
   // any thread and we do not know the order that frames will arrive. So we need
@@ -1082,6 +1094,7 @@ AxInferenceNet::inference_low_latency_ready(uint64_t idx)
         [idx](const auto &frame) { return frame->global_frame_idx == idx; });
     if (new_ready_frame != reorder_queue.end()) {
       (*new_ready_frame)->inference_ready = true;
+      (*new_ready_frame)->inference_failed = !ok;
     } else {
       logger(AX_ERROR) << "New ready frame not found in reorder_queue list, idx: " << idx
                        << std::endl;
@@ -1099,13 +1112,53 @@ AxInferenceNet::inference_low_latency_ready(uint64_t idx)
       update_frame_latency(*frame, "Inference latency");
       inferenced.push_back(std::move(frame));
     }
+    pending_forward_count += inferenced.size();
   }
   for (auto &f : inferenced) {
     bump_inferences_count(*f);
     f->inf_batched_output->map(Ax::MAP_READ_ONLY);
+    if (f->inference_failed) {
+      // The device/queue call for this frame failed: inf_batched_output was
+      // never actually written by a successful inference, so its contents
+      // are whatever the pool slot previously held, not a real result. Still
+      // forward the frame (matching push_new_frame's documented contract
+      // that every pushed frame is returned via done_callback), but with
+      // inference_failed set so callers can detect and skip/flag it instead
+      // of treating this as a normal result.
+      logger(AX_WARN) << "Forwarding frame " << f->frame_id
+                      << " with inference_failed=true; tensor data is not a valid "
+                         "inference result"
+                      << std::endl;
+    }
     // note I don't call inference->collect here, because it is a no-op
     post_ops.input_queue().push(std::move(f));
   }
+  // post_ops.input_queue().push() above can block (bounded queue), so we
+  // must not hold reorder_mutex across the loop -- that would stall
+  // inference_thread_low_latency()'s dispatch loop, which needs the same
+  // mutex to add newly-dispatched frames to reorder_queue. Instead track
+  // "popped but not yet forwarded" via pending_forward_count, guarded by
+  // reorder_mutex, so drain_reorder_queue() can't observe "done" (reorder_queue
+  // empty) until every frame removed from it above has actually reached
+  // post_ops.
+  {
+    std::unique_lock lock(reorder_mutex);
+    pending_forward_count -= inferenced.size();
+  }
+  reorder_cv.notify_all();
+}
+
+void
+AxInferenceNet::drain_reorder_queue()
+{
+  // Every dispatched frame is guaranteed a matching completion callback, so
+  // this always eventually unblocks. Used both before propagating
+  // end-of-input and, in stop(), before post_ops is stopped, so any
+  // in-flight frame has a chance to be forwarded rather than silently
+  // dropped into a stopped queue.
+  std::unique_lock lock(reorder_mutex);
+  reorder_cv.wait(lock,
+      [this] { return reorder_queue.empty() && pending_forward_count == 0; });
 }
 
 
@@ -1133,6 +1186,12 @@ AxInferenceNet::stop()
 {
   distributor_queue.stop();
   pre_ops.stop();
+  // pre_ops is stopped so no more frames will be dispatched; wait for any
+  // still-in-flight frame (e.g. an async_mode completion racing this abrupt
+  // stop, rather than a graceful end_of_input) to be forwarded before
+  // stopping post_ops, otherwise it would be silently dropped into an
+  // already-stopped queue that nothing will ever drain.
+  drain_reorder_queue();
   post_ops.stop();
   threads.clear();
   if (push_thread.joinable()) {
@@ -1168,7 +1227,10 @@ AxInferenceNet::release_frame(std::unique_ptr<Ax::Frame> frame)
   frame->video.data = nullptr;
   frame->meta_map = nullptr;
   frame->op_input.reset();
+  frame->inf_batched_input.reset();
+  frame->inf_batched_output.reset();
   frame->end_of_input = false;
+  frame->inference_failed = false;
   std::unique_lock<std::mutex> lock(frame_pool_mutex);
   frame_pool.push_back(std::move(frame));
 }
@@ -1462,6 +1524,12 @@ Ax::read_inferencenet_properties(std::istream &s, Ax::Logger &logger)
         props.model = value;
       } else if (key == "double_buffer") {
         props.double_buffer = as_bool(value);
+      } else if (key == "async_mode") {
+        props.async_mode = as_bool(value);
+      } else if (key == "max_inflight") {
+        props.max_inflight = std::stoi(value);
+      } else if (key == "max_pending") {
+        props.max_pending = std::stoi(value);
       } else if (key == "dmabuf_inputs") {
         props.dmabuf_inputs = as_bool(value);
       } else if (key == "dmabuf_outputs") {

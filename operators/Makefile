@@ -14,11 +14,28 @@ endif
 
 ifeq ($(CFG),debug)
   BUILD_TYPE=Debug
+else ifeq ($(CFG),asan)
+  BUILD_TYPE=RelWithDebInfo
 else
   BUILD_TYPE=Release
 endif
 
 BUILD_DIR := $(BUILD_TYPE)
+
+ifeq ($(CFG),asan)
+  BUILD_DIR := Asan
+  CMAKE_SANITIZER_FLAG := -DENABLE_SANITIZER=ON
+else
+  CMAKE_SANITIZER_FLAG :=
+endif
+
+# Number of parallel ninja jobs. High parallelism can exceed the power limits
+# or OOM some hosts, so allow overriding via AXELERA_NINJA_JOBS.
+ifdef AXELERA_NINJA_JOBS
+  NINJA_JOBS := $(AXELERA_NINJA_JOBS)
+else
+  NINJA_JOBS := $(shell nproc --all --ignore=2)
+endif
 
 PREFIX_DIR := $(realpath $(dir $(abspath $(firstword $(MAKEFILE_LIST)))))
 PKG_CONFIG_PATH := $(AXELERA_RUNTIME_DIR)/lib/pkgconfig:$(PKG_CONFIG_PATH)
@@ -72,7 +89,7 @@ CMAKE_CACHE := $(BUILD_DIR)/CMakeCache.txt
 define run-cmake
 	mkdir -p $(BUILD_DIR)
 	cd $(BUILD_DIR) && \
-	PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) cmake .. $(1) -GNinja -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
+	PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) cmake .. $(1) $(CMAKE_SANITIZER_FLAG) -GNinja -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
 		-DCMAKE_INSTALL_PREFIX=$(PREFIX_DIR) -DCMAKE_INSTALL_LIBDIR=lib -DCUDA_AVAILABLE=$(CUDA_AVAILABLE) || \
 		(cd .. && \
 		echo "\n*** Some platforms may have different/extra package requirements not covered by SDK installation." && \
@@ -85,7 +102,7 @@ gst_ops_install:  $(BUILD_DIR) $(ONNX_RUNTIME_DIR) $(INSTALL_DIR) | check_cmake_
 # If it exists, only run ninja if there's work to do
 ifneq ($(wildcard $(BUILD_DIR)),)
 ifeq (,$(findstring no work to do,$(shell ninja -n -C $(BUILD_DIR))))
-	ninja -C $(BUILD_DIR) install -j ${shell nproc --all --ignore=2}
+	ninja -C $(BUILD_DIR) install -j $(NINJA_JOBS)
 endif
 endif
 
@@ -100,8 +117,16 @@ $(CMAKE_CACHE):
 	$(call run-cmake)
 
 $(BUILD_DIR) $(INSTALL_DIR): $(ONNX_RUNTIME_DIR) $(CMAKE_CACHE) | check_cmake_rerun
-	ninja -C $(BUILD_DIR) install -j ${shell nproc --all --ignore=2}
+	ninja -C $(BUILD_DIR) install -j $(NINJA_JOBS)
+	$(if $(filter asan,$(CFG)),cp $(BUILD_DIR)/fix_deepbind.so $(INSTALL_DIR)/)
 	@touch $@
+
+ifeq ($(CFG),asan)
+$(BUILD_DIR)/fix_deepbind.so: $(PREFIX_DIR)/fix_deepbind.c $(CMAKE_CACHE)
+	gcc -shared -fPIC -o $@ $< -ldl
+
+$(BUILD_DIR): $(BUILD_DIR)/fix_deepbind.so
+endif
 
 $(ONNX_RUNTIME_DIR):
 	mkdir -p $(ONNX_RUNTIME_BASEDIR)

@@ -182,6 +182,23 @@ struct cl_extensions {
   bool has_fp16{ false };
 };
 
+constexpr int AX_ALLOCATION_CONTEXT_VERSION = 2;
+struct AxAllocationContext {
+  int version{ 0 };
+  cl_device_id device_id{};
+  cl_context context{};
+  cl_command_queue commands{};
+  cl_extensions extensions{};
+  std::exception_ptr exception{};
+  cl_command_queue map_commands{};
+};
+
+namespace ax_utils
+{
+using opencl_details = AxAllocationContext;
+opencl_details copy_context_and_retain(opencl_details *context);
+} // namespace ax_utils
+
 cl_extensions init_extensions(cl_platform_id platform, void *display);
 
 std::vector<cl_mem> create_optimal_buffer(cl_context ctx,

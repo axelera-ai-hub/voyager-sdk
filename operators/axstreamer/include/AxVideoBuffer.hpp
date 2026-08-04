@@ -79,61 +79,51 @@ class VideoBuffer
     return buffer_size_;
   }
 
-  /// @brief Check if buffer has strides (non-contiguous planes)
-  bool has_strides() const
-  {
-    return !strides_.empty();
-  }
+  /// @brief Check if buffer planes are laid out contiguously with natural strides and offsets
+  bool is_contiguous() const;
 
   /// @brief Get Y plane pointer
   uint8_t *y_plane()
   {
-    return buffer_.get() + (has_strides() ? offsets_[0] : 0);
+    return buffer_.get() + offsets_[0];
   }
 
   /// @brief Get U plane pointer (I420) or UV plane pointer (NV12)
   uint8_t *u_plane()
   {
-    if (has_strides()) {
-      return buffer_.get() + offsets_[1];
-    }
-    return buffer_.get() + y_plane_size();
+    return buffer_.get() + offsets_[1];
   }
 
-  /// @brief Get V plane pointer (I420 only, nullptr for NV12)
+  /// @brief Get V plane pointer (I420/Y42B/Y444 only, nullptr for NV12)
   uint8_t *v_plane()
   {
-    if (format_ != AxVideoFormat::I420) {
+    if (format_ != AxVideoFormat::I420 && format_ != AxVideoFormat::Y42B
+        && format_ != AxVideoFormat::Y444) {
       return nullptr;
     }
-    if (has_strides()) {
-      return buffer_.get() + offsets_[2];
-    }
-    return buffer_.get() + y_plane_size() + uv_plane_size();
+    return buffer_.get() + offsets_[2];
   }
 
   /// @brief Get stride for Y plane
   size_t y_stride() const
   {
-    return has_strides() ? strides_[0] : width_;
+    return strides_[0];
   }
 
   /// @brief Get stride for U plane (I420) or UV plane (NV12)
   size_t u_stride() const
   {
-    if (has_strides()) {
-      return strides_[1];
-    }
-    return (format_ == AxVideoFormat::I420) ? width_ / 2 : width_;
+    return strides_.size() > 1 ? strides_[1] : 0;
   }
 
-  /// @brief Get stride for V plane (I420 only)
+  /// @brief Get stride for V plane (I420/Y42B/Y444 only)
   size_t v_stride() const
   {
-    if (format_ != AxVideoFormat::I420) {
+    if (format_ != AxVideoFormat::I420 && format_ != AxVideoFormat::Y42B
+        && format_ != AxVideoFormat::Y444) {
       return 0;
     }
-    return has_strides() ? strides_[2] : width_ / 2;
+    return strides_.size() > 2 ? strides_[2] : 0;
   }
 
   /// @brief Convert to cv::Mat (single-channel, height * 1.5)
@@ -172,8 +162,27 @@ class VideoBuffer
   int width_ = 0;
   int height_ = 0;
   AxVideoFormat format_ = AxVideoFormat::UNDEFINED;
-  std::vector<size_t> strides_; // Empty for contiguous buffers
-  std::vector<size_t> offsets_; // Empty for contiguous buffers
+  std::vector<size_t> strides_; // Always populated; natural (no padding) for owned/contiguous buffers
+  std::vector<size_t> offsets_; // Always populated; plane byte offsets from buffer_.get()
+  int color_range_ = 0; // GstRange: 0=unknown, 1=limited, 2=full
+  int color_matrix_ = 0; // GstMatrix: 0=unknown, 3=BT601, 4=BT709, etc.
+
+  int color_range() const
+  {
+    return color_range_;
+  }
+  void set_color_range(int range)
+  {
+    color_range_ = range;
+  }
+  int color_matrix() const
+  {
+    return color_matrix_;
+  }
+  void set_color_matrix(int matrix)
+  {
+    color_matrix_ = matrix;
+  }
 
   size_t y_plane_size() const
   {
@@ -186,6 +195,13 @@ class VideoBuffer
       return (width_ / 2) * (height_ / 2);
     } else if (format_ == AxVideoFormat::NV12) {
       return width_ * (height_ / 2);
+    } else if (format_ == AxVideoFormat::NV16) {
+      return width_ * height_;
+    } else if (format_ == AxVideoFormat::Y42B) {
+      // 4:2:2 planar: chroma is half width, full height
+      return (width_ / 2) * height_;
+    } else if (format_ == AxVideoFormat::Y444) {
+      return width_ * height_;
     }
     return 0;
   }

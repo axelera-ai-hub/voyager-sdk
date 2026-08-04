@@ -6,9 +6,9 @@ description: HuggingFace Transformers Velvet-2B model, limiting the sequence len
 
 models:
   velvet-2b-1024-4core-static:
-    precompiled_url: https://llm.axelera.ai/icdf/4.x/velvet2b_1024_mc_model.tar.gz
+    precompiled_url: https://llm.axelera.ai/icdf/5.0/velvet2b_1024_mc_model.tar.gz
     precompiled_path: build/velvet-2b-1024-4core-static/velvet2b_1024_mc_model.tar.gz
-    precompiled_md5: 259fd1a1a5380b6edb8cb7c65f3c4c8e
+    precompiled_md5: 66d2cdc04e5a0d13153a3b955c0c29ea
     task_category: LanguageModel
     extra_kwargs:
       llm:

@@ -1,5 +1,4 @@
 // Copyright Axelera AI, 2025
-#include <map>
 #include <opencv2/core.hpp>
 #include "AxVideoBuffer.hpp"
 #include "AxVideoDecode.hpp"
@@ -33,7 +32,6 @@ class FFMpegVideoDecoder : public VideoDecode
   private:
   void init(AxVideoFormat format);
 
-  AVPixelFormat get_requested_format(AxVideoFormat format);
   static int get_buffer2_callback(AVCodecContext *ctx, AVFrame *frame, int flags);
   static void free_aligned_buffer(void *opaque, uint8_t *data);
   static int interrupt_callback(void *ctx);
@@ -43,6 +41,5 @@ class FFMpegVideoDecoder : public VideoDecode
   SwsContext *sws_ctx;
   int video_stream_index;
   AxVideoFormat requested_format;
-  static const std::map<AxVideoFormat, AVPixelFormat> format_map;
 };
 } // namespace Ax

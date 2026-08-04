@@ -8,6 +8,11 @@ from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
+if np.lib.NumpyVersion(np.__version__) >= '2.0.0':
+    from numpy import trapezoid as trapz
+else:
+    from numpy import trapz as trapz
+
 from axelera import types
 from axelera.app.model_utils.box import xyxy2xywh
 from axelera.app.model_utils.segment import simple_resize_masks
@@ -264,7 +269,7 @@ def compute_ap(recall, precision):
 
     # 101-point interpolation (COCO)
     x = np.linspace(0, 1, 101)
-    ap = np.trapz(np.interp(x, mrec, mpre), x)  # integrate
+    ap = trapz(np.interp(x, mrec, mpre), x)  # integrate
 
     return ap, mpre, mrec
 

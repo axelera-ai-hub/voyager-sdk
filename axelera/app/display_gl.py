@@ -56,6 +56,14 @@ _GL_API, _GL_MAJOR, _GL_MINOR = get_backend_opengl_version(config.env.opengl_bac
 if _GL_API == "gles":
     pyglet.options.shadow_window = False
 
+if sys.platform == 'darwin':
+    # On macOS Retina displays, the default dpi_scaling='real' mode causes pyglet
+    # to resize the window to half its logical size when the backing scale changes
+    # (to keep the physical pixel count constant).
+    # 'stretch' mode uses logical pixels for coordinates and lets pyglet set the
+    # viewport to the full physical framebuffer
+    pyglet.options.dpi_scaling = 'stretch'
+
 
 LOG = logging_utils.getLogger(__name__)
 KEYPOINT_6 = np.array([[0, 0, 1], [0, 1, 1], [1, 1, 1]], np.float64)
@@ -178,16 +186,6 @@ vec4 convert_i420(vec2 coords) {
         ["uniform sampler2D y_tex;", "uniform sampler2D u_tex;", "uniform sampler2D v_tex;"],
         "vec2(textureSize(y_tex, 0))",
     ),
-    "convert_nv16": (
-        """
-vec4 convert_nv16(vec2 coords) {
-    float y = texture(y_tex, coords).r;
-    vec2 uv = texture(uv_tex, coords).rg;
-    return yuv_to_rgb(y, uv.x, uv.y);
-}""",
-        ["uniform sampler2D y_tex;", "uniform sampler2D uv_tex;"],
-        "vec2(textureSize(y_tex, 0))",
-    ),
     "convert_yuy2": (
         """
 vec4 convert_yuy2(vec2 coords) {
@@ -258,6 +256,14 @@ vec4 apply_grayscale(vec4 color, float amount) {{
     ),
 }
 
+# Y444, Y42B and NV16 use the same GLSL as I420 (Y444/Y42B) and NV12 (NV16) — the
+# difference is only in texture upload dimensions, not the sampling math.
+_shader_aliases = {
+    'convert_y444': 'convert_i420',
+    'convert_y42b': 'convert_i420',
+    'convert_nv16': 'convert_nv12',
+}
+
 
 def _compose_shader(
     format_name: str,
@@ -281,8 +287,9 @@ def _compose_shader(
         func_body, uniforms, tex_size_expr = _shader_functions[converter_name]
         converter_body = func_body.format(swizzle=swizzle)
     else:
-        # Direct lookup for NV12, I420, etc.
+        # Direct lookup for NV12, I420, etc. Aliases handle Y444, Y42B and NV16.
         converter_name = f"convert_{format_key.lower()}"
+        converter_name = _shader_aliases.get(converter_name, converter_name)
         if converter_name in _shader_functions:
             converter_body, uniforms, tex_size_expr = _shader_functions[converter_name]
         else:
@@ -292,8 +299,10 @@ def _compose_shader(
     # Collect function bodies
     functions = []
 
-    # Add yuv_to_rgb helper if using a YUV format
-    yuv_formats = {'convert_nv12', 'convert_i420', 'convert_nv16', 'convert_yuy2'}
+    # Add yuv_to_rgb helper if using a YUV format.
+    # Use the resolved/aliased name: Y444/Y42B→convert_i420 and NV16→convert_nv12 via
+    # _shader_aliases above, so those formats are covered by their alias entries here.
+    yuv_formats = {'convert_nv12', 'convert_i420', 'convert_yuy2'}
     if converter_name in yuv_formats:
         functions.append(_shader_functions["yuv_to_rgb"][0])
 
@@ -807,31 +816,29 @@ def get_ptr(data, offset):
     return base_address + offset
 
 
-def _upload_nv12(width, height, data, sprite, textures, strides, offsets, row_step=1):
-    """Handle NV12 format: Y plane + interleaved UV plane (4:2:0)"""
+def _upload_nv_semiplanar(
+    format_name, uv_h_div, width, height, data, sprite, textures, strides, offsets, row_step=1
+):
+    """Upload Y + interleaved UV planes to GL textures.
+
+    uv_h_div: divisor for UV height (2 = NV12/4:2:0, 1 = NV16/4:2:2)
+    """
     display_height = height // row_step
-    uv_height = height // (row_step * 2)
+    uv_height = display_height // uv_h_div
     if 'y' not in textures:
         textures['y'] = pyglet.image.Texture.create(width, display_height, GL_TEXTURE_2D, GL_RED)
         textures['uv'] = pyglet.image.Texture.create(width // 2, uv_height, GL_TEXTURE_2D, GL_RG)
 
-        # Y plane: linear filtering for smooth luma
         glBindTexture(GL_TEXTURE_2D, textures['y'].id)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
 
-        # UV plane: nearest-neighbor to avoid color bleeding at sharp transitions
         glBindTexture(GL_TEXTURE_2D, textures['uv'].id)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
-
-    y_stride = strides[0]
-    y_offset = offsets[0]
-    uv_stride = strides[1]
-    uv_offset = offsets[1]
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
 
     glBindTexture(GL_TEXTURE_2D, textures['y'].id)
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, y_stride * row_step)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, strides[0] * row_step)
     glTexImage2D(
         GL_TEXTURE_2D,
         0,
@@ -841,12 +848,12 @@ def _upload_nv12(width, height, data, sprite, textures, strides, offsets, row_st
         0,
         GL_RED,
         GL_UNSIGNED_BYTE,
-        get_ptr(data, y_offset),
+        get_ptr(data, offsets[0]),
     )
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
 
     glBindTexture(GL_TEXTURE_2D, textures['uv'].id)
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, (uv_stride // 2) * row_step)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, (strides[1] // 2) * row_step)
     glTexImage2D(
         GL_TEXTURE_2D,
         0,
@@ -856,96 +863,109 @@ def _upload_nv12(width, height, data, sprite, textures, strides, offsets, row_st
         0,
         GL_RG,
         GL_UNSIGNED_BYTE,
-        get_ptr(data, uv_offset),
+        get_ptr(data, offsets[1]),
     )
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
 
-    _configure_sprite_uniforms(sprite, 'NV12', width, display_height)
+    _configure_sprite_uniforms(sprite, format_name, width, display_height)
 
 
-def _bind_nv12(textures):
+def _upload_nv12(width, height, data, sprite, textures, strides, offsets, row_step=1):
+    _upload_nv_semiplanar(
+        'NV12', 2, width, height, data, sprite, textures, strides, offsets, row_step
+    )
+
+
+def _upload_nv16(width, height, data, sprite, textures, strides, offsets, row_step=1):
+    _upload_nv_semiplanar(
+        'NV16', 1, width, height, data, sprite, textures, strides, offsets, row_step
+    )
+
+
+def _bind_nv_semiplanar(textures):
     glActiveTexture(GL_TEXTURE1)
     glBindTexture(GL_TEXTURE_2D, textures['y'].id)
     glActiveTexture(GL_TEXTURE2)
     glBindTexture(GL_TEXTURE_2D, textures['uv'].id)
 
 
-def _upload_i420(width, height, data, sprite, textures, strides, offsets, row_step=1):
-    """Handle I420 format: Y plane + separate U and V planes (4:2:0)"""
+_bind_nv12 = _bind_nv_semiplanar
+_bind_nv16 = _bind_nv_semiplanar
+
+
+def _upload_yuv_planar(
+    format_name,
+    uv_w_div,
+    uv_h_div,
+    width,
+    height,
+    data,
+    sprite,
+    textures,
+    strides,
+    offsets,
+    row_step=1,
+):
+    """Upload three separate Y, U, V planes to GL textures.
+
+    uv_w_div: divisor for UV width  (1 = full, 2 = half)
+    uv_h_div: divisor for UV height (1 = full, 2 = half)
+    """
     display_height = height // row_step
-    uv_height = height // (row_step * 2)
+    uv_w = width // uv_w_div
+    uv_h = display_height // uv_h_div
     if 'y' not in textures:
         textures['y'] = pyglet.image.Texture.create(width, display_height, GL_TEXTURE_2D, GL_RED)
-        textures['u'] = pyglet.image.Texture.create(width // 2, uv_height, GL_TEXTURE_2D, GL_RED)
-        textures['v'] = pyglet.image.Texture.create(width // 2, uv_height, GL_TEXTURE_2D, GL_RED)
+        textures['u'] = pyglet.image.Texture.create(uv_w, uv_h, GL_TEXTURE_2D, GL_RED)
+        textures['v'] = pyglet.image.Texture.create(uv_w, uv_h, GL_TEXTURE_2D, GL_RED)
 
-        # Y plane: linear filtering for smooth luma
-        glBindTexture(GL_TEXTURE_2D, textures['y'].id)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-
-        # U and V planes: nearest-neighbor to avoid color bleeding at sharp transitions
-        for tex in [textures['u'], textures['v']]:
+        for tex in [textures['y'], textures['u'], textures['v']]:
             glBindTexture(GL_TEXTURE_2D, tex.id)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
 
-    y_stride = strides[0]
-    y_offset = offsets[0]
-    u_stride = strides[1]
-    u_offset = offsets[1]
-    v_stride = strides[2]
-    v_offset = offsets[2]
+    for key, plane_w, plane_h, stride, offset in (
+        ('y', width, display_height, strides[0], offsets[0]),
+        ('u', uv_w, uv_h, strides[1], offsets[1]),
+        ('v', uv_w, uv_h, strides[2], offsets[2]),
+    ):
+        glBindTexture(GL_TEXTURE_2D, textures[key].id)
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, stride * row_step)
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            GL_RED,
+            plane_w,
+            plane_h,
+            0,
+            GL_RED,
+            GL_UNSIGNED_BYTE,
+            get_ptr(data, offset),
+        )
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
 
-    glBindTexture(GL_TEXTURE_2D, textures['y'].id)
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, y_stride * row_step)
-    glTexImage2D(
-        GL_TEXTURE_2D,
-        0,
-        GL_RED,
-        width,
-        display_height,
-        0,
-        GL_RED,
-        GL_UNSIGNED_BYTE,
-        get_ptr(data, y_offset),
+    _configure_sprite_uniforms(sprite, format_name, width, display_height)
+
+
+def _upload_i420(width, height, data, sprite, textures, strides, offsets, row_step=1):
+    _upload_yuv_planar(
+        'I420', 2, 2, width, height, data, sprite, textures, strides, offsets, row_step
     )
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
 
-    glBindTexture(GL_TEXTURE_2D, textures['u'].id)
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, u_stride * row_step)
-    glTexImage2D(
-        GL_TEXTURE_2D,
-        0,
-        GL_RED,
-        width // 2,
-        uv_height,
-        0,
-        GL_RED,
-        GL_UNSIGNED_BYTE,
-        get_ptr(data, u_offset),
+
+def _upload_y444(width, height, data, sprite, textures, strides, offsets, row_step=1):
+    _upload_yuv_planar(
+        'Y444', 1, 1, width, height, data, sprite, textures, strides, offsets, row_step
     )
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
 
-    glBindTexture(GL_TEXTURE_2D, textures['v'].id)
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, v_stride * row_step)
-    glTexImage2D(
-        GL_TEXTURE_2D,
-        0,
-        GL_RED,
-        width // 2,
-        uv_height,
-        0,
-        GL_RED,
-        GL_UNSIGNED_BYTE,
-        get_ptr(data, v_offset),
+
+def _upload_y42b(width, height, data, sprite, textures, strides, offsets, row_step=1):
+    _upload_yuv_planar(
+        'Y42B', 2, 1, width, height, data, sprite, textures, strides, offsets, row_step
     )
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
-
-    _configure_sprite_uniforms(sprite, 'I420', width, display_height)
 
 
-def _bind_i420(textures):
+def _bind_yuv_planar(textures):
     glActiveTexture(GL_TEXTURE1)
     glBindTexture(GL_TEXTURE_2D, textures['y'].id)
     glActiveTexture(GL_TEXTURE2)
@@ -954,68 +974,9 @@ def _bind_i420(textures):
     glBindTexture(GL_TEXTURE_2D, textures['v'].id)
 
 
-def _upload_nv16(width, height, data, sprite, textures, strides, offsets, row_step=1):
-    """Handle NV16 format: Y plane + interleaved UV plane (4:2:2)"""
-    display_height = height // row_step
-    if 'y' not in textures:
-        textures['y'] = pyglet.image.Texture.create(width, display_height, GL_TEXTURE_2D, GL_RED)
-        textures['uv'] = pyglet.image.Texture.create(
-            width // 2, display_height, GL_TEXTURE_2D, GL_RG
-        )
-
-        # Y plane: linear filtering for smooth luma
-        glBindTexture(GL_TEXTURE_2D, textures['y'].id)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-
-        # UV plane: nearest-neighbor to avoid color bleeding at sharp transitions
-        glBindTexture(GL_TEXTURE_2D, textures['uv'].id)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
-
-    y_stride = strides[0]
-    y_offset = offsets[0]
-    uv_stride = strides[1]
-    uv_offset = offsets[1]
-
-    glBindTexture(GL_TEXTURE_2D, textures['y'].id)
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, y_stride * row_step)
-    glTexImage2D(
-        GL_TEXTURE_2D,
-        0,
-        GL_RED,
-        width,
-        display_height,
-        0,
-        GL_RED,
-        GL_UNSIGNED_BYTE,
-        get_ptr(data, y_offset),
-    )
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
-
-    glBindTexture(GL_TEXTURE_2D, textures['uv'].id)
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, (uv_stride // 2) * row_step)
-    glTexImage2D(
-        GL_TEXTURE_2D,
-        0,
-        GL_RG,
-        width // 2,
-        display_height,
-        0,
-        GL_RG,
-        GL_UNSIGNED_BYTE,
-        get_ptr(data, uv_offset),
-    )
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0)
-
-    _configure_sprite_uniforms(sprite, 'NV16', width, display_height)
-
-
-def _bind_nv16(textures):
-    glActiveTexture(GL_TEXTURE1)
-    glBindTexture(GL_TEXTURE_2D, textures['y'].id)
-    glActiveTexture(GL_TEXTURE2)
-    glBindTexture(GL_TEXTURE_2D, textures['uv'].id)
+_bind_i420 = _bind_yuv_planar
+_bind_y444 = _bind_yuv_planar
+_bind_y42b = _bind_yuv_planar
 
 
 def _upload_yuy2(width, height, data, sprite, textures, strides, offsets, row_step=1):
@@ -1030,8 +991,6 @@ def _upload_yuy2(width, height, data, sprite, textures, strides, offsets, row_st
         glBindTexture(GL_TEXTURE_2D, textures['tex'].id)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
-
-        print(f"Created YUY2 texture: {width//2}x{display_height} (RGBA)")
 
     y_stride = strides[0]
     y_offset = offsets[0]
@@ -1067,7 +1026,6 @@ def _upload_gray8(width, height, data, sprite, textures, strides, offsets, row_s
     display_height = height // row_step
     if 'tex' not in textures:
         textures['tex'] = pyglet.image.Texture.create(width, display_height, GL_TEXTURE_2D, GL_RED)
-        print(f"Created GRAY8 texture: {width}x{display_height}")
 
     y_stride = strides[0]
     y_offset = offsets[0]
@@ -1175,7 +1133,7 @@ def _configure_sprite_uniforms(sprite, format_name: str, width: int, height: int
     if format_key in ['NV12', 'NV16']:
         sprite.program['y_tex'] = 1
         sprite.program['uv_tex'] = 2
-    elif format_key == 'I420':
+    elif format_key in ('I420', 'Y444', 'Y42B'):
         sprite.program['y_tex'] = 1
         sprite.program['u_tex'] = 2
         sprite.program['v_tex'] = 3
@@ -1224,6 +1182,14 @@ def _new_sprite_from_image(
             _upload_i420(
                 width, height, data, sprite, textures, image.strides, image.offsets, row_step
             )
+        elif format_name == 'Y444':
+            _upload_y444(
+                width, height, data, sprite, textures, image.strides, image.offsets, row_step
+            )
+        elif format_name == 'Y42B':
+            _upload_y42b(
+                width, height, data, sprite, textures, image.strides, image.offsets, row_step
+            )
         elif format_name == 'NV16':
             _upload_nv16(
                 width, height, data, sprite, textures, image.strides, image.offsets, row_step
@@ -1263,6 +1229,10 @@ class BindGroup(pyglet.graphics.Group):
             _bind_nv12(textures)
         elif self.format_name == 'I420':
             _bind_i420(textures)
+        elif self.format_name == 'Y444':
+            _bind_y444(textures)
+        elif self.format_name == 'Y42B':
+            _bind_y42b(textures)
         elif self.format_name == 'NV16':
             _bind_nv16(textures)
         elif self.format_name == 'YUY2':

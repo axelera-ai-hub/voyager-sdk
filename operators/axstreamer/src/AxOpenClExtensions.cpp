@@ -304,10 +304,8 @@ make_plane_buffer(opencl_buffer *ocl, cl_context ctx, cl_extensions extensions,
     int flags, int &error)
 {
   if (!ocl->buffer) {
-    const int page_size = 4096;
-    const auto aligned_size = (ocl->data.size() + page_size - 1) & ~(page_size - 1);
-    ocl->buffer = create_buffer(
-        ocl->data.data(), ctx, extensions, aligned_size, flags, 1, true, error);
+    ocl->buffer = create_buffer(ocl->data.data(), ctx, extensions,
+        ocl->data.size(), flags, 1, true, error);
     if (error != CL_SUCCESS) {
       throw std::runtime_error("Failed to create OpenCL plane buffer, error: "
                                + ax_utils::cl_error_to_string(error)

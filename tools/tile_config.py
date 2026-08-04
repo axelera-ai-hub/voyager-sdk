@@ -1,19 +1,33 @@
 #!/usr/bin/env python
 # Copyright Axelera AI, 2026
 
-import wx
+try:
+    import wx
+except ImportError:
+    raise ImportError(
+        "wxPython is required to run this application. To install it, call..."
+        "\npip install wxpython"
+    )
+
+try:
+    import cv2
+except ImportError:
+    raise ImportError(
+        "OpenCV is required to run this application. To install it, call..."
+        "\npip install opencv-python"
+    )
+
 import json
 import copy
 import re
 import os
-import cv2
 import threading
 import queue
 from typing import Any
 import time
 import camera_scan
 
-version = "1.0.3"
+version = "1.0.4"
 video_panel_width = 890
 
 # This will set the initial size of the video panel to be 1.77 ratio
@@ -793,7 +807,7 @@ class AxTileGenPanel(wx.Panel):
         pickerfont.SetWeight(wx.FONTWEIGHT_BOLD)
 
         edit_size = self.video_filename_picker.GetSize()
-        self.ctrl_button_size = wx.Size(130, -1)
+        self.ctrl_button_size = wx.Size(140, -1)
 
         self.start_video_button = wx.Button(self, label="Start Video", size=self.ctrl_button_size)
         self.start_video_button.Enable(False)
@@ -822,7 +836,7 @@ class AxTileGenPanel(wx.Panel):
         self.camera_fps_combo = wx.ComboBox(self, style=wx.CB_READONLY, size=(80, -1))
         self.camera_fps_combo.Enable(False)
 
-        self.scan_camera_button = wx.Button(self, label="Scan for USB Cameras", size=(160, -1))
+        self.scan_camera_button = wx.Button(self, label="Scan for USB Cameras", size=(170, -1))
         self.start_camera_button = wx.Button(
             self, label="Start USB Camera", size=self.ctrl_button_size
         )
@@ -848,13 +862,13 @@ class AxTileGenPanel(wx.Panel):
         self.custom_tile_width_edit = wx.TextCtrl(
             self,
             value=str(self.model_width * 2),
-            size=(50, edit_size.height),
+            size=(60, edit_size.height),
         )
 
         self.custom_tile_height_edit = wx.TextCtrl(
             self,
             value=str(self.model_height * 2),
-            size=(50, edit_size.height),
+            size=(60, edit_size.height),
         )
 
         self.playback_ratio_static = wx.StaticText(

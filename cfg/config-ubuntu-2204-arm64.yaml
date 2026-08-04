@@ -13,8 +13,8 @@ vars:
   AX_PYPI_DEVELOPMENT_URL: https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple
   AX_PIP_EXTRA_ARGS: ""
   AX_CFG_DIR: cfg
-  AX_VERSION: 1.7.0
-  AX_DKMS_VERSION: 1.5.5
+  AX_VERSION: 1.8.0
+  AX_DKMS_VERSION: 1.6.2
   AX_MULTI_DEVICE_VERSION: 1.0.0
 
 installer_dependencies:
@@ -29,7 +29,7 @@ common:
   description: Common
   libs:
     - libgstreamer-plugins-base1.0-dev
-    - axelera-runtime-1.7.0
+    - axelera-runtime-1.8.0
     - systemd
 
 penv:
@@ -74,7 +74,7 @@ penv:
     - matplotlib-inline: "*"
     - more-itertools: "*"
     - networkx: "{version = \">=3.3,<4\"}"
-    - numpy: "{version = \"<2\"}"
+    - numpy: "*"
     - onnxruntime: "{version = \">=1.16,<2\"}"
     - onnx: "{version = \">=1.16,<=1.17.0\"}"
     - onnxoptimizer: "{version = \">=0.3.13,<0.4\"}"
@@ -125,6 +125,7 @@ penv:
     pip_extra_args: ${AX_PIP_EXTRA_ARGS}
     requires_auth: false
     libs:
+    - axelera-riscv-llvm-toolchain-minimal: "{index = \"axelera_development\"}"
     - ax-pytest-helpers: "{index = \"axelera_development\"}"
     - axelera-onnx2torch: "{index = \"axelera_development\"}"
     - axelera-qtoolsv2: "{index = \"axelera_development\"}"
@@ -138,12 +139,14 @@ penv:
     - axelera-functions-registry: "{index = \"axelera_development\"}"
     - axelera-tvm: "{index = \"axelera_development\"}"
     - axelera-compiler: "{index = \"axelera_development\"}"
+    - axelera-zoo: "{index = \"axelera_development\", extras = [\"full\"]}"
   axelera_runtime:
     index_url: ${AX_PYPI_RUNTIME_URL}
     pip_extra_args: ${AX_PIP_EXTRA_ARGS}
     requires_auth: false
     libs:
     - axelera-llm: "{index = \"axelera_runtime\"}"
+    - axelera-runtime2: "{index = \"axelera_runtime\"}"
 
   requirements: ${AX_CFG_DIR}/requirements-ubuntu-2204-arm64.txt
 
@@ -260,11 +263,9 @@ runtime:
 
   envs:
     - name: AXELERA_RUNTIME_DIR
-      value: "/opt/axelera/runtime-1.7.0-1"
+      value: "/opt/axelera/runtime-1.8.0-1"
     - name: AXELERA_DEVICE_DIR
-      value: "/opt/axelera/device-1.7.0-1/omega"
-    - name: AXELERA_RISCV_TOOLCHAIN_DIR
-      value: "/opt/axelera/riscv-gnu-newlib-toolchain-409b951ba662-8"
+      value: "/opt/axelera/device-1.8.0-1/omega"
     - name: AXELERA_FRAMEWORK
       value: $PWD
     - name: AIPU_FIRMWARE_OMEGA
@@ -278,14 +279,14 @@ runtime:
     - name: LD_LIBRARY_PATH
       value: "${AXELERA_RUNTIME_DIR}/lib:${AXELERA_FRAMEWORK}/operators/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     - name: PATH
-      value: "${AXELERA_RUNTIME_DIR}/bin:${AXELERA_RISCV_TOOLCHAIN_DIR}/bin${PATH:+:$PATH}"
+      value: "${AXELERA_RUNTIME_DIR}/bin${PATH:+:$PATH}"
     - name: PKG_CONFIG_PATH
       value: "${AXELERA_RUNTIME_DIR}/lib/pkgconfig:${AXELERA_FRAMEWORK}/operators/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
 driver:
   description: PCIe driver
   libs:
-    - metis-dkms == 1.5.5
+    - metis-dkms == 1.6.2
     - axelera-multi-device == 1.0.0
 
 repositories:
@@ -318,10 +319,8 @@ repositories:
       - https://packages.microsoft.com/repos/code stable main
   - list: /etc/apt/sources.list.d/axelera.list
     packages:
-      - axelera-device-1.7.0
-      - axelera-runtime-1.7.0
-      - axelera-riscv-gnu-newlib-toolchain-409b951ba662-8
-      - axelera-riscv-openocd
+      - axelera-device-1.8.0
+      - axelera-runtime-1.8.0
       - metis-dkms
       - axelera-multi-device
       # platform specific

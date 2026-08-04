@@ -394,6 +394,18 @@ class CVDraw(display.Draw):
                 )
 
                 self._dlist[TOPMOST].paste(img, pt, img)
+            elif isinstance(x, display._Rectangle):
+                x2, y2 = pt_transform(x.bottom_right.as_px(canvas_size))
+                x1, x2 = sorted((int(pt[0]), int(x2)))
+                y1, y2 = sorted((int(pt[1]), int(y2)))
+                color = x.color[:3] + (int(x.color[3] * x.visibility),)
+                # Draw the outline onto a transparent tile and paste with its own
+                # alpha so visibility blends like the other layers.
+                rect = PIL.Image.new('RGBA', (x2 - x1 + 1, y2 - y1 + 1), (0, 0, 0, 0))
+                PIL.ImageDraw.Draw(rect, "RGBA").rectangle(
+                    [0, 0, x2 - x1, y2 - y1], outline=color, width=1
+                )
+                self._dlist[TOPMOST].paste(rect, (x1, y1), rect)
             else:
                 LOG.debug(f"Unknown layer type {x.__class__.__name__} ignoring...")
 

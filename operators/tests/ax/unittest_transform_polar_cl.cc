@@ -100,6 +100,8 @@ TEST_P(PolarTransformFormatFixture, basic_polar_transform_test)
   auto output_width_actual = output_info.info.width;
   auto output_height_actual = output_info.info.height;
   auto output_buffer = make_buffer(output_width_actual, output_height_actual, out_format);
+  output_info = make_video_interface(
+      output_width_actual, output_height_actual, out_format, output_buffer);
 
   Ax::MetaMap metadata;
   ASSERT_NO_THROW(xform->transform(input_info, output_info, 0, 1, metadata));
@@ -142,6 +144,8 @@ TEST_P(PolarTransformFormatFixture, inverse_polar_transform_test)
   auto output_width_actual = output_info.info.width;
   auto output_height_actual = output_info.info.height;
   auto output_buffer = make_buffer(output_width_actual, output_height_actual, out_format);
+  output_info = make_video_interface(
+      output_width_actual, output_height_actual, out_format, output_buffer);
 
   Ax::MetaMap metadata;
   ASSERT_NO_THROW(xform->transform(input_info, output_info, 0, 1, metadata));
@@ -184,6 +188,8 @@ TEST_P(PolarTransformFormatFixture, polar_transform_with_custom_center)
   auto output_width_actual = output_info.info.width;
   auto output_height_actual = output_info.info.height;
   auto output_buffer = make_buffer(output_width_actual, output_height_actual, out_format);
+  output_info = make_video_interface(
+      output_width_actual, output_height_actual, out_format, output_buffer);
 
   Ax::MetaMap metadata;
   ASSERT_NO_THROW(xform->transform(input_info, output_info, 0, 1, metadata));
@@ -227,7 +233,8 @@ TEST_P(PolarTransformFormatFixture, polar_transform_semilog_mode)
   auto output_width_actual = output_info.info.width;
   auto output_height_actual = output_info.info.height;
   auto output_buffer = make_buffer(output_width_actual, output_height_actual, out_format);
-
+  output_info = make_video_interface(
+      output_width_actual, output_height_actual, out_format, output_buffer);
 
   Ax::MetaMap metadata;
   ASSERT_NO_THROW(xform->transform(input_info, output_info, 0, 1, metadata));
@@ -270,7 +277,8 @@ TEST_P(PolarTransformFormatFixture, polar_transform_with_size_property)
   auto output_width_actual = output_info.info.width;
   auto output_height_actual = output_info.info.height;
   auto output_buffer = make_buffer(output_width_actual, output_height_actual, out_format);
-
+  output_info = make_video_interface(
+      output_width_actual, output_height_actual, out_format, output_buffer);
 
   Ax::MetaMap metadata;
   ASSERT_NO_THROW(xform->transform(input_info, output_info, 0, 1, metadata));

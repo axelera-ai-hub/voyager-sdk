@@ -19,7 +19,9 @@ title: "axmonitor"
 | PCIe bandwidth | DMA bandwidth per channel in MB/s |
 | Processes | Running processes with PIDs and container IDs (Linux only) |
 | Device version | Firmware version, hardware ID, protocol version |
-| Configuration | Thermal management settings, clock frequency per core |
+| Device configuration | Thermal management settings, clock frequency per core |
+| MVM utilization | Percentage of the MVM (Matrix-Vector Multiplier) array that is active per core |
+| Core stack usage | Stack memory utilization per core |
 
 ---
 
@@ -188,16 +190,16 @@ Use `--export` together with `--record` to write metrics alongside the `.raw` fi
 
 | Format | Extension | Description |
 |--------|-----------|-------------|
-| `json` | `.json` | Structured JSON for scripting and post-processing |
+| `jsonl` | `.jsonl` | Structured JSON Lines for scripting and post-processing |
 | `pretty` | `.pretty` | Human-readable text output |
 
 Multiple formats can be specified at once:
 
 ```bash
-axmonitor --server-address "127.0.0.1:5555" --record --export json pretty
+axmonitor --server-address "127.0.0.1:5555" --record --export jsonl pretty
 ```
 
-This produces `axmonitor.data.raw`, `axmonitor.data.json`, and `axmonitor.data.pretty`.
+This produces `axmonitor.data.raw`, `axmonitor.data.jsonl`, and `axmonitor.data.pretty`.
 
 ### Replay a recorded session
 
@@ -206,6 +208,32 @@ Use `--replay` to replay a previously recorded `.raw` file through the normal UI
 ```bash
 axmonitor --replay --data-file my_session
 ```
+
+### Post-processing
+
+axmonitor includes a post-processing analysis functionality with automated plot generation and statistical reporting, based on recorded device data saved in JSON Lines file (.jsonl).
+
+The post-processor generates a folder (named <file.jsonl>_postproc) containing:
+- 1 SVG file containing multi-panel grid plots (temperature, power, KPS, DDR bandwidth, PCIe bandwidth, CPU utilisation) for each device
+- 1 SVG file containing dual-axis temperature vs total device KPS correlation plot for each device
+- 1 SVG file containing dual-axis average power vs device KPS plot for each device (if power sensors are present)
+- Markdown summary report for all devices
+
+Users might want to focus analysis on a specific time window (e.g., seconds 300–500) rather than the full recording. The --post-proc-start and --post-proc-end CLI flags trim the data to the requested window (in seconds) before any plot or report is generated.
+
+Post-processing invocation:
+
+Full run:
+```bash
+axmonitor --post-proc <file.jsonl>
+```
+
+Run on a specific time window:
+```bash
+axmonitor --post-proc <file.jsonl> --post-proc-start <start-time> --post-proc-end <stop-time>
+```
+
+The post-processing runs in standalone mode and exits immediately.
 
 ---
 

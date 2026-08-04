@@ -16,6 +16,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 import os
+from pathlib import Path
 import queue
 import re
 import subprocess
@@ -91,20 +92,23 @@ def _enum_usb_video_devices() -> list[str]:
         return []
 
 
+_FRAMEWORK_DIR = Path(__file__).parent.parent.resolve()
+
+
 def _enum_media_sources() -> list[tuple[str, str]]:
     """Return (display_name, source_string) pairs for mp4 files in media/."""
     results = []
     try:
-        for f in sorted(os.listdir('media')):
+        for f in sorted(os.listdir(_FRAMEWORK_DIR / 'media')):
             if f.endswith('.mp4'):
-                results.append((f, f'media/{f}@auto'))
+                results.append((f, str(_FRAMEWORK_DIR / 'media' / f) + '@auto'))
     except FileNotFoundError:
         pass
     return results
 
 
 def _check_model_deployed(name: str) -> bool:
-    return os.path.isdir(f'build/{name}')
+    return (_FRAMEWORK_DIR / 'build' / name).is_dir()
 
 
 def _build_network_list() -> list[tuple[str, str, bool]]:
@@ -656,10 +660,9 @@ class SlotPanel(wx.Panel):
 def _display_source(source: str) -> str:
     """Pretty-print a source string for display."""
     s = source
-    if s.startswith('media/'):
-        s = s[len('media/') :]
     if s.endswith('@auto'):
         s = s[: -len('@auto')]
+    s = os.path.basename(s)
     return s
 
 

@@ -814,9 +814,9 @@ def add_display_arguments(
 ):
     parser.add_argument(
         '--display',
-        choices=['none', 'opengl', 'opencv', 'console', 'iterm2', 'auto'],
+        choices=['none', 'opengl', 'opencv', 'console', 'iterm2', 'vulkan', 'auto'],
         default='auto',
-        help='display the results of the inference in a window. The window can be opengl, opencv,\n'
+        help='display the results of the inference in a window. The window can be opengl, vulkan, opencv,\n'
         'console (using ANSI control codes) or none. If auto then if DISPLAY is set then OpenGL\n'
         'is preferred over OpenCV, and if DISPLAY is not set then a console display is used.'
         '(iterm2 is experimental, using the iTerm2 terminal and some other terminals to render images).\n',
@@ -1086,6 +1086,15 @@ real-time metric responses. (default {on_off(default_speedometer_smoothing)})
          * reduces the size of all queues in the pipeline to 1.
          * disables all render buffering.
         ''',
+    )
+    # Internal, unstable: dispatch inference via axruntime's async (non-blocking)
+    # executor instead of the default blocking one. Hidden from --help
+    # (argparse.SUPPRESS); not a customer-facing flag.
+    parser.add_argument(
+        '--enable-async-executor',
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         '--frame-rate',
@@ -2342,6 +2351,8 @@ class PipelineConfig(BaseConfig):
     specified_frame_rate: int = 0
     low_latency: bool = False
     """If True then use low latency settings for the pipeline."""
+    async_mode: bool = False
+    """If True then dispatch inference via axruntime's async (non-blocking) executor."""
     rtsp_latency: int = 500
     save_output: str = ''
     tiling: TilingConfig = dataclasses.field(default_factory=TilingConfig)
@@ -2396,6 +2407,7 @@ class PipelineConfig(BaseConfig):
             specified_frame_rate=args.frame_rate,
             rtsp_latency=args.rtsp_latency,
             low_latency=args.low_latency,
+            async_mode=args.enable_async_executor,
             save_output=args.save_output,
             tiling=TilingConfig.from_parsed_args(args),
             which_cl=args.cl_platform,

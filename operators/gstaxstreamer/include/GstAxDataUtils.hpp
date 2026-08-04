@@ -102,7 +102,9 @@ void update_tensor_dimensions(GstCaps *caps, GstCaps *peer_caps);
   GST_AX_VIDEO_FORMAT_REGISTER(NV12)                       \
   GST_AX_VIDEO_FORMAT_REGISTER(NV16)                       \
   GST_AX_VIDEO_FORMAT_REGISTER(I420)                       \
-  GST_AX_VIDEO_FORMAT_REGISTER(YUY2)
+  GST_AX_VIDEO_FORMAT_REGISTER(YUY2)                       \
+  GST_AX_VIDEO_FORMAT_REGISTER(Y444)                       \
+  GST_AX_VIDEO_FORMAT_REGISTER(Y42B)
 
 #define AX_GST_GENERATE_VIDEO_CAPS(x) GST_VIDEO_CAPS_MAKE(#x) ";"
 #define AX_GST_VIDEO_FORMATS_CAPS \

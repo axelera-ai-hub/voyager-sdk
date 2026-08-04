@@ -6,7 +6,6 @@
     - [Dataset and Model Setup](#dataset-and-model-setup)
       - [Option 1: Train the Model Yourself](#option-1-train-the-model-yourself)
       - [Option 2: Use a Pre-trained Model](#option-2-use-a-pre-trained-model)
-      - [Download the representative images](#download-the-representative-images)
   - [Next Steps](#next-steps)
 - [Appendix: Converting Models to ONNX](#appendix-converting-models-to-onnx)
   - [1. Converting PyTorch Models to ONNX](#1-converting-pytorch-models-to-onnx)

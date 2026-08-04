@@ -30,7 +30,7 @@
     preprocess0_lib: libtransform_centrecropextra.so
     preprocess0_options: scalesize:256;crop_width:224;crop_height:224
     preprocess1_lib: libtransform_resize_cl.so
-    preprocess1_options: width:224;height:224;to_tensor:1;mean:0.456;std:0.224;quant_scale:{{quant_scale}};quant_zeropoint:{{quant_zeropoint}}.0;format:gray8
+    preprocess1_options: width:224;height:224;to_tensor:1;mean:0.456;std:0.224;quant_scale:{{quant_scale}};quant_zeropoint:{{quant_zeropoint}}.0;format:gray8;interpolation:2
     preprocess2_lib: libtransform_padding.so
     preprocess2_options: padding:{{pads}};fill:-12
     postprocess0_lib: libtransform_dequantize.so

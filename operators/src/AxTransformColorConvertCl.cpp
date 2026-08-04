@@ -233,8 +233,8 @@ set_output_interface(const AxDataInterface &interface,
     };
     // Output is always a fresh, single-plane buffer; clear any crop/multi-plane
     // state inherited from the input.
-    out_info.strides = { size_t(out_info.info.stride) };
-    out_info.offsets = { 0 };
+    out_info.strides.assign(1, size_t(out_info.info.stride));
+    out_info.offsets.assign(1, size_t{ 0 });
     out_info.info.cropped = false;
     out_info.info.x_offset = 0;
     out_info.info.y_offset = 0;
@@ -280,14 +280,16 @@ can_passthrough(const AxDataInterface &input, const AxDataInterface &output,
   if (output_details.size() != 1) {
     throw std::runtime_error("color_convert works on single video (possibly batched) output only");
   }
-  // When output is GRAY and input is NV12, NV16, or I420, we can pass through,
-  // as the yuv image already has the gray image as luminance (Y) component in the beginning of the buffer.
-  // Only valid when there is no crop offset; otherwise the Y data for the cropped region
-  // does not start at byte 0 of the buffer.
+  // When output is GRAY and input is a YUV format whose Y (luminance) plane
+  // starts at byte 0 of the buffer (NV12, NV16, I420, Y42B), we can pass
+  // through, as the buffer already begins with the gray image.
+  // Only valid when there is no crop offset; otherwise the Y data for the
+  // cropped region does not start at byte 0 of the buffer.
   bool gray_out_bypass = (input_details[0].crop_x == 0 && input_details[0].crop_y == 0)
                          && (input_details[0].format == AxVideoFormat::I420
                              || input_details[0].format == AxVideoFormat::NV12
-                             || input_details[0].format == AxVideoFormat::NV16)
+                             || input_details[0].format == AxVideoFormat::NV16
+                             || input_details[0].format == AxVideoFormat::Y42B)
                          && (output_details[0].format == AxVideoFormat::GRAY8
                              && input_details[0].width == output_details[0].width
                              && input_details[0].height == output_details[0].height);

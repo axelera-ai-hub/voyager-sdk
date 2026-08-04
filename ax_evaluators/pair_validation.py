@@ -5,6 +5,11 @@ import typing
 
 import numpy as np
 
+if np.lib.NumpyVersion(np.__version__) >= '2.0.0':
+    from numpy import trapezoid as trapz
+else:
+    from numpy import trapz as trapz
+
 from axelera import types
 from axelera.app.model_utils import embeddings
 from axelera.app.utils import logging_utils
@@ -122,7 +127,7 @@ def _calculate_roc(
         tprs.append(tpr)
         fprs.append(fpr)
 
-        auc = np.trapz(tpr, fpr)
+        auc = trapz(tpr, fpr)
         aucs.append(auc)
 
         eer = fpr[np.nanargmin(np.abs(fpr - (1 - tpr)))]

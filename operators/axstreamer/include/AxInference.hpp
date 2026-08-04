@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #pragma once
 
 #include <memory>
@@ -79,6 +79,23 @@ class BasicInference
   virtual InferenceParams execute(InferenceParams params) = 0;
 };
 
+class AsyncBasicInference
+{
+  public:
+  virtual ~AsyncBasicInference() = default;
+  // Submits params for execution. Blocks the calling thread only if this
+  // instance's own in-flight backlog (max_pending) is full; otherwise returns
+  // immediately. The completion callback (bound at construction) normally
+  // fires later, from an unspecified internal thread, not synchronously from
+  // submit() -- except on a permanent submission failure (e.g. the
+  // axruntime-backed implementation exhausting its retry budget), where it is
+  // invoked synchronously from submit() with ok=false since no async
+  // completion will ever arrive for that request.
+  virtual void submit(InferenceParams params) = 0;
+  // Blocks until every outstanding submission has completed. Used during teardown.
+  virtual void drain() = 0;
+};
+
 class Inference
 {
   public:
@@ -91,11 +108,15 @@ class Inference
   virtual void collect() = 0;
 };
 
-using InferenceReadyCallback = std::function<void(uint64_t frame_id)>;
+using InferenceReadyCallback = std::function<void(uint64_t frame_id, bool ok)>;
 std::unique_ptr<Inference> create_inference(Logger &logger,
     const InferenceProperties &props, InferenceReadyCallback callback);
 
 std::unique_ptr<BasicInference> create_axruntime_inference(Logger &logger,
     axrContext *ctx, axrModel *model, const InferenceProperties &props);
+
+std::unique_ptr<AsyncBasicInference> create_async_axruntime_inference(Logger &logger,
+    axrContext *ctx, axrModel *model, const InferenceProperties &props,
+    std::function<void(InferenceParams, bool)> on_complete);
 
 } // namespace Ax

@@ -704,6 +704,32 @@ def test_flatten():
     assert flatten(envs, optional=True) == exp
 
 
+def test_flatten_preserves_package_extras_string():
+    envs = yaml.safe_load(
+        """
+        penv:
+            axelera_development:
+                index_url: "http://ax-whatever/development"
+                requires_auth: false
+                libs:
+                    - axelera-zoo: "{index = \\\"axelera_development\\\", extras = [\\\"full\\\"]}"
+        """
+    )
+
+    flat, _ = flatten(envs, optional=False)
+    raw_key = "penv_axelera_development_libs_0_axelera-zoo"
+    assert flat[raw_key] == '{index = "axelera_development", extras = ["full"]}'
+
+    exported_key = raw_key.replace("-", "_").replace(".", "_")
+    exported_value = str(flat[raw_key]).replace('"', '\\"').replace("$", "\\\\\\$")
+
+    assert exported_key == "penv_axelera_development_libs_0_axelera_zoo"
+    assert (
+        exported_value
+        == '{index = \\"axelera_development\\", extras = [\\"full\\"]}'
+    )
+
+
 def test_status(capsys):
     import textwrap
 

@@ -1308,6 +1308,9 @@ def read_deployed_model_infos(
             model_info = types.ModelInfo.from_json(model_json.read_text())
             model_info.weight_path = localise_path(model_info.weight_path)
             model_info.class_path = os.path.join(config.env.framework, model_info.class_path)
+            # extra_kwargs path values (eg darknet_cfg_path) are stored in portable
+            # $AXELERA_FRAMEWORK form in model_info.json; expand them on load.
+            utils.make_paths_in_dict_absolute(config.env.framework, model_info.extra_kwargs)
             # # fill manifest with dummy values for non-aipu pipelines, it
             # # will be overwritten by the manifest file if it exists
             # model_info.manifest = types.Manifest("", (), ())

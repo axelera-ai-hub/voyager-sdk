@@ -268,6 +268,7 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
     AxVideoFormat::NV12,
     AxVideoFormat::NV16,
     AxVideoFormat::I420,
+    AxVideoFormat::Y42B,
     AxVideoFormat::YUY2,
     AxVideoFormat::GRAY8,
   };

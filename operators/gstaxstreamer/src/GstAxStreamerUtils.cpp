@@ -117,6 +117,18 @@ Ax::set_inference_property(InferenceProperties &props, int prop_id, const GValue
       props.which_cl = get_string(value, "which_cl");
       break;
 
+    case AXINFERENCE_PROP_ASYNC_MODE:
+      props.async_mode = g_value_get_boolean(value);
+      break;
+
+    case AXINFERENCE_PROP_MAX_INFLIGHT:
+      props.max_inflight = g_value_get_int(value);
+      break;
+
+    case AXINFERENCE_PROP_MAX_PENDING:
+      props.max_pending = g_value_get_int(value);
+      break;
+
     default:
       return false;
   }
@@ -171,6 +183,18 @@ Ax::get_inference_property(const InferenceProperties &props, int prop_id, GValue
       g_value_set_string(value, props.which_cl.c_str());
       break;
 
+    case AXINFERENCE_PROP_ASYNC_MODE:
+      g_value_set_boolean(value, props.async_mode);
+      break;
+
+    case AXINFERENCE_PROP_MAX_INFLIGHT:
+      g_value_set_int(value, props.max_inflight);
+      break;
+
+    case AXINFERENCE_PROP_MAX_PENDING:
+      g_value_set_int(value, props.max_pending);
+      break;
+
     default:
       return false;
   }
@@ -214,8 +238,8 @@ Ax::add_boolean_property(GObjectClass *object_klass, int id,
 }
 
 void
-Ax::add_inference_properties(GObjectClass *object_klass,
-    bool include_dmabuf_outputs, bool include_inference_skip_rate)
+Ax::add_inference_properties(GObjectClass *object_klass, bool include_dmabuf_outputs,
+    bool include_inference_skip_rate, bool include_async_mode)
 {
   const InferenceProperties defaults;
   add_string_property(object_klass, AXINFERENCE_PROP_MODEL, "model",
@@ -236,7 +260,7 @@ Ax::add_inference_properties(GObjectClass *object_klass,
 
   g_object_class_install_property(object_klass, AXINFERENCE_PROP_NUM_CHILDREN,
       g_param_spec_int("num_children", "num_children int", "Number of child processes",
-          0, 4, defaults.num_children, G_PARAM_READWRITE));
+          0, 8, defaults.num_children, G_PARAM_READWRITE));
 
   if (include_inference_skip_rate) {
     add_string_property(object_klass, AXINFERENCE_PROP_INFERENCE_SKIP_RATE, "inference_skip_rate",
@@ -248,6 +272,21 @@ Ax::add_inference_properties(GObjectClass *object_klass,
   add_string_property(object_klass, AXINFERENCE_PROP_OPTIONS, "options",
       "Extra options for inference element");
   add_string_property(object_klass, AXINFERENCE_PROP_DEVICES, "devices", "Devices to connect to");
+
+  if (include_async_mode) {
+    g_object_class_install_property(object_klass, AXINFERENCE_PROP_ASYNC_MODE,
+        g_param_spec_boolean("async_mode", "whether the async executor is enabled",
+            "Whether inference is dispatched via axruntime's async (non-blocking) executor.",
+            defaults.async_mode, G_PARAM_READWRITE));
+    g_object_class_install_property(object_klass, AXINFERENCE_PROP_MAX_INFLIGHT,
+        g_param_spec_int("max_inflight", "max_inflight int",
+            "Max concurrent in-flight device workloads per instance when async_mode is set",
+            1, 64, defaults.max_inflight, G_PARAM_READWRITE));
+    g_object_class_install_property(object_klass, AXINFERENCE_PROP_MAX_PENDING,
+        g_param_spec_int("max_pending", "max_pending int",
+            "Max submitted-but-not-completed workloads per instance when async_mode is set",
+            1, 64, defaults.max_pending, G_PARAM_READWRITE));
+  }
 }
 
 

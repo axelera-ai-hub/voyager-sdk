@@ -14,7 +14,7 @@ target-version = ["py38", "py39", "py310"]
 # # black will automatically exclude all files listed in .gitignore
 # # If you need to exclude additional folders, consider using extend-exclude to avoid disabling the
 # # default .gitignore behaviour.
-extend-exclude="(data|axelera/app/fmzoo)"
+extend-exclude="(data|axelera/app/fmzoo|model_recipes)"
 
 # FIXME issue 128
 [tool.isort]
@@ -42,9 +42,14 @@ filterwarnings = """\
 """
 markers = [
     "onnx_opt: marks ONNX optimization tests (deselect with '-m \"not onnx_opt\"')",
+    "slow: marks tests that require AIPU runtime / wheel installs / minute-scale compiles (deselect with '-m \"not slow\"')",
 ]
 
 [tool.ruff]
 line-length=99
 lint.ignore=['E731']
 target-version='py310'
+# Committed model recipes (model_recipes/) are generated + black-formatted by
+# axzoo codegen and byte-gated by `axzoo drift-check`; no linter may rewrite
+# them or drift-check breaks.
+extend-exclude=["model_recipes"]

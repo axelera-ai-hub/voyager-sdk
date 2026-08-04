@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #include "unittest_ax_common.h"
 
 namespace
@@ -127,6 +127,49 @@ TEST(Conversion, i4202rgb)
   std::vector<size_t> offsets{ 0, 12, 15 };
 
   auto in = AxVideoInterface{ { 6, 2, int(strides[0]), 0, AxVideoFormat::I420 },
+    in_buf.data(), strides, offsets, -1 };
+
+  auto out = AxVideoInterface{ { 6, 2, 6 * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { 6 * 4 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
+TEST(Conversion, y42b2rgb)
+{
+  std::unordered_map<std::string, std::string> input = {
+    { "format", "rgba" },
+  };
+  auto xform = Ax::LoadTransform("colorconvert", input);
+  auto in_buf = std::vector<uint8_t>{
+    // clang-format off
+    // Y plane: 6x2 = 12 bytes
+    0x98, 0x98, 0x98, 0x98, 0x98, 0x98,
+    0x98, 0x98, 0x98, 0x98, 0x98, 0x98,
+    // U plane: 3x2 = 6 bytes (half horizontal resolution, full vertical)
+    0x3A, 0x3A, 0x3A,
+    0x3A, 0x3A, 0x3A,
+    // V plane: 3x2 = 6 bytes
+    0xC9, 0xC9, 0xC9,
+    0xC9, 0xC9, 0xC9,
+    // clang-format on
+  };
+
+  auto out_buf = std::vector<uint8_t>(6 * 2 * 4, 0x99);
+  auto expected = std::vector<uint8_t>{
+    // clang-format off
+    0xFF, 0x7E, 0x11, 0xFF, 0xFF, 0x7E, 0x11, 0xFF, 0xFF, 0x7E, 0x11, 0xFF,
+    0xFF, 0x7E, 0x11, 0xFF, 0xFF, 0x7E, 0x11, 0xFF, 0xFF, 0x7E, 0x11, 0xFF,
+    0xFF, 0x7E, 0x11, 0xFF, 0xFF, 0x7E, 0x11, 0xFF, 0xFF, 0x7E, 0x11, 0xFF,
+    0xFF, 0x7E, 0x11, 0xFF, 0xFF, 0x7E, 0x11, 0xFF, 0xFF, 0x7E, 0x11, 0xFF,
+    // clang-format on
+  };
+
+  std::vector<size_t> strides{ 6, 3, 3 };
+  std::vector<size_t> offsets{ 0, 12, 18 };
+
+  auto in = AxVideoInterface{ { 6, 2, int(strides[0]), 0, AxVideoFormat::Y42B },
     in_buf.data(), strides, offsets, -1 };
 
   auto out = AxVideoInterface{ { 6, 2, 6 * 4, 0, AxVideoFormat::RGBA },

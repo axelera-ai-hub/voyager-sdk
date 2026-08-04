@@ -317,6 +317,9 @@ set_output_interface(const AxDataInterface &interface,
                                          AxVideoFormatFromString(prop->format);
     out_info.info.format = format;
     Ax::validate_output_format(out_info.info.format, prop->format, name, valid_formats);
+    out_info.info.stride = width * AxVideoFormatNumChannels(format);
+    out_info.strides.assign(1, size_t(out_info.info.stride));
+    out_info.offsets.assign(1, size_t{ 0 });
     output = out_info;
   }
   return output;
@@ -347,6 +350,7 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
     AxVideoFormat::NV12,
     AxVideoFormat::NV16,
     AxVideoFormat::I420,
+    AxVideoFormat::Y42B,
     AxVideoFormat::YUY2,
     AxVideoFormat::GRAY8,
   };

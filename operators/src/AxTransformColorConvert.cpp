@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #include <unordered_map>
 #include <unordered_set>
 #include "AxDataInterface.h"
@@ -94,6 +94,36 @@ can_passthrough(const AxDataInterface &input, const AxDataInterface &output,
   return (input_details[0].format == output_details[0].format);
 }
 
+static cv::Mat
+pack_y42b_to_yuyv(const AxVideoInterface &in_video)
+{
+  const int w = in_video.info.width;
+  const int h = in_video.info.height;
+  const int ystride = in_video.strides.size() > 0 ? in_video.strides[0] : w;
+  const int ustride = in_video.strides.size() > 1 ? in_video.strides[1] : w / 2;
+  const int vstride = in_video.strides.size() > 2 ? in_video.strides[2] : w / 2;
+  const auto *base = static_cast<const uint8_t *>(in_video.data);
+  const auto *y_plane = base + (in_video.offsets.size() > 0 ? in_video.offsets[0] : 0);
+  const auto *u_plane
+      = base + (in_video.offsets.size() > 1 ? in_video.offsets[1] : ystride * h);
+  const auto *v_plane
+      = base + (in_video.offsets.size() > 2 ? in_video.offsets[2] : ystride * h + ustride * h);
+  cv::Mat yuyv(h, w, CV_8UC2);
+  for (int row = 0; row < h; ++row) {
+    const uint8_t *y = y_plane + row * ystride;
+    const uint8_t *u = u_plane + row * ustride;
+    const uint8_t *v = v_plane + row * vstride;
+    auto *dst = yuyv.ptr<uint8_t>(row);
+    for (int col = 0; col < w; col += 2) {
+      dst[2 * col] = y[col];
+      dst[2 * col + 1] = u[col / 2];
+      dst[2 * col + 2] = y[col + 1];
+      dst[2 * col + 3] = v[col / 2];
+    }
+  }
+  return yuyv;
+}
+
 cv::Mat
 make_contiguous_if_needed(const AxVideoInterface &in_video, Ax::Logger &logger)
 {
@@ -186,6 +216,10 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
     if (in_video.offsets.size() != 3 || in_video.strides.size() != 3) {
       throw std::runtime_error("I420 input has unrecognised number of offsets or strides (not 3)");
     }
+  } else if (in_video.info.format == AxVideoFormat::Y42B) {
+    if (in_video.offsets.size() != 3 || in_video.strides.size() != 3) {
+      throw std::runtime_error("Y42B input has unrecognised number of offsets or strides (not 3)");
+    }
   } else {
     if (in_video.strides.size() != 1) {
       throw std::runtime_error("OpenCV color conversion does not support multiple strides");
@@ -216,6 +250,8 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
              || in_video.info.format == AxVideoFormat::I420) {
 
     input_mat = make_contiguous_if_needed(in_video, logger);
+  } else if (in_video.info.format == AxVideoFormat::Y42B) {
+    input_mat = pack_y42b_to_yuyv(in_video);
   } else {
     input_mat = cv::Mat(cv::Size(in_video.info.width, height),
         input_opencv_type, in_video.data, stride);

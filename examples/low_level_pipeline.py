@@ -38,9 +38,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
     hwcaps = config.HardwareCaps.from_parsed_args(args)
     framework = config.env.framework
-    examples_dir = os.path.dirname(__file__)
-    low_level = Path(f'{examples_dir}/low-level-fruit-demo.yaml').read_text()
+    examples_dir = Path(__file__).parent.resolve()
+    framework_dir = examples_dir.parent
+    low_level = (examples_dir / 'low-level-fruit-demo.yaml').read_text()
     low_level = re.sub(r'^(\s+devices:\s+).*$', f'\\1{first_device_name()}', low_level, flags=re.M)
+    low_level = re.sub(
+        r'^(\s+model:\s+)(build/)', f'\\1{framework_dir}/\\2', low_level, flags=re.M
+    )
 
     stream = create_inference_stream(
         log_level=logging_utils.TRACE,  # INFO, DEBUG, TRACE

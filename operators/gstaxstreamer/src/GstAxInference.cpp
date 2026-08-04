@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 
 #include <gst/allocators/gstfdmemory.h>
 #include <gst/gst.h>
@@ -672,7 +672,11 @@ gst_axinference_class_init(GstAxInferenceClass *klass)
   gobject_class->get_property = gst_axinference_get_property;
   gobject_class->finalize = gst_axinference_finalize;
 
-  Ax::add_inference_properties(gobject_class, true, false);
+  // This element calls create_inference() with an empty completion callback
+  // (see configure_instance() above), so async_mode must never be settable
+  // here: AsyncPipelinedInference invokes that callback unconditionally on
+  // every completion, which would crash with std::bad_function_call.
+  Ax::add_inference_properties(gobject_class, true, false, /*include_async_mode=*/false);
 
   g_object_class_install_property(gobject_class, PROP_UNBATCH,
       g_param_spec_boolean("unbatch", "Unbatch", "Outputs unbatched tensors",

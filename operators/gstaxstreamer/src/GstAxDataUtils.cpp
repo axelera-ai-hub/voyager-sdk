@@ -49,6 +49,10 @@ gst_format_to_string(GstVideoFormat fmt)
       return "NV12";
     case GST_VIDEO_FORMAT_NV16:
       return "NV16";
+    case GST_VIDEO_FORMAT_Y444:
+      return "Y444";
+    case GST_VIDEO_FORMAT_Y42B:
+      return "Y42B";
     default:
       return "<unknown " + std::to_string(fmt) + ">";
   }
@@ -208,6 +212,8 @@ plane_height(AxVideoFormat format, int plane, int height)
     case AxVideoFormat::I420:
       return plane == 0 ? height : height / 2;
     case AxVideoFormat::NV16:
+    case AxVideoFormat::Y42B:
+    case AxVideoFormat::Y444:
       return height;
     default:
       return height;

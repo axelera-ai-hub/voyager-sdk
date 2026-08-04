@@ -1,7 +1,7 @@
 ![image](docs/images/Ax_Voyager_SDK_Repo_Banner_1600x457_01.png)
 
 # Voyager SDK repository
-v1.7: [Release notes](RELEASE_NOTES.md)
+v1.8: [Release notes](RELEASE_NOTES.md) | [Release compatibility matrix](RELEASE_COMPATIBILITY_MATRIX.md)
 
 - [Voyager SDK repository](#voyager-sdk-repository)
   - [Release Qualification](#release-qualification)
@@ -101,7 +101,7 @@ This section provides links to additional documentation available in the Voyager
 
 | Document                                                                   | Description                                                                                                                                                                            |
 |:---------------------------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [Advanced deployment tutorials](ax_models/tutorials/general/tutorials.md) | Advanced deployment options [experimental]                                                                                                                                             |
+| [Advanced deployment tutorials](ax_models/tutorials/general/tutorials.md) | Advanced deployment options [experimental]                                                                                                                                              |
 | [AxRunmodel manual](docs/reference/tools/axrunmodel.md)                    | AxRunModel is a tool that can run deployed models on Metis hardware using different features available in the AxRuntime API (such as DMA buffers, double buffering and multiple cores) |
 | [Compiler CLI](docs/reference/compiler/compiler-cli.md)                    | Compiler Command Line Interface [beta]                                                                                                                                                 |
 | [Compiler API](docs/reference/compiler/compiler-api.md)                    | Python Compiler API [experimental]                                                                                                                                                     |

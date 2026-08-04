@@ -12,6 +12,7 @@ import os
 import queue
 import random
 import re
+import sys
 import threading
 import time
 import traceback
@@ -960,21 +961,36 @@ def _requires_frame_sink(func):
 
 
 def get_primary_screen_resolution():
+    resolution = config.DEFAULT_WINDOW_SIZE
+    tool = 'unknown'
     try:
-        import subprocess
+        if sys.platform == 'darwin':
+            tool = 'CoreGraphics'
+            import ctypes
+            import ctypes.util
 
-        output = subprocess.check_output(
-            r'xrandr | grep "\*" | cut -d" " -f4', shell=True
-        ).decode()
-        split = output.split()[0].split('x')
-        resolution = (int(split[0]), int(split[1]))
-        LOG.debug(f"Determined fullscreen primary display resolution as {resolution} via xrandr")
-        return resolution
+            cg = ctypes.cdll.LoadLibrary(ctypes.util.find_library('CoreGraphics'))
+            cg.CGMainDisplayID.restype = ctypes.c_uint32
+            cg.CGDisplayPixelsWide.restype = ctypes.c_size_t
+            cg.CGDisplayPixelsHigh.restype = ctypes.c_size_t
+            did = cg.CGMainDisplayID()
+            w = int(cg.CGDisplayPixelsWide(did))
+            h = int(cg.CGDisplayPixelsHigh(did))
+            if w > 0 and h > 0:
+                resolution = (w, h)
+        else:
+            import subprocess
+
+            tool = 'xrandr'
+            output = subprocess.check_output(
+                r'xrandr | grep "\*" | cut -d" " -f4', shell=True
+            ).decode()
+            split = output.split()[0].split('x')
+            resolution = (int(split[0]), int(split[1]))
+        LOG.debug(f"Determined fullscreen primary display resolution as {resolution} via {tool}")
     except Exception:
-        LOG.warning(
-            f"Could not determine screen resolution with xrandr, using {config.DEFAULT_WINDOW_SIZE}"
-        )
-        return config.DEFAULT_WINDOW_SIZE
+        LOG.warning(f"Could not determine screen resolution with {tool}, using {resolution}")
+    return resolution
 
 
 class Surface:
@@ -1542,8 +1558,12 @@ def _find_display_class(display: str | bool, opengl: config.HardwareEnable):
         return display_console.iTerm2App
     elif display == 'wx':  # Internal only - requires OpenGL
         return _safe_gl_import('._display_wx', 'WxApp', display_env)
+    elif display == 'vulkan':
+        from .display_vk import VKApp
+
+        return VKApp
     elif display != 'none':
-        expect = "'auto', 'opengl', 'opencv', 'console', 'iterm2', 'none' or False"
+        expect = "'auto', 'opengl', 'opencv', 'console', 'iterm2', 'vulkan', 'none' or False"
         raise ValueError(f"Invalid display option: {display}, expect one of {expect}")
     return NullApp
 

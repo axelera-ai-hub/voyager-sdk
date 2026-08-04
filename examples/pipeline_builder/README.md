@@ -17,10 +17,15 @@ start from it without pulling in the smoke-test scaffolding.
 | `nms_free_detection.py`           | NMS-free YOLO detection (yolo26); `decode_detections` filters by confidence, so no separate NMS stage is needed.         | `yolo26n-coco-onnx.axm`                          |
 | `pose_detection.py`               | YOLOv8 human pose estimation with 17 COCO keypoints.                                                                     | `yolov8npose-coco.axm`                           |
 | `segmentation.py`                 | YOLOv8 instance segmentation with prototype-based mask prediction (uses `par` + `itemgetter` for explicit tuple flow).   | `yolov8nseg-coco.axm`                            |
+| `semantic_segmentation.py`        | Semantic segmentation on Cityscapes (19 classes); `decode_semantic_segmentation` argmaxes logits to a class map.         | `yolo26n-sem.axm` †                              |
 | `depth_estimation.py`             | Monocular depth estimation with FastDepth (NYU Depth V2 -- works best on indoor scenes).                                 | `fastdepth-nyudepthv2-onnx.axm`                  |
 | `obb.py`                          | YOLO11n oriented-bounding-box detection on DOTA (15 classes: plane, ship, vehicle, ...).                                 | `yolo11n-obb-dotav1-onnx.axm`                    |
 | `tracking.py`                     | Multi-object tracking with state lifecycle, detection correlation, and class filtering.                                  | `yolov8n-coco.axm`                               |
 | `tracking_with_classification.py` | Detection → filtering → tracking → per-track classification. Shows that a tracked object can drive a downstream cascade. | `yolov8n-coco.axm`, `squeezenet1.0-imagenet.axm` |
+
+† `yolo26n-sem.axm` is **not** in the public catalog. Compile it locally with
+`download_axm.py --deploy-missing` (needs `ultralytics` + `axelera-devkit`; see
+below).
 
 ## Downloading the required `.axm` files
 
@@ -40,9 +45,11 @@ Already-present files are skipped.
 # Just list the .axm stems the demos reference -- no downloads
 python examples/pipeline_builder/download_axm.py --list
 
-# For .axm not in the public catalog, fall back to compiling locally with
+# For .axm not in the public catalog (currently `yolo26n-sem`, used by
+# semantic_segmentation.py), fall back to compiling locally with
 # `yolo export model=<stem>.pt format=axelera` (needs ultralytics +
-# axelera-devkit; can take several minutes per model).
+# axelera-devkit; can take several minutes per model).  Catalog models are
+# still fetched via axdownloadmodel first; only the misses are compiled.
 python examples/pipeline_builder/download_axm.py --deploy-missing
 ```
 

@@ -102,8 +102,8 @@ def _reformat_mmlab_results(dataset_type, results: Dict) -> types.EvalResult:
 
     # Normalize float values by converting percentages to proportions
     for k, v in results.items():
-        if isinstance(v, float):
-            results[k] = v / 100
+        if isinstance(v, (float, np.floating)):
+            results[k] = float(v) / 100
 
     if framework == 'mmseg':
         # TODO: see if we can get class_wise mIoU and nIoU

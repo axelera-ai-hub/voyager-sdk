@@ -1,5 +1,5 @@
 # Option to enable sanitizer
-option(ENABLE_SANITIZER "Enable address sanitizer" OFF)
+option(ENABLE_SANITIZER "Enable address+undefined sanitizer" OFF)
 
 # Copyright Axelera AI, 2025
 cmake_minimum_required(VERSION 3.12)
@@ -245,9 +245,7 @@ set(path_ax_plugin_prefix ${CMAKE_BINARY_DIR})
 
 add_definitions(-DAX_SUBPLUGIN_PATH=${path_ax_plugin_prefix})
 
-if(NOT ENABLE_SANITIZER)
-    include(CTest)
-endif()
+include(CTest)
 
 # Set unittest install dir
 set(unittest_install_dir "${CMAKE_SOURCE_DIR}/tests")
@@ -356,17 +354,36 @@ if (GMODULE_FOUND AND GLIB_FOUND AND GST_FOUND AND GST_VIDEO_FOUND AND GTEST_FOU
 
     add_test(NAME unittest_ax COMMAND unittest_ax)
 
-    if (NOT ENABLE_SANITIZER)
-        add_custom_target( run_unit_tests ALL
-            DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/RunUnitTests.touch
+    set(_ctest_lib_path ${CMAKE_CURRENT_BINARY_DIR}:${CMAKE_CURRENT_BINARY_DIR}/axstreamer:${CMAKE_CURRENT_BINARY_DIR}/gstaxstreamer:$ENV{LD_LIBRARY_PATH})
+    if (ENABLE_SANITIZER)
+        execute_process(
+            COMMAND ${CMAKE_CXX_COMPILER} -print-file-name=libasan.so
+            OUTPUT_VARIABLE _libasan_path
+            OUTPUT_STRIP_TRAILING_WHITESPACE
         )
-        add_custom_command(
-            OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/RunUnitTests.touch
-            COMMAND ${CMAKE_COMMAND} -E env LD_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}:${CMAKE_CURRENT_BINARY_DIR}/axstreamer:${CMAKE_CURRENT_BINARY_DIR}/gstaxstreamer:$ENV{LD_LIBRARY_PATH} ${CMAKE_CTEST_COMMAND} --output-on-failure
-            COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/RunUnitTests.touch
-            DEPENDS unittest_ax ${shared_libs}
+        execute_process(
+            COMMAND ${CMAKE_CXX_COMPILER} -print-file-name=libstdc++.so.6
+            OUTPUT_VARIABLE _libstdcxx_path
+            OUTPUT_STRIP_TRAILING_WHITESPACE
         )
+        set(_ctest_env
+            LD_PRELOAD=${CMAKE_BINARY_DIR}/fix_deepbind.so:${_libasan_path}:${_libstdcxx_path}
+            ASAN_OPTIONS=protect_shadow_gap=0:intercept_cxa_throw=0:verify_asan_link_order=0:new_delete_type_mismatch=0
+            LSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/lsan.supp
+            LD_LIBRARY_PATH=${_ctest_lib_path}
+        )
+    else()
+        set(_ctest_env LD_LIBRARY_PATH=${_ctest_lib_path})
     endif()
+    add_custom_target(run_unit_tests ALL
+        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/RunUnitTests.touch
+    )
+    add_custom_command(
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/RunUnitTests.touch
+        COMMAND ${CMAKE_COMMAND} -E env ${_ctest_env} ${CMAKE_CTEST_COMMAND} --output-on-failure
+        COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/RunUnitTests.touch
+        DEPENDS unittest_ax ${shared_libs}
+    )
 
     # Create assets directory in build directory
     file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/assets)

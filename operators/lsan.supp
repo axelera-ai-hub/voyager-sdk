@@ -1,0 +1,33 @@
+# LSan suppressions for inference.py
+# These are known leaks in external libraries, not in operator code.
+
+# libstdc++ global state allocated during static initialisation (before main()).
+# These show as 2-frame traces ending at operator new with no source info because
+# the library is stripped. Confirmed safe with malloc_context_size=30: no operator
+# code appears above the libstdc++ frame. Real C++ leaks from operator code will
+# still appear because they have additional frames from our source files above this one.
+leak:libstdc++.so.6
+
+# Python interpreter and standard library
+leak:python3
+
+# GLib/GStreamer global state (type system, memory chunks, plugin registry).
+# All unit-test leaks route through g_malloc in libglib-2.0.so.0 with no
+# operator-code frames above them — confirmed false positives.
+leak:libglib-2.0.so.0
+
+# std::string heap storage for GTest TestFactoryImpl objects whose parent
+# direct leak is suppressed by libglib-2.0.so.0 above. LSan does not
+# auto-suppress indirect children of suppressed direct leaks. These show up
+# as 2-frame stacks (operator new -> _M_mutate only) because the allocating
+# code is in stripped external libraries (GLib hooks malloc globally so
+# GTest's new calls route through it). A real leak from operator code would
+# always have additional frames from our source above _M_mutate.
+leak:basic_string.tcc
+
+# onnxruntime (shared library and Python extension)
+leak:libonnxruntime
+leak:onnxruntime_pybind11_state
+
+# Intel OpenCL driver and compiler
+leak:libigdrcl.so

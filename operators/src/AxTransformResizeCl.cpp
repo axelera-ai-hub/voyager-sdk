@@ -11,6 +11,8 @@
 #include "AxStreamerUtils.hpp"
 #include "AxUtils.hpp"
 
+enum class Interpolation { nearest = 0, bilinear = 1, pillow_bilinear = 2 };
+
 class CLResize;
 struct resize_properties {
   int width{};
@@ -19,6 +21,7 @@ struct resize_properties {
   bool letterbox{};
   bool scale_up{ true };
   int fill{ 114 };
+  Interpolation interpolation{ Interpolation::bilinear };
   bool downstream_supports_opencl{};
 
   AxVideoFormat format{ AxVideoFormat::UNDEFINED };
@@ -72,8 +75,10 @@ build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
 {
   std::string kernel_code = resize_kernel;
 
-  auto input_details = ax_utils::get_input_details(
-      in_format, ax_utils::Interpolation::bilinear, num_planes);
+  auto interpolation = prop.interpolation == Interpolation::pillow_bilinear ?
+                           ax_utils::Interpolation::pillow_bilinear :
+                           ax_utils::Interpolation::bilinear;
+  auto input_details = ax_utils::get_input_details(in_format, interpolation, num_planes);
   auto output_details = prop.normalization_active ?
                             ax_utils::get_output_norm_details(in_format, out_format) :
                             ax_utils::get_output_details(in_format, out_format);
@@ -91,7 +96,9 @@ build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
 
   final_kernel += sampler_code;
   final_kernel += output_code;
-  final_kernel = ax_utils::get_kernel_utils(flip_type, program.has_fp16()) + final_kernel;
+  bool use_fp16 = (interpolation == ax_utils::Interpolation::bilinear)
+                  && program.has_fp16();
+  final_kernel = ax_utils::get_kernel_utils(flip_type, use_fp16) + final_kernel;
 
   return program.build_kernel_from_source(final_kernel, "resize_kernel_cl");
 }
@@ -116,8 +123,8 @@ class CLResize
   cl_kernel get_converter(ax_utils::CLProgram &program, AxVideoFormat in_format,
       AxVideoFormat out_format, int flip_type, const resize_properties &prop, int num_planes)
   {
-    auto hash = (static_cast<int>(in_format) << 16)
-                + (static_cast<int>(out_format) << 8) + flip_type;
+    auto hash = (static_cast<int>(in_format) << 16) + (static_cast<int>(out_format) << 8)
+                + flip_type + (static_cast<int>(prop.interpolation) << 24);
     auto it = std::find_if(std::begin(all_kernels), std::end(all_kernels),
         [hash](auto &x) { return x.hash == hash; });
     if (it != all_kernels.end()) {
@@ -215,6 +222,7 @@ allowed_properties()
     "padding",
     "format",
     "scale_up",
+    "interpolation",
     //  For normalisation
     "mean",
     "std",
@@ -255,6 +263,8 @@ init_and_set_static_properties_with_context(
         "Resize with color convert only outputs RGBA or BGRA, given: " + format);
   }
   prop->fill = Ax::get_property(input, "padding", "resize_cl_static_properties", prop->fill);
+  prop->interpolation = static_cast<Interpolation>(Ax::get_property(input, "interpolation",
+      "resize_cl_static_properties", static_cast<int>(prop->interpolation)));
   if (prop->letterbox) {
     if (prop->width == 0) {
       prop->width = prop->height;
@@ -404,6 +414,8 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
     AxVideoFormat::NV12,
     AxVideoFormat::NV16,
     AxVideoFormat::I420,
+    AxVideoFormat::Y42B,
+    AxVideoFormat::Y444,
     AxVideoFormat::YUY2,
     AxVideoFormat::GRAY8,
   };

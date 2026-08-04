@@ -34,6 +34,15 @@ struct InferenceProperties {
   std::string devices;
   std::string which_cl;
   int max_buffers{ 0 };
+
+  // When true, inference is dispatched via axruntime's async executor instead
+  // of the default blocking one, allowing multiple frames per instance to be
+  // in flight concurrently. Only supported for model type "default" on an L0
+  // (non-simulator) connection. max_inflight/max_pending are only used when
+  // async_mode is set.
+  bool async_mode{ false };
+  int max_inflight{ 4 };
+  int max_pending{ 8 };
 };
 
 struct OperatorProperties {
@@ -58,6 +67,12 @@ using time_point = std::chrono::high_resolution_clock::time_point;
 
 struct CompletedFrame {
   bool end_of_input = false;
+  // Set when the inference call for this frame failed (e.g. an async_mode
+  // device/queue error): video/meta are still valid, but the tensor data is
+  // stale (whatever a previous frame left in that pool slot), not a real
+  // inference result for this frame. Callers may check this to skip/flag the
+  // frame instead of treating it as a normal result.
+  bool inference_failed = false;
   int stream_id;
   uint64_t frame_id;
   std::shared_ptr<void> buffer_handle{};

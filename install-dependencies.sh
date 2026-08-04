@@ -7,6 +7,7 @@ sudo apt-get install -y \
     clinfo \
     g++ \
     gcc \
+    glslang-tools \
     graphviz \
     gstreamer1.0-libav \
     gstreamer1.0-plugins-base \
@@ -26,6 +27,7 @@ sudo apt-get install -y \
     libsimde-dev \
     libswscale-dev \
     libva-dev \
+    libvulkan1 \
     ninja-build \
     nlohmann-json3-dev \
     ocl-icd-opencl-dev \

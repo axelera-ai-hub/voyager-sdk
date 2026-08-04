@@ -271,19 +271,12 @@ video_from_cvmat(const cv::Mat &mat, AxVideoFormat format)
 inline cv::Mat
 cvmat_from_buffer(VideoBuffer &buffer)
 {
-  if (buffer.has_strides()) {
-    // For strided buffers, convert via AxVideoInterface which handles strides
+  if (!buffer.is_contiguous()) {
     auto video_interface = buffer.to_video_interface();
     VideoBuffer contiguous_buffer = VideoBuffer::from_video_interface(video_interface);
-    cv::Mat yuv_mat = contiguous_buffer.to_cvmat();
-    // Clone to avoid dangling pointer when contiguous_buffer goes out of scope
-    return yuv_mat.clone();
-  } else {
-    // For contiguous buffers, create a view then clone it
-    // We must clone because the VideoBuffer may be moved or destroyed
-    cv::Mat yuv_mat = buffer.to_cvmat();
-    return yuv_mat.clone();
+    return contiguous_buffer.to_cvmat().clone();
   }
+  return buffer.to_cvmat().clone();
 }
 
 } // namespace Ax

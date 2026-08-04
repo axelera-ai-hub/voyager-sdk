@@ -88,7 +88,7 @@ with open(os.path.join(home, 'Desktop', desktop_file), 'w') as f:
     f.write(f"Name={str(demo_name).title()} demo\n")
     f.write(f"Exec={os.path.join(home, runfile)}\n")
     f.write(
-        f"Icon={os.path.join(config.env.framework, 'render_assets/axelera-ai-logo.png')}\n"
+        f"Icon={os.path.join(config.env.framework, 'axelera/app/render_assets/axelera-ai-logo.png')}\n"
     )  # Placeholder icon
     f.write("Terminal=true\n")
     f.write("Categories=AxeleraAI;Demo;\n")

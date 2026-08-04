@@ -57,6 +57,9 @@ enum {
   AXINFERENCE_PROP_DEVICES,
   AXINFERENCE_PROP_STREAM_SELECT,
   AXINFERENCE_PROP_WHICH_CL,
+  AXINFERENCE_PROP_ASYNC_MODE,
+  AXINFERENCE_PROP_MAX_INFLIGHT,
+  AXINFERENCE_PROP_MAX_PENDING,
   AXINFERENCE_PROP_NEXT_AVAILABLE,
 };
 
@@ -74,8 +77,13 @@ void add_boolean_property(GObjectClass *object_class, int id,
 void add_float_property(GObjectClass *object_klass, int id, const std::string &name,
     const std::string &blurb, float min, float max, float def);
 
-void add_inference_properties(GObjectClass *object_class,
-    bool include_dmabuf_outputs, bool include_inference_skip_rate);
+// include_async_mode must only be true for elements that supply a real
+// completion callback to create_inference(): AsyncPipelinedInference calls it
+// unconditionally, so an element that passes an empty callback (e.g.
+// GstAxInference) would crash with std::bad_function_call the first time an
+// async completion fires if async_mode were reachable on it.
+void add_inference_properties(GObjectClass *object_class, bool include_dmabuf_outputs,
+    bool include_inference_skip_rate, bool include_async_mode);
 
 // raise runtime_error if the tensors from gst are not compatible with the ax tensors
 void ensure_input_tensors_compatible(

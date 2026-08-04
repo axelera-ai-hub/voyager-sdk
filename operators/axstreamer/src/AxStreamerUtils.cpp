@@ -29,6 +29,8 @@ using namespace std::string_literals;
   AX_VIDEO_FORMAT_REGISTER(NV12, 3)                \
   AX_VIDEO_FORMAT_REGISTER(NV16, 3)                \
   AX_VIDEO_FORMAT_REGISTER(I420, 3)                \
+  AX_VIDEO_FORMAT_REGISTER(Y42B, 3)                \
+  AX_VIDEO_FORMAT_REGISTER(Y444, 3)                \
   AX_VIDEO_FORMAT_REGISTER(YUY2, 3)
 
 #define AX_GENERATE_NUM_VIDEO_CHANNELS(x, y) \
@@ -75,7 +77,7 @@ to_string(AxVideoFormat fmt)
 cv::ColorConversionCodes
 Ax::Internal::format2format(AxVideoFormat in_format, AxVideoFormat out_format)
 {
-  static constexpr std::array<Ax::Internal::ColorConversionCodesTableEntry, 36> lut = { {
+  static constexpr std::array<Ax::Internal::ColorConversionCodesTableEntry, 41> lut = { {
       { AxVideoFormat::RGB, AxVideoFormat::RGBA, cv::COLOR_RGB2RGBA },
       { AxVideoFormat::RGB, AxVideoFormat::BGRA, cv::COLOR_RGB2BGRA },
       { AxVideoFormat::RGB, AxVideoFormat::BGR, cv::COLOR_RGB2BGR },
@@ -118,6 +120,12 @@ Ax::Internal::format2format(AxVideoFormat in_format, AxVideoFormat out_format)
       { AxVideoFormat::I420, AxVideoFormat::RGBA, cv::COLOR_YUV2RGBA_I420 },
       { AxVideoFormat::I420, AxVideoFormat::BGRA, cv::COLOR_YUV2BGRA_I420 },
       { AxVideoFormat::I420, AxVideoFormat::GRAY8, cv::COLOR_YUV2GRAY_I420 },
+
+      { AxVideoFormat::Y42B, AxVideoFormat::RGB, cv::COLOR_YUV2RGB_YUY2 },
+      { AxVideoFormat::Y42B, AxVideoFormat::BGR, cv::COLOR_YUV2BGR_YUY2 },
+      { AxVideoFormat::Y42B, AxVideoFormat::RGBA, cv::COLOR_YUV2RGBA_YUY2 },
+      { AxVideoFormat::Y42B, AxVideoFormat::BGRA, cv::COLOR_YUV2BGRA_YUY2 },
+      { AxVideoFormat::Y42B, AxVideoFormat::GRAY8, cv::COLOR_YUV2GRAY_YUY2 },
   } };
   auto it = std::find_if(lut.begin(), lut.end(),
       [&](const Ax::Internal::ColorConversionCodesTableEntry &e) {

@@ -346,8 +346,8 @@ class OpenCLCroppedResizeWithExtraCrop(preprocessing.CompositePreprocess):
             options=ss + f'crop_width:{cw};crop_height:{ch}',
         )
         gst.axtransform(
-            lib='libtransform_resize.so',
-            options=(f'width:{cw};height:{ch}'),
+            lib='libtransform_resize_cl.so',
+            options=(f'width:{cw};height:{ch};interpolation:2'),
         )
 
 
@@ -391,8 +391,8 @@ class OpenCLCroppedResizeWithExtraCropWithColor(preprocessing.CompositePreproces
             options=ss + f'crop_width:{cw};crop_height:{ch}',
         )
         gst.axtransform(
-            lib='libtransform_resize.so',
-            options=(f'width:{cw};height:{ch};format:{input_color_format}'),
+            lib='libtransform_resize_cl.so',
+            options=(f'width:{cw};height:{ch};format:{input_color_format};interpolation:2'),
         )
 
 
@@ -464,7 +464,7 @@ class OpenCLColorConvertCroppedResizeWithExtraCropAndNormalize(preprocessing.Com
         fmt = add_alpha_channel(self.format)
         gst.axtransform(
             lib='libtransform_resize_cl.so',
-            options=f'width:{cw};height:{ch};to_tensor:1;mean:{mean};std:{std};quant_scale:{float(scale[0])};quant_zeropoint:{float(zero[0])};format:{fmt}',
+            options=f'width:{cw};height:{ch};to_tensor:1;mean:{mean};std:{std};quant_scale:{float(scale[0])};quant_zeropoint:{float(zero[0])};format:{fmt};interpolation:2',
         )
 
 
@@ -533,7 +533,7 @@ class OpenCLCroppedResizeWithExtraCropAndNormalize(preprocessing.CompositePrepro
         )
         gst.axtransform(
             lib='libtransform_resize_cl.so',
-            options=f'width:{cw};height:{ch};to_tensor:1;mean:{mean};std:{std};quant_scale:{float(scale[0])};quant_zeropoint:{float(zero[0])}',
+            options=f'width:{cw};height:{ch};to_tensor:1;mean:{mean};std:{std};quant_scale:{float(scale[0])};quant_zeropoint:{float(zero[0])};interpolation:2',
         )
 
 

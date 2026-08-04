@@ -429,6 +429,19 @@ class Environment:
         return 'gl,3,3'
 
     @_var
+    def vulkan_debug(self) -> str:
+        '''Vulkan debug verbosity level.
+
+        Controls how much Vulkan validation output is shown via the LOG system.
+        Requires the vulkan validation layers (vulkan-validationlayers) package to be installed
+
+        0 (default)  — disabled
+        1            — ERROR + WARNING
+        2            — all severities (ERROR, WARNING, INFO, VERBOSE)
+        '''
+        return '0'
+
+    @_var
     def rtsp_protocol(self) -> str:
         '''The network protocol to use for RTSP streams.
 

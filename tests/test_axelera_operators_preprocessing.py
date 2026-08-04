@@ -381,7 +381,7 @@ def test_permute_channels(input, output, exp_gst):
         ),
         (
             {'size': 1, 'interpolation': 'big'},
-            r"Invalid value for interpolation: big (expected one of nearest, bilinear, bicubic, lanczos)",
+            r"Invalid value for interpolation: big (expected one of nearest, bilinear, bicubic, lanczos, pillow_bilinear)",
         ),
     ],
 )

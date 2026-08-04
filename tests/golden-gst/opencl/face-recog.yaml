@@ -67,7 +67,7 @@
     preprocess2_lib: libtransform_centrecropextra.so
     preprocess2_options: scale_width:192;scale_height:192;crop_width:160;crop_height:160
     preprocess3_lib: libtransform_resize_cl.so
-    preprocess3_options: width:160;height:160;to_tensor:1;mean:0.5,0.5,0.5,0.5;std:0.501961,0.501961,0.501961,0.501961;quant_scale:0.00787353515625;quant_zeropoint:-1.0
+    preprocess3_options: width:160;height:160;to_tensor:1;mean:0.5,0.5,0.5,0.5;std:0.501961,0.501961,0.501961,0.501961;quant_scale:0.00787353515625;quant_zeropoint:-1.0;interpolation:2
     preprocess4_lib: libtransform_padding.so
     preprocess4_options: padding:0,0,0,0,0,0,0,0;fill:-1
     postprocess0_lib: libtransform_paddingdequantize.so

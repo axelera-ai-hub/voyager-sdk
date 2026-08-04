@@ -262,6 +262,7 @@ class InterpolationMode(enum.Enum):
     bilinear = enum.auto()
     bicubic = enum.auto()
     lanczos = enum.auto()
+    pillow_bilinear = enum.auto()
 
 
 _open_cv_interpolation_modes = {
@@ -269,6 +270,7 @@ _open_cv_interpolation_modes = {
     InterpolationMode.bilinear: cv2.INTER_LINEAR,
     InterpolationMode.bicubic: cv2.INTER_CUBIC,
     InterpolationMode.lanczos: cv2.INTER_LANCZOS4,
+    InterpolationMode.pillow_bilinear: cv2.INTER_AREA,  # OpenCV doesn't have a separate pillow bilinear mode
 }
 
 
@@ -281,7 +283,7 @@ class Resize(PreprocessOperator):
     If half_pixel_centers is True, the image is resized using half-pixel centers, which is currently provided by the
     opencv backend only. If half_pixel_centers is False, the image is resized using the default behavior of the backend.
 
-    interpolation can be one of nearest, bilinear, bicubic, or lanczos.  e.g. in the yaml : `interpolation: nearest`.
+    interpolation can be one of nearest, bilinear, bicubic, lanczos, or pillow_bilinear.  e.g. in the yaml : `interpolation: nearest`.
     From python `operators.Resize(interpolation=operators.InterpolationMode.nearest)` or
     `Resize(interpolation='nearest').
 

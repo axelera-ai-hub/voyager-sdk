@@ -106,9 +106,8 @@ class CLNormalize
     if (program.has_fp16()) {
       std::array<float, 4> mul_arr{ prop.mul[0], prop.mul[1], prop.mul[2], prop.mul[3] };
       std::array<float, 4> add_arr{ prop.add[0], prop.add[1], prop.add[2], prop.add[3] };
-      program.set_kernel_args(kernel, 0, out.height, out.width, in.stride,
-          out.stride, *inpbuf, *outbuf, ax_utils::to_half_array(mul_arr),
-          ax_utils::to_half_array(add_arr));
+      program.set_kernel_args(kernel, 0, out.height, out.width, in.stride, out.stride,
+          *inpbuf, *outbuf, ax_utils::to_half4(mul_arr), ax_utils::to_half4(add_arr));
     } else {
       program.set_kernel_args(kernel, 0, out.height, out.width, in.stride,
           out.stride, *inpbuf, *outbuf, prop.mul, prop.add);

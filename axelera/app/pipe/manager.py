@@ -222,7 +222,10 @@ def _update_pending_expansions(task):
 
 
 def _create_inference_operators(
-    device_man: device_manager.DeviceManager, nn: network.AxNetwork, low_latency: bool
+    device_man: device_manager.DeviceManager,
+    nn: network.AxNetwork,
+    low_latency: bool,
+    async_mode: bool = False,
 ):
     def _instantiate_model(model_name: str) -> types.Model:
         with nn.from_model_dir(model_name):
@@ -252,6 +255,7 @@ def _create_inference_operators(
             task.model_info,
             task.inference_op_config,
             low_latency,
+            async_mode,
         )
 
 
@@ -446,7 +450,12 @@ class PipeManager:
 
         # this is kind of the core of the pipeline builder. But note it is still dependent on the device manager
         compile_pipelines(nn, sources, self.hardware_caps)
-        _create_inference_operators(self._device_man, nn, low_latency=pipeline_config.low_latency)
+        _create_inference_operators(
+            self._device_man,
+            nn,
+            low_latency=pipeline_config.low_latency,
+            async_mode=pipeline_config.async_mode,
+        )
         nn.model_infos.add_label_enums(nn.datasets)
         _propagate_model_and_context_info(nn, task_graph)
 

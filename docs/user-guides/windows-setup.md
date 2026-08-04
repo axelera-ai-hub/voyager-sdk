@@ -19,30 +19,9 @@ This guide covers installing the Axelera software on **Windows 11**. The main pa
 
 ## Step 1: Install the Windows driver
 
-The Axelera Windows driver is not yet Microsoft-certified (certification is in progress). Until then, it requires **testsigning mode** to install.
+The Axelera Windows driver is not yet Microsoft-certified (certification is in progress). Until then, it requires manual install.
 
-### 1a. Disable BitLocker (if active)
-
-> [!CAUTION]
-> **Disable BitLocker before running any `bcdedit` command.** Modifying boot configuration while BitLocker is active will put the system into BitLocker recovery on the next reboot. You will need your recovery key to regain access.
-
-To temporarily suspend BitLocker:
-
-1. Open the Windows search bar, type **BitLocker**, and select **Manage BitLocker**
-2. If BitLocker is active, click **Suspend protection** and confirm
-3. BitLocker reactivates automatically after the next reboot — suspend it again before any future `bcdedit` changes
-
-### 1b. Enable testsigning
-
-Open a **Command Prompt as Administrator** and run:
-
-```cmd
-bcdedit /set testsigning on
-```
-
-Restart your PC. The desktop will show **"Test Mode"** in the lower-right corner — this confirms testsigning is active.
-
-### 1c. Grant "Lock pages in memory" privilege
+### 1a. Grant "Lock pages in memory" privilege
 
 This step is required once per machine. The Axelera runtime needs the **Lock pages in memory** privilege to operate correctly.
 
@@ -55,19 +34,19 @@ This step is required once per machine. The Axelera runtime needs the **Lock pag
 
 Log out and back in (or reboot) for the privilege to take effect.
 
-### 1d. Download the drivers
+### 1b. Download the drivers
 
 Download the driver archives from the Axelera software portal:
 
-- **Metis driver** (required for all hardware): [MetisDriver-1.3.11.zip](https://software.axelera.ai/artifactory/axelera-win/driver/1.3.x/MetisDriver-1.3.11.zip)
+- **Metis driver** (required for all hardware): [MetisDriver-1.3.14.zip](https://software.axelera.ai/artifactory/axelera-win/driver/1.3.x/MetisDriver-1.3.14.zip)
 - **Switchtec PCIe switch driver** (required only for the [Metis PCIe 4-AIPU card](https://store.axelera.ai/collections/ai-acceleration-cards/products/pcie-ai-accelerator-card-powered-by-4-metis-aipu)): [switchtec-kmdf-0.7_2019.zip](https://software.axelera.ai/artifactory/axelera-win/driver/1.3.x/switchtec-kmdf-0.7_2019.zip)
 
 Extract each archive locally. Each extracted folder contains three files: `.cat`, `.inf`, and `.sys`.
 
-### 1e. Remove any previous driver version
+### 1c. Remove any previous driver version
 
 > [!TIP]
-> **First-time install?** Skip this step and go straight to [1f](#1f-install-via-device-manager).
+> **First-time install?** Skip this step and go straight to [1d](#1d-install-via-device-manager).
 
 If you already have an older Metis driver installed, remove it completely before installing the new one. Windows can keep multiple drivers for the same device.
 
@@ -83,7 +62,7 @@ Verify the device now appears under **Other devices** as a generic **PCI Device*
 
 ![PCI Device](../images/windows/pci_device_other_devices.png)
 
-### 1f. Install via Device Manager
+### 1d. Install via Device Manager
 
 Open **Device Manager** (right-click the Windows Start button → Device Manager).
 
@@ -94,10 +73,6 @@ From the menu, open **Action → Add Drivers**:
 Set the path to the folder where you extracted the Metis driver files:
 
 ![Set Path](../images/windows/set_path.png)
-
-Select **Install the driver anyway** when prompted:
-
-![Install Anyway](../images/windows/install_anyway.png)
 
 Confirm that the Metis device now appears under **Neural Processors**:
 
@@ -211,10 +186,9 @@ rmdir /s /q windows-packages 2>nul
 mkdir windows-packages
 cd windows-packages
 
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.7.x/axelera-win-device-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.7.x/axelera-win-runtime-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.7.x/axelera-win-toolchain-deps-installer.exe
-curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.7.x/axelera-win-services-installer.exe
+curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.8.x/axelera-win-device-installer.exe
+curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.8.x/axelera-win-runtime-installer.exe
+curl -L -O https://software.axelera.ai/artifactory/axelera-win/packages/1.8.x/axelera-win-services-installer.exe
 
 cd ..
 ```
@@ -230,11 +204,11 @@ After installation, verify via **Settings → Apps & features** (or **Add or rem
 
 ![Add Remove Programs](../images/windows/add_remove_choice.png)
 
-All four packages must be listed:
+All three packages must be listed:
 
 ![Axelera Packages](../images/windows/add_remove_axelera_packages.png)
 
-You must see: **Axelera Device Package**, **Axelera Runtime**, **Axelera Services**, and **RISC-V Toolchain and Dependencies for Axelera**. Exact version numbers will vary.
+You must see: **Axelera Device Package**, **Axelera Runtime**, and **Axelera Services**. Exact version numbers will vary.
 
 **Close all Command Prompt and PowerShell windows** after the installers complete, then open a new Command Prompt before continuing.
 
@@ -245,7 +219,7 @@ Activate the virtual environment and install the packages:
 ```cmd
 venv-win\Scripts\activate.bat
 
-pip install --extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple axelera-runtime==1.7.0 axelera-llm==1.7.0 axelera-types==1.7.0
+pip install --extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple axelera-runtime==1.8.0 axelera-llm==1.8.0 axelera-types==1.8.0
 ```
 
 > [!TIP]
@@ -337,9 +311,7 @@ Once activated, all the same commands work as in Command Prompt.
 
 | Symptom | Fix |
 |---------|-----|
-| BitLocker recovery after `bcdedit` | Suspend BitLocker before running `bcdedit` — see Step 1a |
-| "Test Mode" not showing after `bcdedit` | Confirm the command ran in an Administrator prompt; restart again |
-| Metis not detected in Device Manager | Confirm testsigning is enabled and reboot; check driver install via Device Manager |
+| Metis not detected in Device Manager | Confirm the driver installed correctly — see [Step 1d](#1d-install-via-device-manager) |
 | `wsl --install` fails | Enable "Virtual Machine Platform" in Windows Features |
 | WSL shows version 1 | `wsl --set-version Ubuntu-22.04 2` |
 | PowerShell can't activate venv | Run `Set-ExecutionPolicy RemoteSigned` as Administrator, then retry |

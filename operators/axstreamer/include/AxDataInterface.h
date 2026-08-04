@@ -50,6 +50,8 @@ enum class AxVideoFormat {
   NV12,
   NV16,
   I420,
+  Y42B,
+  Y444,
   YUY2,
 };
 

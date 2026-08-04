@@ -25,16 +25,9 @@
 #include "AxOpUtils.hpp"
 #include "AxOpenClExtensions.hpp"
 
-constexpr int AX_ALLOCATION_CONTEXT_VERSION = 2;
-struct AxAllocationContext {
-  int version{ 0 };
-  cl_device_id device_id;
-  cl_context context;
-  cl_command_queue commands;
-  cl_extensions extensions;
-  std::exception_ptr exception{ nullptr };
-  cl_command_queue map_commands;
-};
+//  AxAllocationContext and AX_ALLOCATION_CONTEXT_VERSION are now defined in
+//  AxOpenClExtensions.hpp (included above) so they are available to both the
+//  operators build and axelera_runtime2 without duplication.
 
 namespace ax_utils
 {
@@ -45,13 +38,11 @@ template <typename T> struct is_std_vector : std::false_type {
 template <typename U> struct is_std_vector<std::vector<U>> : std::true_type {
 };
 
-using opencl_details = AxAllocationContext;
-
+//  opencl_details and copy_context_and_retain are declared in AxOpenClExtensions.hpp.
 
 opencl_details build_cl_details(Ax::Logger &logger, const char *which_cl, void *display);
 
 AxAllocationContextHandle clone_context(AxAllocationContext *context);
-opencl_details copy_context_and_retain(opencl_details *context);
 
 std::string cl_error_to_string(cl_int code);
 
@@ -261,14 +252,11 @@ float_to_half(float f)
   return static_cast<cl_half>(half);
 }
 
-template <size_t N>
-std::array<cl_half, N>
-to_half_array(const std::array<float, N> &f)
+inline cl_half4
+to_half4(const std::array<float, 4> &f)
 {
-  std::array<cl_half, N> h;
-  for (size_t i = 0; i < N; ++i)
-    h[i] = float_to_half(f[i]);
-  return h;
+  return { float_to_half(f[0]), float_to_half(f[1]), float_to_half(f[2]),
+    float_to_half(f[3]) };
 }
 
 std::string get_kernel_utils(int rotate_type = 0, bool use_fp16 = false);
@@ -280,10 +268,9 @@ int run_kernel(CLProgram &program, cl_kernel k, const buffer_details &in,
     CLProgram::ax_buffer &outbuf, bool start_flush);
 
 
-std::array<float, 16> get_color_conversion_matrix(
-    AxVideoFormat in_format, AxVideoFormat out_format);
+cl_float16 get_color_conversion_matrix(AxVideoFormat in_format, AxVideoFormat out_format);
 
-std::array<float, 16> get_color_conversion_matrix_with_norm(AxVideoFormat in_format,
+cl_float16 get_color_conversion_matrix_with_norm(AxVideoFormat in_format,
     AxVideoFormat out_format, const std::vector<cl_float> &mul,
     const std::vector<cl_float> &add);
 
@@ -304,7 +291,7 @@ struct kernel_args {
   std::string input_params;
 };
 
-enum class Interpolation { nearest, bilinear };
+enum class Interpolation { nearest, bilinear, pillow_bilinear };
 
 kernel_args get_input_details(
     AxVideoFormat format, Interpolation interp, int num_planes = 1);

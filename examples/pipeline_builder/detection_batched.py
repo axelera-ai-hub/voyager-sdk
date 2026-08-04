@@ -115,4 +115,10 @@ if __name__ == "__main__":
         "useful for batch/video runs where you do not need to inspect "
         "the final frame.",
     )
+    parser.add_argument(
+        "--backend",
+        choices=["ffmpeg", "opencv"],
+        default="ffmpeg",
+        help="Video decode backend passed to cv.create_source (default: %(default)s)",
+    )
     main(parser.parse_args())
