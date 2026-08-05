@@ -25,6 +25,9 @@ There are two installation paths. **Python pip** is recommended for new installa
 
 ## Python pip installation
 
+> [!NOTE]
+> Always refer to the [Compatibility Matrix](../../RELEASE_COMPATIBILITY_MATRIX.md) for the versions
+
 ### Step 1: Clone the repository and install dependencies
 
 ```bash
@@ -37,32 +40,7 @@ Install system dependencies using the provided script:
 ```bash
 ./install-dependencies.sh
 ```
-
-### Step 2: Install the Metis kernel driver
-
-```bash
-# Add the Axelera apt repository
-sudo sh -c "curl -fsSL https://software.axelera.ai/artifactory/api/security/keypair/axelera/public | gpg --dearmor -o /etc/apt/keyrings/axelera.gpg"
-# Ubuntu 22.04
-sudo sh -c "echo 'deb [signed-by=/etc/apt/keyrings/axelera.gpg] https://software.axelera.ai/artifactory/axelera-apt-source ubuntu22 main' > /etc/apt/sources.list.d/axelera.list"
-# Ubuntu 24.04
-sudo sh -c "echo 'deb [signed-by=/etc/apt/keyrings/axelera.gpg] https://software.axelera.ai/artifactory/axelera-apt-source ubuntu24 main' > /etc/apt/sources.list.d/axelera.list"
-
-sudo apt-get update
-sudo apt-get install -y metis-dkms=1.4.16
-```
-
-Verify the driver is loaded:
-
-```bash
-lsmod | grep metis
-```
-
-> [!NOTE]
-> If installation fails, ensure your kernel headers are present: `sudo apt-get install -y linux-headers-$(uname -r)`
-
-
-### Step 3: Create a virtual environment and install
+### Step 2: Create a virtual environment and install
 
 ```bash
 python3 -m venv axelera-env
@@ -74,6 +52,52 @@ make operators
 > [!TIP]
 > Use a dedicated virtual environment for each SDK version or project to avoid dependency conflicts.
 
+### Step 3: Install the Metis kernel driver
+
+> [!NOTE]
+> If installation of the driver fails, ensure your kernel headers are present: `sudo apt-get install -y linux-headers-$(uname -r)`
+
+There are two ways of installing the driver, Option a) is the easiest.
+
+#### Option a) use `axdevice`
+
+```bash
+axdevice driver --install
+```
+
+By default, `axdevice` will default to installing the recommended driver version 
+
+### Option b) use `apt`
+
+```bash
+# Add the Axelera apt repository
+sudo sh -c "curl -fsSL https://software.axelera.ai/artifactory/api/security/keypair/axelera/public | gpg --dearmor -o /etc/apt/keyrings/axelera.gpg"
+# Ubuntu 22.04
+sudo sh -c "echo 'deb [signed-by=/etc/apt/keyrings/axelera.gpg] https://software.axelera.ai/artifactory/axelera-apt-source ubuntu22 main' > /etc/apt/sources.list.d/axelera.list"
+# Ubuntu 24.04
+sudo sh -c "echo 'deb [signed-by=/etc/apt/keyrings/axelera.gpg] https://software.axelera.ai/artifactory/axelera-apt-source ubuntu24 main' > /etc/apt/sources.list.d/axelera.list"
+
+sudo apt-get update
+sudo apt-get install -y metis-dkms
+```
+
+Verify the driver is loaded:
+
+```bash
+lsmod | grep metis
+```
+
+Verify the loaded driver version:
+```bash
+modinfo metis | grep ^version:
+```
+
+Reload the driver:
+
+```bash
+sudo modprobe -r metis
+sudo modprobe metis
+```
 
 ### Step 4: Verify installation
 
