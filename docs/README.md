@@ -3,7 +3,7 @@
 The Voyager SDK makes it easy to build high-performance inferencing applications with Axelera AI Metis devices.
 
 > [!IMPORTANT]
-> This is a production-ready release of Voyager SDK. Software components and features that are in development are marked **\[Beta\]** indicating tested functionality that will continue to grow in future releases or **\[Experimental\]** indicating early-stage feature with limited testing.
+> This is a production-ready release of Voyager SDK. Software components and features that are in development are marked **\[Beta\]** indicating tested functionality that will continue to grow in future releases, **\[Alpha\]** indicating usable but incomplete functionality where breaking changes are possible, or **\[Experimental\]** indicating early-stage feature with limited testing.
 
 
 ## Finding your way around
@@ -39,6 +39,7 @@ The Voyager SDK makes it easy to build high-performance inferencing applications
 | :--- | :--- |
 | [Model zoo](reference/models/model-zoo.md) | All models supported by this release of the Voyager SDK |
 | [Deployment manual (`deploy.py`)](reference/tools/deploy-py.md) | All options provided by the command-line deployment tool |
+| [Model recipes](../model_recipes/README.md) | Adapt standalone Python recipes for selected Model Zoo models |
 | [Custom weights](tutorials/custom-weights.md) | Deploy a model using your own weights |
 | [Custom model](tutorials/custom-model.md) | Deploy a custom model architecture |
 | [Compiler CLI](reference/compiler/compiler-cli.md) | Compiler Command Line Interface \[beta\] |
@@ -61,12 +62,12 @@ The Voyager SDK makes it easy to build high-performance inferencing applications
 
 The Voyager SDK provides two pipeline approaches. Use whichever fits your workflow, or combine them.
 
-| | [YAML Pipeline](reference/pipeline/README.md) | [Pipeline Builder](reference/pipeline-builder/README.md) **\[Experimental\]** |
+| | [YAML Pipeline](reference/pipeline/README.md) | [Pipeline Builder](reference/pipeline-builder/README.md) **\[Alpha\]** |
 | :--- | :--- | :--- |
 | **Best for** | Production deployment, standard workflows | Custom inter-stage logic, rapid prototyping |
 | **Define pipelines in** | YAML configuration files | Python code (`axelera.runtime.op`) |
 | **Strengths** | Optimized GStreamer throughput, battle-tested | Composable operators, Jupyter-friendly, full Python control |
-| **Maturity** | Stable — production systems run on this today | Core operators stable; cascade and streaming APIs in development |
+| **Maturity** | Stable — production systems run on this today | Alpha — not yet running at target performance; not advised for benchmarks or production workloads |
 
 **Hybrid approach:** Many teams use YAML pipelines for primary inference (detection, segmentation) via InferenceStream, then hand off to Pipeline Builder operators for tracking, filtering, and custom business logic in Python.
 
@@ -76,7 +77,7 @@ The Voyager SDK allows you to develop inferencing pipelines and end-user applica
 
 | API | Description |
 | :--- | :--- |
-| [Pipeline Builder](reference/pipeline-builder/README.md) | Pythonic API for composable ML pipelines using `axelera.runtime.op` operators \[experimental\] |
+| [Pipeline Builder](reference/pipeline-builder/README.md) | Pythonic API for composable ML pipelines using `axelera.runtime.op` operators \[alpha\] |
 | [InferenceStream](reference/apis/inference-stream.md) (high level) | Python library for reading pipeline image and inference metadata from within your application |
 | [AxRuntime](reference/apis/axruntime-py.md) (low level) | Python API for manually constructing, configuring and executing pipelines |
 | [GStreamer plugins](reference/pipeline/gst-operators.md) | Plugins for integrating Metis inferencing within a GStreamer pipeline |

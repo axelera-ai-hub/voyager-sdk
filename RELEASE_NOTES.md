@@ -14,7 +14,6 @@
       - [Operating systems and kernels](#operating-systems-and-kernels)
     - [\[Alpha\] Model recipes for the Model Zoo](#alpha-model-recipes-for-the-model-zoo)
     - [New Networks Supported](#new-networks-supported)
-      - [\[Experimental\] Large Language Models](#experimental-large-language-models)
     - [\[Alpha\] Pipeline Builder API](#alpha-pipeline-builder-api)
       - [New task types and operators](#new-task-types-and-operators)
       - [Video decode and sources](#video-decode-and-sources)
@@ -140,16 +139,6 @@ Models that are supported but not included in the model zoo are documented [here
 For convenience, pre-compiled models are available to download by running `axdownloadmodel` in the parent folder of Voyager SDK.
 
 The YAML model zoo is unchanged in this release. New models in v1.8 are delivered through `axzoo`.
-
-#### \[Experimental\] Large Language Models
-
-Small Language Model support introduced in earlier releases is carried forward unchanged in v1.8.0: the same set of pre-compiled language models is available, run with the `axllm` command.
-
-- See the [LLM Inference guide](docs/user-guides/llm.md) for usage - single prompt, interactive CLI, rich CLI and the Gradio web UI - and for the `transformers-aipu` and `transformers` pipeline modes.
-- See [Model Zoo - Large Language Models](docs/reference/models/model-zoo.md#large-language-models) for the full list of pre-compiled language models with their maximum context lengths and required card RAM.
-- **The pre-compiled LLM artifacts have been rebuilt for the v1.8 stack.** As with every other model, artifacts produced by v1.7 or earlier cannot be loaded by v1.8 - re-download them with `axdownloadmodel`. See [IMPORTANT - AxModel version 5: models must be rebuilt](#important---axmodel-version-5-models-must-be-rebuilt).
-
-Language models are pre-compiled for Metis; arbitrary checkpoints cannot be loaded without prior compilation. Some models require a 16 GB card - the model zoo table lists the requirement per model, and the runtime reports insufficient memory at model load time.
 
 ### \[Alpha\] Pipeline Builder API
 

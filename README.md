@@ -42,6 +42,8 @@ This is a production-ready release of Voyager SDK. Software components and featu
 | :--------------------- | :---------- |
 | [Model zoo](docs/reference/models/model-zoo.md) | Lists all models supported by this release of the Voyager SDK |
 | [Deployment manual (`deploy.py`)](docs/reference/tools/deploy-py.md) | Explains all options provided by the command-line deployment tool |
+| [Model recipes](model_recipes/README.md) | Shows how to adapt standalone Python recipes for selected Model Zoo models |
+| [Custom weights tutorial](docs/tutorials/custom-weights.md) | Explains how to deploy a model using your own weights |
 | [Custom model tutorial](docs/tutorials/custom-model.md) | Explains how to deploy a custom model |
 
 ## Run models on Metis devices
@@ -94,6 +96,8 @@ A new Python-native API for building, running, and packaging ML inference pipeli
 - **Tracker integration**: `op.tracker(algo='bytetrack')` - supports ByteTrack, OC-SORT, SORT, TrackTrack. Full lifecycle states via `return_all_states=True` (new, tracked, lost, removed).
 - **Pipeline optimizer**: Automatic SIMD-accelerated fusion of operator chains (e.g., NchwToNhwc + Quant + Pad into single QuantizeTransposePad).
 - **Typed result objects**: `DetectedObject`, `PoseObject`, `SegmentedObject`, `TrackedObject`, `Classification` with protocol-based interfaces and `.draw()` visualization.
+
+For more information, see [Pipeline Builder documentation](docs/reference/pipeline-builder/README.md).
 
 ## Additional documentation
 

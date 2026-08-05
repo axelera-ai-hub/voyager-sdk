@@ -1,14 +1,14 @@
 ---
 title: Pipeline Builder
 ---
-# Pipeline Builder **\[Experimental\]**
+
+# Pipeline Builder **\[Alpha\]**
 
 The Pipeline Builder is the Pythonic API for building ML inference pipelines on the Axelera Metis AIPU. Where [YAML pipelines](../pipeline/README.md) give you optimized GStreamer throughput for production deployment, the Pipeline Builder gives you composable Python operators for custom inter-stage logic, rapid prototyping, and workflows that go beyond standard detect-and-track patterns.
 
 > [!IMPORTANT]
-> **Experimental**
-> Core operators (detection, classification, pose, segmentation, tracking) are stable. Cascade (`op.for_each`, `op.crop_roi`) and streaming APIs are still in development. Optimized fused kernels from the YAML pipeline path have not yet been ported — each release closes this gap.
-
+> **Alpha**
+> The Pipeline Builder API is an early alpha release and currently does not run at its target performance. We do not yet advise to use it for any workloads where performance is critical, such as benchmarks or production workloads. Pipeline Builder will reach top performance and become the recommended API for running models on Axelera hardware in the next Voyager SDK release(s).
 
 ## Start here
 
