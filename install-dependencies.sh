@@ -24,6 +24,7 @@ sudo apt-get install -y \
     libgstreamer1.0-dev \
     libavdevice-dev \
     libopencv-dev \
+    libqt6svg6-dev \
     libsimde-dev \
     libswscale-dev \
     libva-dev \

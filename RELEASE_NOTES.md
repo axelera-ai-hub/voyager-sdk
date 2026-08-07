@@ -270,6 +270,7 @@ The leak grows linearly with runtime and scales with the number of decoded strea
 - YOLO26\* models (e.g. `yolo26x-obb-dotav1-onnx`) sometimes fail to deploy unexpectedly.
 - MobileNetV3 may yield degraded accuracy on some combinations of hosts and cards.
 - Device monitoring with AxMonitor is not supported on single-MSI hosts. For some systems with single-MSI hosts, device monitoring with `AxMonitor` does not display any data. An example of a host with this issue is Arduino Portenta X8 Mini.
+- Axrunmodel now benchmarks with random rather than constant input data (needed for output verification). Realistic data draws more power, so reported throughput on power-limited devices is lower than previous releases; device performance is unchanged.
 
 ## System Requirement
 

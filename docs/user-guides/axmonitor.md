@@ -83,8 +83,8 @@ sudo sh -c "echo 'deb [signed-by=/etc/apt/keyrings/axelera.gpg] https://software
 sudo sh -c "echo 'deb [signed-by=/etc/apt/keyrings/axelera.gpg] https://software.axelera.ai/artifactory/axelera-apt-source ubuntu24 main' > /etc/apt/sources.list.d/axelera.list"
 
 sudo apt-get update
-sudo apt-get install -y axelera-voyager-sdk-base-1.6.0
-source /opt/axelera/sdk/1.6.0/axelera_activate.sh
+sudo apt-get install -y axelera-voyager-sdk-base-1.8.0
+source /opt/axelera/sdk/1.8.0/axelera_activate.sh
 ```
 
 ### Run axmonitor
