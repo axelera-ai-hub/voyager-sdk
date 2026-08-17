@@ -6,8 +6,9 @@ title: "ONNX Operator Support"
 Which ONNX operators the Metis AIPU supports natively, and which run on the host CPU.
 
 > [!NOTE]
-> **Auto-generated tables**
-> The detailed per-operator constraint tables (attribute restrictions, dtype limits) are auto-generated and live in the SDK at `docs/reference/onnx-opset{14,15,16,17}-support.md`. This page provides the consolidated summary.
+> **Per-operator constraint tables**
+> The detailed per-operator constraint tables are auto-generated per opset: [opset 14](onnx-opset14-support.md), [opset 15](onnx-opset15-support.md), [opset 16](onnx-opset16-support.md), [opset 17](onnx-opset17-support.md).
+> This page is the consolidated summary.
 
 
 ---
@@ -61,13 +62,6 @@ The following operators are supported or constrained across opsets 14–17. Oper
 | Sub | Constrained | Constrained | Constrained | Constrained |
 | Tanh | Supported | Supported | Supported | Supported |
 | Transpose | Constrained | Constrained | Constrained | Constrained |
-| Unsqueeze | — | Constrained | Constrained | Constrained |
-| Gelu | — | — | Constrained | Constrained |
-| GroupNormalization | — | — | — | Constrained |
-| LayerNormalization | — | — | — | Constrained |
-| LSTM | — | — | — | Constrained |
-| Mish | — | — | — | Supported |
-| NegativeLogLikelihoodLoss | — | — | — | Constrained |
 
 ---
 
@@ -109,8 +103,6 @@ The compiler defaults to opset 17 for PyTorch-to-ONNX export:
 ```python
 config = CompilerConfig(onnx_opset_version=17)
 ```
-
-Opset 17 has the broadest operator support including `LayerNormalization`, `GroupNormalization`, and `LSTM` on-AIPU.
 
 ---
 
