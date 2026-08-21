@@ -3,6 +3,8 @@
 # Voyager SDK repository
 v1.8: [Release notes](RELEASE_NOTES.md) | [Release compatibility matrix](RELEASE_COMPATIBILITY_MATRIX.md)
 
+This documentation is also published online at [docs.axelera.ai](https://docs.axelera.ai/sdk/), with search and version selection.
+
 - [Voyager SDK repository](#voyager-sdk-repository)
   - [Release Qualification](#release-qualification)
   - [Install SDK and get started](#install-sdk-and-get-started)

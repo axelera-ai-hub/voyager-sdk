@@ -35,6 +35,10 @@ git clone https://github.com/axelera-ai-hub/voyager-sdk.git
 cd voyager-sdk
 ```
 
+> [!NOTE]
+> `git clone` checks out `latest`. To work against a specific release, check out
+> its branch, for example `git checkout release/vX.Y`.
+
 Install system dependencies using the provided script:
 
 ```bash
@@ -140,6 +144,10 @@ cd voyager-sdk
 ./install.sh --all --media
 source venv/bin/activate
 ```
+
+> [!NOTE]
+> `git clone` checks out `latest`. To work against a specific release, check out
+> its branch, for example `git checkout release/vX.Y`.
 
 Details for each step below.
 
