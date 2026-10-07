@@ -1,3 +1,4 @@
+# Copyright Axelera AI, 2023
 from pathlib import Path
 import sys
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2022
 # Deployment tool (compilation flow)
 
 import sys
@@ -44,7 +44,7 @@ def main():
             deploy_config,
             args.mode,
             args.export,
-            args.metis,
+            args.board,
         )
     if success:
         if args.mode not in (config.DeployMode.QUANTIZE, config.DeployMode.QUANTIZE_DEBUG):

@@ -10,9 +10,10 @@ class PolarTransformFormatFixture : public ::testing::TestWithParam<FormatParam>
 };
 
 INSTANTIATE_TEST_SUITE_P(PolarTransformTestSuite, PolarTransformFormatFixture,
-    ::testing::Values(FormatParam{ AxVideoFormat::RGB }, FormatParam{ AxVideoFormat::BGR },
-        FormatParam{ AxVideoFormat::GRAY8 }, FormatParam{ AxVideoFormat::NV12 },
-        FormatParam{ AxVideoFormat::I420 }, FormatParam{ AxVideoFormat::YUY2 }));
+    ::testing::Values(FormatParam{ AxVideoFormat::RGB },
+        FormatParam{ AxVideoFormat::BGR }, FormatParam{ AxVideoFormat::GRAY8 },
+        FormatParam{ AxVideoFormat::NV12 }, FormatParam{ AxVideoFormat::I420 },
+        FormatParam{ AxVideoFormat::YUY2 }, FormatParam{ AxVideoFormat::Y444 }));
 
 std::vector<uint8_t>
 make_buffer(int width, int height, AxVideoFormat format)
@@ -22,6 +23,8 @@ make_buffer(int width, int height, AxVideoFormat format)
     size = width * height;
   } else if (format == AxVideoFormat::NV12 || format == AxVideoFormat::I420) {
     size = width * height * 3 / 2;
+  } else if (format == AxVideoFormat::Y444) {
+    size = width * height * 3;
   } else if (format == AxVideoFormat::YUY2) {
     size = width * height * 2;
   } else if (format == AxVideoFormat::RGB || format == AxVideoFormat::BGR) {
@@ -48,6 +51,10 @@ make_video_interface(int width, int height, AxVideoFormat format, std::vector<ui
     return AxVideoInterface{ { width, height, width, 0, format }, buffer.data(),
       { size_t(width), size_t(width / 2), size_t(width / 2) },
       { 0, size_t(width * height), size_t(width * height * 5 / 4) } };
+  } else if (format == AxVideoFormat::Y444) {
+    return AxVideoInterface{ { width, height, width, 0, format }, buffer.data(),
+      { size_t(width), size_t(width), size_t(width) },
+      { 0, size_t(width * height), size_t(width * height * 2) } };
   } else if (format == AxVideoFormat::YUY2) {
     return AxVideoInterface{ { width, height, width * 2, 0, format },
       buffer.data(), { size_t(width * 2) }, { 0 } };

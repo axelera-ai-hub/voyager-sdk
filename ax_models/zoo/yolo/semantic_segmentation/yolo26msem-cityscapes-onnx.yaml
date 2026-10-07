@@ -39,7 +39,7 @@ models:
     num_classes: 19
     dataset: Cityscapes
     extra_kwargs:
-      compiler_config_file: yolo26.toml
+      compiler_config_file: yolo26x.toml
 
 datasets:
   Cityscapes:

@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2024
+# Copyright Axelera AI, 2023
 from axelera.types import BoxFormat, ResizeMode
 import numpy as np
 import pytest

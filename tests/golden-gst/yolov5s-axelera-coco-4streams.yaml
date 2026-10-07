@@ -18,7 +18,7 @@
   - instance: queue
     connections:
       src: inference-task0.sink_%u
-    max-size-buffers: 4
+    max-size-buffers: 1
     max-size-time: 0
     max-size-bytes: 0
   - instance: filesrc
@@ -40,7 +40,7 @@
   - instance: queue
     connections:
       src: inference-task0.sink_%u
-    max-size-buffers: 4
+    max-size-buffers: 1
     max-size-time: 0
     max-size-bytes: 0
   - instance: filesrc
@@ -62,7 +62,7 @@
   - instance: queue
     connections:
       src: inference-task0.sink_%u
-    max-size-buffers: 4
+    max-size-buffers: 1
     max-size-time: 0
     max-size-bytes: 0
   - instance: filesrc
@@ -84,7 +84,7 @@
   - instance: queue
     connections:
       src: inference-task0.sink_%u
-    max-size-buffers: 4
+    max-size-buffers: 1
     max-size-time: 0
     max-size-bytes: 0
   - instance: axinferencenet
@@ -108,6 +108,6 @@
     postprocess1_lib: libinplace_nms.so
     postprocess1_options: "meta_key:{{task_name0}};max_boxes:{{nms_top_k}};nms_threshold:0.45;class_agnostic:0;location:CPU"
   - instance: appsink
-    max-buffers: 4
+    max-buffers: 1
     drop: false
     sync: false

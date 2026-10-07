@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 # The simplest types.Model from Pytorch
 
 import PIL

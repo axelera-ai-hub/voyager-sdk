@@ -15,9 +15,13 @@
 # packages (libgirepository1.0-dev, libcairo2-dev, libglib2.0-dev, OpenCL
 # ICDs) not installed in the rt2-operators CI job.
 
-pillow>=8,<13
-opencv-python>=4,<5
-psutil>=6,<7
-requests>=2,<3
-strictyaml>=1.7,<2
-tqdm>=4.6,<5
+# Keep operator versions within the application dependency contract without
+# installing the broader application dependency set.
+-c requirements.application.txt
+--extra-index-url https://download.pytorch.org/whl/cpu
+pillow
+opencv-python
+psutil
+requests
+strictyaml
+tqdm

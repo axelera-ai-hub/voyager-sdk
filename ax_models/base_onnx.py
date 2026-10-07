@@ -70,15 +70,6 @@ def apply_onnx_graph_optimizations(
                 model = original_model
 
     # YOLO26 seg proto identity insertion (opt-in via model card YAML)
-    # Inserts MaxPool identity operations to break problematic dependency chains in the
-    # proto (segmentation mask prototype) section that cause compilation failures.
-    # This transformation is required for YOLO26 seg models to compile on Axelera hardware.
-    if model_info.extra_kwargs.get('yolo26_seg_insert_proto_identity', False):
-        from ax_models.onnx_optimizations import insert_yolo26_seg_proto_identity_ops
-
-        LOG.info(f"Applying YOLO26 seg proto identity insertion to {model_info.name}")
-        model = insert_yolo26_seg_proto_identity_ops(model)
-
     return model
 
 

@@ -1,3 +1,4 @@
+# Copyright Axelera AI, 2024
 from functools import partial
 
 from classifiers import AxTorchvisionClassifierModel

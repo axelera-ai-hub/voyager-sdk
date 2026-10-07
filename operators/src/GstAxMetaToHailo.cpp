@@ -1,3 +1,4 @@
+// Copyright Axelera AI, 2024
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include "AxMeta.hpp"

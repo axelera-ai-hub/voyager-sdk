@@ -179,6 +179,100 @@ TEST(Conversion, y42b2rgb)
   ASSERT_EQ(out_buf, expected);
 }
 
+TEST(Conversion, y4442rgb)
+{
+  std::unordered_map<std::string, std::string> input = {
+    { "format", "rgba" },
+  };
+  auto xform = Ax::LoadTransform("colorconvert", input);
+  auto in_buf = std::vector<uint8_t>{
+    // clang-format off
+    // Y plane: 6x2 = 12 bytes
+    0x98, 0x98, 0x98, 0x98, 0x98, 0x98,
+    0x98, 0x98, 0x98, 0x98, 0x98, 0x98,
+    // U plane: 6x2 = 12 bytes (full resolution, no subsampling)
+    0x3A, 0x3A, 0x3A, 0x3A, 0x3A, 0x3A,
+    0x3A, 0x3A, 0x3A, 0x3A, 0x3A, 0x3A,
+    // V plane: 6x2 = 12 bytes
+    0xC9, 0xC9, 0xC9, 0xC9, 0xC9, 0xC9,
+    0xC9, 0xC9, 0xC9, 0xC9, 0xC9, 0xC9,
+    // clang-format on
+  };
+
+  auto out_buf = std::vector<uint8_t>(6 * 2 * 4, 0x99);
+  // NOTE: unlike i4202rgb/nv12torgb/y42b2rgb/yuyv2rgb (which all produce
+  // 0x7F,0xFE,0x91 for this same Y/U/V input), Y444 goes through
+  // merge_y444_to_bgr -> cv::COLOR_YUV2BGR, which is OpenCV's generic
+  // *full-range* YUV formula rather than the *video-range* (BT.601 limited
+  // range) formula the _NV12/_I420/_YUY2-suffixed codes use. This CPU
+  // fallback path (only hit with --disable-opencl --disable-vaapi) is
+  // therefore not colour-exact with the OpenCL colorconvert_cl path for
+  // Y444; matching that would need a hand-rolled video-range conversion.
+  auto expected = std::vector<uint8_t>{
+    // clang-format off
+    0xEB, 0x89, 0x0A, 0xFF, 0xEB, 0x89, 0x0A, 0xFF, 0xEB, 0x89, 0x0A, 0xFF,
+    0xEB, 0x89, 0x0A, 0xFF, 0xEB, 0x89, 0x0A, 0xFF, 0xEB, 0x89, 0x0A, 0xFF,
+    0xEB, 0x89, 0x0A, 0xFF, 0xEB, 0x89, 0x0A, 0xFF, 0xEB, 0x89, 0x0A, 0xFF,
+    0xEB, 0x89, 0x0A, 0xFF, 0xEB, 0x89, 0x0A, 0xFF, 0xEB, 0x89, 0x0A, 0xFF,
+    // clang-format on
+  };
+
+  std::vector<size_t> strides{ 6, 6, 6 };
+  std::vector<size_t> offsets{ 0, 12, 24 };
+
+  auto in = AxVideoInterface{ { 6, 2, int(strides[0]), 0, AxVideoFormat::Y444 },
+    in_buf.data(), strides, offsets, -1 };
+
+  auto out = AxVideoInterface{ { 6, 2, 6 * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { 6 * 4 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
+TEST(Conversion, y4442bgr)
+{
+  std::unordered_map<std::string, std::string> input = {
+    { "format", "bgr" },
+  };
+  auto xform = Ax::LoadTransform("colorconvert", input);
+  auto in_buf = std::vector<uint8_t>{
+    // clang-format off
+    0x98, 0x98, 0x98, 0x98, 0x98, 0x98,
+    0x98, 0x98, 0x98, 0x98, 0x98, 0x98,
+    0x3A, 0x3A, 0x3A, 0x3A, 0x3A, 0x3A,
+    0x3A, 0x3A, 0x3A, 0x3A, 0x3A, 0x3A,
+    0xC9, 0xC9, 0xC9, 0xC9, 0xC9, 0xC9,
+    0xC9, 0xC9, 0xC9, 0xC9, 0xC9, 0xC9,
+    // clang-format on
+  };
+
+  // Exercises the in_format == out_format (BGR) edge case introduced by
+  // merge_y444_to_bgr's override, which bypasses cv::cvtColor entirely.
+  // See the NOTE in y4442rgb: this CPU path uses OpenCV's generic full-range
+  // YUV formula, so the values here are BGR, not the reverse of y4442rgb's
+  // RGB bytes (as they would be for i4202rgb-style video-range conversions).
+  auto out_buf = std::vector<uint8_t>(6 * 2 * 3, 0x99);
+  auto expected = std::vector<uint8_t>{
+    // clang-format off
+    0x0A, 0x89, 0xEB, 0x0A, 0x89, 0xEB, 0x0A, 0x89, 0xEB, 0x0A, 0x89, 0xEB, 0x0A, 0x89, 0xEB, 0x0A, 0x89, 0xEB,
+    0x0A, 0x89, 0xEB, 0x0A, 0x89, 0xEB, 0x0A, 0x89, 0xEB, 0x0A, 0x89, 0xEB, 0x0A, 0x89, 0xEB, 0x0A, 0x89, 0xEB,
+    // clang-format on
+  };
+
+  std::vector<size_t> strides{ 6, 6, 6 };
+  std::vector<size_t> offsets{ 0, 12, 24 };
+
+  auto in = AxVideoInterface{ { 6, 2, int(strides[0]), 0, AxVideoFormat::Y444 },
+    in_buf.data(), strides, offsets, -1 };
+
+  auto out = AxVideoInterface{ { 6, 2, 6 * 3, 0, AxVideoFormat::BGR },
+    out_buf.data(), { 6 * 3 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
 TEST(Conversion, nv12torgb)
 {
   std::unordered_map<std::string, std::string> input = {

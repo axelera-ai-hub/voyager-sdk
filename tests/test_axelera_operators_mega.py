@@ -4,7 +4,6 @@ from unittest.mock import ANY, MagicMock, patch
 
 import numpy as np
 import pytest
-from test_axelera_operators_preprocessing import arithmetic
 
 torch = pytest.importorskip("torch")
 import torchvision.transforms.functional as TF

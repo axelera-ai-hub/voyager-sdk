@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 # General functions for handling segment related tasks
 from __future__ import annotations
 

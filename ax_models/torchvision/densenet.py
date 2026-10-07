@@ -1,3 +1,4 @@
+# Copyright Axelera AI, 2024
 import collections
 import re
 

@@ -1,3 +1,4 @@
+// Copyright Axelera AI, 2024
 #include "GstAxDistributor.hpp"
 #include <gst/gst.h>
 #include "GstAxMeta.hpp"

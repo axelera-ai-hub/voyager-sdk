@@ -582,10 +582,10 @@ ACC = pyopencl.device_type.ACCELERATOR
     'platforms, expected, expected_msgs',
     [
         ([], False, ['No OpenCL platforms found']),
-        ([[CPU]], True, []),
-        ([[CPU]], True, []),
+        ([[CPU]], False, ['Only OpenCL CPU devices found']),
+        ([[CPU]], False, ['Only OpenCL CPU devices found']),
         ([[ACC]], False, ['No OpenCL GPU or CPU devices found']),
-        ([[CPU], [ACC]], True, []),
+        ([[CPU], [ACC]], False, ['Only OpenCL CPU devices found']),
         ([[GPU], [ACC]], True, []),
         ([[GPU], [CPU]], True, []),
         ([[CPU], [ACC, GPU], []], True, []),
@@ -629,6 +629,142 @@ def test_is_opencl_available_import_error():
     with patch.object(builtins, '__import__') as m:
         m.side_effect = ImportError('ham')
         assert not utils.is_opencl_available()
+
+
+@pytest.mark.parametrize(
+    'platforms, khr_device_reports, expected',
+    [
+        ([], False, False),
+        # device present but no dma-buf extension at all
+        ([([CPU], '')], False, False),
+        # ARM extension alone is sufficient
+        ([([CPU], 'cl_arm_import_memory_dma_buf')], False, True),
+        # both KHR extensions together are sufficient
+        ([([GPU], 'cl_khr_external_memory cl_khr_external_memory_dma_buf')], False, True),
+        # only one of the two KHR extensions is not sufficient
+        ([([GPU], 'cl_khr_external_memory_dma_buf')], False, False),
+        ([([GPU], 'cl_khr_external_memory')], False, False),
+        # cl_khr_external_memory alone, but the device reports dma-buf support via
+        # CL_DEVICE_EXTERNAL_MEMORY_IMPORT_HANDLE_TYPES_KHR: extra accept-path for
+        # drivers that don't advertise the cl_khr_external_memory_dma_buf string
+        ([([GPU], 'cl_khr_external_memory')], True, True),
+        # the device-level fallback is only consulted when cl_khr_external_memory
+        # is present at all; a device reporting True here shouldn't matter otherwise
+        ([([GPU], '')], True, False),
+        # extension present but no usable device on that platform
+        ([([ACC], 'cl_arm_import_memory_dma_buf')], False, False),
+        # first platform lacks it, second has it
+        ([([CPU], ''), ([GPU], 'cl_arm_import_memory_dma_buf')], False, True),
+        # get_devices raising on one platform doesn't stop the scan
+        ([RuntimeError('spam'), ([CPU], 'cl_arm_import_memory_dma_buf')], False, True),
+    ],
+)
+def test_can_import_dmabuf(platforms, khr_device_reports, expected):
+    class Mod:
+        device_type = pyopencl.device_type
+
+        def get_platforms(self):
+            return [Platform(f'plat{n}', p) for n, p in enumerate(platforms)]
+
+    class Platform:
+        def __init__(self, name, spec):
+            self.name = name
+            self._spec = spec
+            self.extensions = spec[1] if not isinstance(spec, Exception) else ''
+
+        def get_devices(self, dtype):
+            if isinstance(self._spec, Exception):
+                raise self._spec
+            devices, _extensions = self._spec
+            return [Device(f'dev{n}') for n, d in enumerate(devices) if (d & dtype) != 0]
+
+    class Device:
+        def __init__(self, name):
+            self.name = name
+
+    with patch.dict(sys.modules, {'pyopencl': Mod()}), patch.object(
+        utils, '_device_reports_dmabuf_import_khr', return_value=khr_device_reports
+    ):
+        assert utils.can_import_dmabuf() == expected
+
+
+def test_can_import_dmabuf_import_error():
+    with patch.object(builtins, '__import__') as m:
+        m.side_effect = ImportError('ham')
+        assert not utils.can_import_dmabuf()
+
+
+def test_can_import_dmabuf_khr_device_query_exception_does_not_abort_scan():
+    class Mod:
+        device_type = pyopencl.device_type
+
+        def get_platforms(self):
+            return [Platform('plat0', ([GPU], 'cl_khr_external_memory'))]
+
+    class Platform:
+        def __init__(self, name, spec):
+            self.name = name
+            self.extensions = spec[1]
+            self._devices = spec[0]
+
+        def get_devices(self, dtype):
+            return [Device(f'dev{n}') for n, d in enumerate(self._devices) if (d & dtype) != 0]
+
+    class Device:
+        def __init__(self, name):
+            self.name = name
+
+    with patch.dict(sys.modules, {'pyopencl': Mod()}), patch.object(
+        utils, '_device_reports_dmabuf_import_khr', side_effect=RuntimeError('boom')
+    ):
+        assert not utils.can_import_dmabuf()
+
+
+@pytest.mark.parametrize(
+    'find_library, cdll_error, size_query_ret, size, info_query_ret, handle_types, expected',
+    [
+        # OpenCL shared library not found on this system
+        (None, False, 0, 0, 0, [], False),
+        # library found but fails to load
+        ('OpenCL', True, 0, 0, 0, [], False),
+        # size-query call itself fails
+        ('OpenCL', False, 1, 0, 0, [], False),
+        # size-query succeeds but reports no handle types
+        ('OpenCL', False, 0, 0, 0, [], False),
+        # second call (fetching the handle types) fails
+        ('OpenCL', False, 0, 4, 1, [], False),
+        # handle types fetched, but dma-buf is not among them
+        ('OpenCL', False, 0, 4, 0, [0x2066], False),
+        # handle types fetched and dma-buf is among them
+        ('OpenCL', False, 0, 8, 0, [0x2066, 0x2067], True),
+    ],
+)
+def test_device_reports_dmabuf_import_khr(
+    find_library, cdll_error, size_query_ret, size, info_query_ret, handle_types, expected
+):
+    class FakeDevice:
+        int_ptr = 0x1234
+
+    def fake_clGetDeviceInfo(device_id, param, arg_size, arg_value, arg_size_ret):
+        if arg_size == 0:
+            if size_query_ret == 0:
+                arg_size_ret._obj.value = size
+            return size_query_ret
+        if info_query_ret == 0:
+            for i, h in enumerate(handle_types):
+                arg_value[i] = h
+        return info_query_ret
+
+    fake_libcl = MagicMock()
+    fake_libcl.clGetDeviceInfo.side_effect = fake_clGetDeviceInfo
+
+    with patch('ctypes.util.find_library', return_value=find_library):
+        if cdll_error:
+            with patch('ctypes.CDLL', side_effect=OSError('no lib')):
+                assert utils._device_reports_dmabuf_import_khr(FakeDevice()) is False
+        else:
+            with patch('ctypes.CDLL', return_value=fake_libcl):
+                assert utils._device_reports_dmabuf_import_khr(FakeDevice()) == expected
 
 
 @pytest.mark.parametrize(
@@ -875,3 +1011,71 @@ def test_get_terminal_size_ex_ioctl_failure(autopatch):
     assert sz.columns == 100
     assert sz.width == 800
     assert sz.height == 480
+
+
+def test_make_paths_in_dict_portable_rewrites_only_framework_paths():
+    extra_kwargs = {
+        'darknet_cfg_path': '/checkout/ax_models/yolo/cfg/yolov4.cfg',
+        'weight_path': '/mnt/ssd/cache/axelera/weights/YOLOv4/yolov4.weights',
+        'relative_path': 'cfg/yolov4.cfg',
+        'aipu_cores': 1,
+    }
+
+    utils.make_paths_in_dict_portable('/checkout', extra_kwargs)
+
+    assert extra_kwargs == {
+        'darknet_cfg_path': 'ax_models/yolo/cfg/yolov4.cfg',
+        'weight_path': '/mnt/ssd/cache/axelera/weights/YOLOv4/yolov4.weights',
+        'relative_path': 'cfg/yolov4.cfg',
+        'aipu_cores': 1,
+    }
+
+    utils.make_paths_in_dict_absolute('/checkout', extra_kwargs)
+
+    assert extra_kwargs == {
+        'darknet_cfg_path': '/checkout/ax_models/yolo/cfg/yolov4.cfg',
+        'weight_path': '/mnt/ssd/cache/axelera/weights/YOLOv4/yolov4.weights',
+        'relative_path': '/checkout/cfg/yolov4.cfg',
+        'aipu_cores': 1,
+    }
+
+
+def test_make_paths_in_dict_portable_resolves_symlinked_framework(tmp_path):
+    real_framework = tmp_path / 'real-framework'
+    symlinked_framework = tmp_path / 'framework'
+    cfg = real_framework / 'ax_models/yolo/cfg/yolov4.cfg'
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text('[net]')
+    symlinked_framework.symlink_to(real_framework, target_is_directory=True)
+    extra_kwargs = {'darknet_cfg_path': str(cfg)}
+
+    utils.make_paths_in_dict_portable(symlinked_framework, extra_kwargs)
+
+    assert extra_kwargs == {'darknet_cfg_path': 'ax_models/yolo/cfg/yolov4.cfg'}
+
+
+def test_reroot_paths_in_dict_reads_legacy_absolute_paths(tmp_path):
+    framework = tmp_path / 'framework'
+    cfg = framework / 'ax_models/yolo/cfg/yolov4.cfg'
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text('[net]')
+    foreign = tmp_path / 'voyager-sdk/ax_models/yolo/cfg/yolov4.cfg'
+    foreign.parent.mkdir(parents=True)
+    foreign.write_text('[old net]')
+    unrelated = tmp_path / 'another-checkout/README.md'
+    unrelated.parent.mkdir(parents=True)
+    unrelated.write_text('not a framework path')
+    (framework / 'README.md').write_text('not the same file')
+    extra_kwargs = {
+        'darknet_cfg_path': str(foreign),
+        'weight_path': '/mnt/ssd/cache/axelera/weights/YOLOv4/yolov4.weights',
+        'unrelated_path': str(unrelated),
+    }
+
+    utils.reroot_paths_in_dict(framework, extra_kwargs)
+
+    assert extra_kwargs == {
+        'darknet_cfg_path': str(cfg),
+        'weight_path': '/mnt/ssd/cache/axelera/weights/YOLOv4/yolov4.weights',
+        'unrelated_path': str(unrelated),
+    }

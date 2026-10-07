@@ -389,6 +389,16 @@ def print_as_logger(*args, **kwargs):
     COMPILER_LOG.log(level, s)
 
 
+def _write_model_info(model_info: types.ModelInfo, out_json: Path) -> None:
+    """Write model metadata with framework-owned paths portable across checkouts."""
+    out_json.parents[0].mkdir(parents=True, exist_ok=True)
+    framework = config.env.framework
+    if model_info.class_path:
+        model_info.class_path = os.path.relpath(model_info.class_path, framework)
+    utils.make_paths_in_dict_portable(framework, model_info.extra_kwargs)
+    out_json.write_text(model_info.to_json())
+
+
 def _deploy_model(
     task: AxTask,
     model_name,
@@ -399,7 +409,7 @@ def _deploy_model(
     is_export: bool,
     compile_object: bool,
     deploy_mode: config.DeployMode,
-    metis: config.Metis,
+    board: config.Board,
     model_infos: network.ModelInfos,
     cal_seed: int | None,
     is_default_representative_images: bool = True,
@@ -475,7 +485,7 @@ def _deploy_model(
                     else:
                         ncores = compilation_cfg.aipu_cores_used
                         decoration_flags = model_infos.determine_deploy_decoration(
-                            model_name, ncores, metis
+                            model_name, ncores, board
                         )
                         _register_model_output_info(model_obj, task.model_info)
 
@@ -487,7 +497,7 @@ def _deploy_model(
                             model_dir,
                             is_export,
                             deploy_mode,
-                            metis,
+                            board,
                             decoration_flags,
                             dump_core_model,
                             toml_metadata,
@@ -496,13 +506,7 @@ def _deploy_model(
         _trace_model_info(task.model_info, LOG.trace)
         out_json = model_dir / constants.K_MODEL_INFO_FILE_NAME
         LOG.trace(f'Write {task.model_info.name} model info to {out_json} file')
-        out_json.parents[0].mkdir(parents=True, exist_ok=True)
-        axelera_framework = config.env.framework
-        if task.model_info.class_path:
-            task.model_info.class_path = os.path.relpath(
-                task.model_info.class_path, axelera_framework
-            )
-        out_json.write_text(task.model_info.to_json())
+        _write_model_info(task.model_info, out_json)
     except logging_utils.UserError:
         raise
     except exceptions.PrequantizedModelRequired:
@@ -525,9 +529,9 @@ def deploy_from_yaml(
     deploy_config: config.DeployConfig,
     deploy_mode: config.DeployMode,
     is_export,
-    metis: config.Metis,
+    board: config.Board,
 ):
-    with device_manager.create_device_manager(pipeline_config.pipe_type, metis, deploy_mode) as dm:
+    with device_manager.create_device_manager(pipeline_config.pipe_type, board, deploy_mode) as dm:
         return _deploy_from_yaml(
             dm,
             nn_name,
@@ -539,7 +543,7 @@ def deploy_from_yaml(
             deploy_config,
             deploy_mode,
             is_export,
-            metis,
+            board,
         )
 
 
@@ -579,7 +583,7 @@ def _build_deploy_command_and_run(
     data_root: str,
     pipe_type: str,
     build_root,
-    metis: config.Metis,
+    board: config.Board,
     cal_seed: int | None = None,
     hardware_caps: config.HardwareCaps | None = None,
     aipu_cores: int | None = None,
@@ -636,8 +640,8 @@ def _build_deploy_command_and_run(
     if aipu_cores is not None:
         cmd_parts.append(f'--aipu-cores {aipu_cores}')
 
-    # Add metis configuration
-    cmd_parts.append(f'--metis {metis.name}')
+    # Add board configuration
+    cmd_parts.append(f'--board {board.name}')
 
     # Add mode if specified (for quantization)
     if mode:
@@ -670,7 +674,7 @@ def _quantize_single_model(
     system_config: config.SystemConfig,
     deploy_config: config.DeployConfig,
     pipe_type: str,
-    metis: config.Metis,
+    board: config.Board,
     debug: bool = False,
 ):
     """quantize a model in a separate process because of quantizer OOM"""
@@ -693,7 +697,7 @@ def _quantize_single_model(
             # Q? do we need hw_caps here? and do we need to also pass aipu_cores for quant?
             f'--data-root {system_config.data_root} --pipe {pipe_type} --build-root {system_config.build_root} {nn_name} '
             f'--mode QUANTIZE{"_DEBUG" if debug else ""} {trace}'
-            f'--metis {metis.name} {cal_argv} {dump_core_model_argv}',
+            f'--board {board.name} {cal_argv} {dump_core_model_argv}',
             capture_output=False,
             verbose=LOG.isEnabledFor(logging.DEBUG),
         )
@@ -718,7 +722,7 @@ def _deploy_from_yaml(
     deploy_config: config.DeployConfig,
     deploy_mode: config.DeployMode,
     is_export,
-    metis: config.Metis,
+    board: config.Board,
 ):
     path = pipeline_config.network
     ok = True
@@ -734,13 +738,13 @@ def _deploy_from_yaml(
     nnname = f"network {nn.name}"
     nn_dir = system_config.build_root / nn.name
 
-    if compile_obj and metis == config.Metis.none:
-        metis = device_man.get_metis_type()
-        LOG.info("Detected Metis type as %s", metis.name)
+    if compile_obj and board == config.Board.none:
+        board = device_man.get_board_type()
+        LOG.info("Detected board type as %s", board.name)
 
-    network.restrict_cores(nn, pipeline_config, metis, deploy=True)
+    network.restrict_cores(nn, pipeline_config, board, deploy=True)
 
-    model_infos = network.read_deployed_model_infos(nn_dir, nn, pipeline_config, metis)
+    model_infos = network.read_deployed_model_infos(nn_dir, nn, pipeline_config, board)
 
     if len(nn.tasks) < 1:
         raise ValueError(f"No tasks found in {path}")
@@ -765,9 +769,9 @@ def _deploy_from_yaml(
                 else:
                     found = True
 
-            compiler_overrides = model_infos.model_compiler_overrides(model_name, metis)
+            compiler_overrides = model_infos.model_compiler_overrides(model_name, board)
             deploy_cores = model_infos.determine_deploy_cores(
-                model_name, pipeline_config.aipu_cores, metis, pipeline_config.low_latency
+                model_name, pipeline_config.aipu_cores, board, pipeline_config.low_latency
             )
             try:
                 # Extract yaml_dir from compiler_overrides (added by ModelInfos)
@@ -777,6 +781,7 @@ def _deploy_from_yaml(
                     compiler_overrides,
                     deploy_mode,
                     yaml_dir=yaml_dir,
+                    board=board,
                 )
             except (ImportError, ModuleNotFoundError, OSError):
                 if compile_obj:
@@ -805,7 +810,7 @@ def _deploy_from_yaml(
                     system_config,
                     deploy_config,
                     pipeline_config.pipe_type,
-                    metis,
+                    board,
                     debug=(deploy_mode == config.DeployMode.QUANTIZE_DEBUG),
                 )
                 ok = True
@@ -830,7 +835,7 @@ def _deploy_from_yaml(
                             is_export,
                             compile_obj,
                             this_deploy_mode,
-                            metis,
+                            board,
                             model_infos,
                             deploy_config.cal_seed,
                             deploy_config.default_representative_images,
@@ -846,7 +851,7 @@ def _deploy_from_yaml(
                                 system_config,
                                 deploy_config,
                                 pipeline_config.pipe_type,
-                                metis,
+                                board,
                                 deploy_config.cal_seed,
                             )
                             continue
@@ -865,7 +870,7 @@ def _deploy_from_yaml(
         LOG.info(f"## Deploy {nnname} pipeline only")
 
     # redetect ready state, or else `check_ready` fails in _deploy_pipeline
-    model_infos = network.read_deployed_model_infos(nn_dir, nn, pipeline_config, metis)
+    model_infos = network.read_deployed_model_infos(nn_dir, nn, pipeline_config, board)
     if models_only or model:
         return ok
     elif ok:

@@ -2,8 +2,9 @@
 
 Standalone, runnable demos showing how to build inference pipelines with
 `axelera.runtime` (`op`, `cv`, `display`). Each script is self-contained and
-depends only on `axelera.runtime` + `argparse`, so users can copy a file and
-start from it without pulling in the smoke-test scaffolding.
+depends only on `axelera.runtime` and the Python standard library
+(`bottle_demo.py` also uses OpenCV for drawing), so you can copy a file and
+start from it.
 
 ## Demos
 
@@ -11,19 +12,26 @@ start from it without pulling in the smoke-test scaffolding.
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
 | `classification.py`               | ImageNet top-5 classification with standard ImageNet preprocessing.                                                      | `squeezenet1.0-imagenet.axm`                     |
 | `detection.py`                    | YOLOv8 object detection on COCO (80 classes); NMS + `DetectedObject` output.                                             | `yolov8n-coco.axm`                               |
-| `detection_batched.py`            | YOLOv8 COCO detection driven by batched `pipeline.batch()` calls, stepping batch size 1→128 to show flexible batching.   | `yolov8n-coco.axm`                               |
+| `detection_batched.py`            | YOLOv8 COCO detection driven by batched `pipeline.batch()` calls, stepping batch size 1 to 128 to show flexible batching.  | `yolov8n-coco.axm`                               |
 | `detection_stream.py`             | YOLOv8 COCO detection driven by a pipelined `pipeline.stream()` over the input source (video-oriented).                  | `yolov8n-coco.axm`                               |
 | `detection_vary_confidence.py`    | Same as `detection.py`, but varies `confidence_threshold` every 60 frames to show runtime parameter tuning.              | `yolov8n-coco.axm`                               |
 | `nms_free_detection.py`           | NMS-free YOLO detection (yolo26); `decode_detections` filters by confidence, so no separate NMS stage is needed.         | `yolo26n-coco-onnx.axm`                          |
 | `pose_detection.py`               | YOLOv8 human pose estimation with 17 COCO keypoints.                                                                     | `yolov8npose-coco.axm`                           |
 | `segmentation.py`                 | YOLOv8 instance segmentation with prototype-based mask prediction (uses `par` + `itemgetter` for explicit tuple flow).   | `yolov8nseg-coco.axm`                            |
-| `semantic_segmentation.py`        | Semantic segmentation on Cityscapes (19 classes); `decode_semantic_segmentation` argmaxes logits to a class map.         | `yolo26n-sem.axm` †                              |
-| `depth_estimation.py`             | Monocular depth estimation with FastDepth (NYU Depth V2 -- works best on indoor scenes).                                 | `fastdepth-nyudepthv2-onnx.axm`                  |
+| `semantic_segmentation.py`        | Semantic segmentation on Cityscapes (19 classes); `decode_semantic_segmentation` argmaxes logits to a class map.         | `yolo26n-sem.axm` (*)                            |
+| `depth_estimation.py`             | Monocular depth estimation with FastDepth (NYU Depth V2; works best on indoor scenes).                                   | `fastdepth-nyudepthv2-onnx.axm`                  |
 | `obb.py`                          | YOLO11n oriented-bounding-box detection on DOTA (15 classes: plane, ship, vehicle, ...).                                 | `yolo11n-obb-dotav1-onnx.axm`                    |
 | `tracking.py`                     | Multi-object tracking with state lifecycle, detection correlation, and class filtering.                                  | `yolov8n-coco.axm`                               |
-| `tracking_with_classification.py` | Detection → filtering → tracking → per-track classification. Shows that a tracked object can drive a downstream cascade. | `yolov8n-coco.axm`, `squeezenet1.0-imagenet.axm` |
+| `axe.py`                          | Saves a detection pipeline as one portable `.axe` file, loads it back, reads its metadata, retunes a named operator, and runs it. | `yolov8n-coco.axm`                               |
+| `tracking_with_classification.py` | Detection, filtering, tracking, then per-track classification. Shows that a tracked object can drive a downstream cascade. | `yolov8n-coco.axm`, `squeezenet1.0-imagenet.axm` |
+| `bottle_demo.py`                  | Cascade: detect bottles, track them, keep the ten closest to the frame centre (`op.sort_by`), classify each with ResNet-50. | `yolov8n-coco.axm`, `resnet50-imagenet.axm` |
+| `fruit_demo.py`                   | Two parallel branches: pose with segmentation nested inside each of the five largest people, and full-frame detection. | `yolov8lpose-coco-onnx.axm`, `yolov8sseg-coco-onnx.axm`, `yolov8s-coco-onnx.axm` |
+| `barrel_correct_yolo.py`          | Barrel distortion correction, then YOLOv8 detection; `split_at` + `frame_callback` show the corrected frame before inference returns. | `yolov8n-coco.axm` |
+| `perspective_yolo.py`             | Perspective correction, then YOLOv8 detection, with the same low-latency display split. | `yolov8n-coco.axm` |
+| `multipipeline_decoded_tee.py`    | One detection pipeline per input stream (comma-separated inputs), with a decoded-frame tee for low-latency display. | `yolov8n-coco.axm` |
+| `multipipeline_multimodel.py`     | Five different models on five streams, one pipeline each, sharing the AIPU cores. | `yolov8n-coco.axm`, `yolov8s-coco-onnx.axm`, `yolov8lpose-coco-onnx.axm`, `yolov8sseg-coco-onnx.axm`, `resnet50-imagenet.axm` |
 
-† `yolo26n-sem.axm` is **not** in the public catalog. Compile it locally with
+(*) `yolo26n-sem.axm` is **not** in the public catalog. Compile it locally with
 `download_axm.py --deploy-missing` (needs `ultralytics` + `axelera-devkit`; see
 below).
 
@@ -42,7 +50,7 @@ references, then calls `axdownloadmodel --axm <stem>` for each one.
 Already-present files are skipped.
 
 ```bash
-# Just list the .axm stems the demos reference -- no downloads
+# Just list the .axm stems the demos reference, no downloads
 python examples/pipeline_builder/download_axm.py --list
 
 # For .axm not in the public catalog (currently `yolo26n-sem`, used by
@@ -74,11 +82,18 @@ All scripts share the same CLI surface:
 ```
 positional:
   input                  Image or video file to process
+                         (multipipeline_*: comma-separate several paths)
 
 options:
-  --display {none,opencv,console,iterm2,auto}
+  --display {none,opencv,vulkan,console,iterm2,auto}
   --window-width INT             (default 800)
   --window-height INT            (default 500)
   -w, --wait / --no-wait         Keep the window open until the user closes it
                                  (default: --wait)
+  --backend {ffmpeg,opencv}      Video decode backend (default: ffmpeg)
 ```
+
+`multipipeline_multimodel.py` also takes `--frames N` to stop after N frames.
+
+For what the demos build on, start at the
+[Pipeline Builder guide](../../docs/reference/pipeline-builder/README.md).

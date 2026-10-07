@@ -4,7 +4,7 @@ title: "axelera.runtime.op.inference"
 # `axelera.runtime.op.inference`
 
 
-Model loading and inference: AxRuntimeModel, OnnxModel, load().
+Model loading and inference: AxRuntimeModel, OnnxModel, Pt2Model, load().
 
 ## Summary
 
@@ -13,13 +13,15 @@ Model loading and inference: AxRuntimeModel, OnnxModel, load().
 | [load](#load) | Load a compiled Axelera model (`.axm`) or pipeline package (`.axe`). |
 | [onnx_model](#onnx_model) | Run standalone ONNX model inference. |
 | [OnnxModel](#onnxmodel) | ONNX model inference operator. |
+| [pt2_model](#pt2_model) | Run a standalone `.pt2` (torch.export) model. |
+| [Pt2Model](#pt2model) | torch.export ExportedProgram inference operator. |
 
 ---
 
 ### load
 
 ```python
-load(file: str, *, name: str = '', core_allocation: int | str | None = None) -> Operator
+load(file: str, *, name: str = '', core_allocation: int | str | None = None, using_postamble: Postamble | None = None, device_config: DeviceConfig | None = None) -> Operator
 ```
 
 Load a compiled Axelera model (`.axm`) or pipeline package (`.axe`).
@@ -31,6 +33,8 @@ Takes preprocessed np.ndarray input(s) and returns model output(s).
 - **file**: path to .axm or .axe file.
 - **name**: Optional name for the operator in pipeline.
 - **core_allocation**: How many AIPU cores to give this model. `None` (default) shares cores equally with the other models in the pipeline; an int assigns that many cores absolutely (e.g. `2`); a percentage string (e.g. `'50%'`) takes that share of the cores left after absolute allocations, so it scales with the core count of the target hardware.
+- **using_postamble**: a `Postamble` naming a kernel to run the model's post-processing in place of the default onnxruntime tail. See `Postamble`. `None` (default) keeps the onnx tail.
+- **device_config**: board settings the cores running this model must hold, e.g. `DeviceConfig({'110m': BoardConfig(mvm_limitation=57)})`. `None` (default) leaves the device alone. See `axelera.runtime.device_config`.
 
 **Examples:**
 
@@ -50,9 +54,10 @@ op.seq(
     op.center_crop(224),
     op.totensor(),
     op.normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    op.load('resnet50-imagenet'),  # Returns raw logits
+    op.load('resnet50-imagenet.axm'),  # Returns raw logits
+    op.softmax(),
+    op.ax_classification(class_id_type=op.ImagenetClasses),
     op.top_k(k=5),
-    op.ax_classification(...),
 )
 
 # Load .axe file (complete pipeline)
@@ -127,7 +132,8 @@ Available providers depend on your onnxruntime installation:
 - `'openvino'`: Requires onnxruntime-openvino
 - `'cpu'`: Always available
 
-Use `_internal.get_available_onnx_providers()` to check available providers.
+`onnxruntime.get_available_providers()` lists what your installation has,
+under onnxruntime's own names (e.g. `'CUDAExecutionProvider'`).
 
 ---
 
@@ -149,10 +155,21 @@ execution provider selection.
 **Constructor:**
 
 ```python
-__init__(axm_path: str | Path = str(axm_path), provider: str | None = provider, file=str(file))
+__init__(file: str | Path = '', axm_path: str | Path = '', provider: str | None = None, *, name: str = '', save: str = '')
 ```
 
 **Methods:**
+
+#### model_input_spec
+
+```python
+model_input_spec() -> tuple[list[int], str]
+```
+
+Return the declared input shape and its layout, empty if it is dynamic.
+
+The shape comes from the ONNX graph, which is NCHW. A dimension the graph
+left symbolic is not a shape a package can state.
 
 #### serialize
 
@@ -174,3 +191,51 @@ deserialize_impl(operator_cls, spec: dict[str, Any], zf: zipfile.ZipFile, base_p
 Deserialize OnnxModel from AXE format.
 
 Extracts the ONNX file from the archive and creates an OnnxModel.
+
+---
+
+### pt2_model
+
+```python
+pt2_model(path: str | Path, *, name: str = '') -> Pt2Model
+```
+
+Run a standalone `.pt2` (torch.export) model.
+
+Mirrors `onnx_model` but for `torch.export.ExportedProgram` files.
+
+---
+
+### Pt2Model
+
+**Alias:** `pt2_model`
+
+torch.export ExportedProgram inference operator.
+
+Loads a `.pt2` file or a member of an `.axm` archive and runs
+the exported program as a sequence operator.
+
+**Args:**
+
+- **file**: Path to .pt2 file or member name within an .axm archive.
+- **axm_path**: Optional path to .axm archive containing the .pt2 member.
+
+**Constructor:**
+
+```python
+__init__(file: str | Path = '', axm_path: str | Path = '', *, name: str = '', save: str = '')
+```
+
+**Properties:**
+
+- **`input_shape`** (`tuple[int, ...] | None`) — Shape of the exported program's first input tensor, or `None`.
+
+**Methods:**
+
+#### model_input_spec
+
+```python
+model_input_spec() -> tuple[list[int], str]
+```
+
+Return the exported program's input shape and its layout, NCHW.

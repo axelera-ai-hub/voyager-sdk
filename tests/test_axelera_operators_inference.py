@@ -10,7 +10,6 @@ from axelera.app.operators.inference import (
     InferenceOpConfig,
     _match_arrays_to_shapes,
     _reshape_to_target_shapes,
-    _supports_async_executor,
 )
 
 
@@ -526,14 +525,3 @@ class TestPostambleValidation:
                 mock_log.info.assert_called_once_with(
                     "Found custom postamble ONNX model '/path/to/postamble.onnx'."
                 )
-
-
-class TestSupportsAsyncExecutor:
-    """Tests for _supports_async_executor, which gates async_mode on model batching."""
-
-    def test_single_core_model_supports_async(self):
-        assert _supports_async_executor(1) is True
-
-    def test_batched_model_does_not_support_async(self):
-        assert _supports_async_executor(2) is False
-        assert _supports_async_executor(4) is False

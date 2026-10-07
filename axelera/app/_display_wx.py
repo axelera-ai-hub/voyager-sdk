@@ -79,6 +79,14 @@ class WxApp(display.App):
         del frame_sink
         return GLWindow(q, title, size, self.buffering, None, hard_stop=False, borderless=True)
 
+    def _run_background(self, interval=1 / 30):
+        del interval
+        if self._running_in_main:
+            return
+        raise RuntimeError(
+            "Cannot run the wx renderer in the background, use display.App.run() instead."
+        )
+
     def _start(self):
         self._frame.Show()
         self._frame._start_timer()

@@ -42,6 +42,7 @@ from pyglet.gl import (
 )
 
 from axelera import types
+from axelera.runtime2.img import map_buffer
 
 from . import config, display, logging_utils, meta
 from .utils import catchtime, get_backend_opengl_version
@@ -541,6 +542,17 @@ class GLCanvas(display.Canvas):
     (0 + 100*0.5859, 475 - 100*0.5859, 200*0.5859, 200*0.5859) = (59, 416, 117, 117)
     Given a scale factor of 0.5859, and rounding to integer pixel values.
     '''
+
+    @property
+    def logical_size(self) -> Tuple[int, int]:
+        '''The canvas size in logical (image-space) coordinates.
+
+        Converts the physical canvas dimensions back through the scale factor to give
+        the image-space extent that this canvas represents. Use this as the canvas_size
+        argument when converting layer percentage coordinates via Coords.as_px(), so that
+        glp() maps them to the correct screen position without double-scaling.
+        '''
+        return round(self.width / self.scale), round(self.height / self.scale)
 
     def glp(self, p: Tuple[int, int]) -> Tuple[int, int]:
         '''Convert a logical point to a gl point.'''
@@ -1162,7 +1174,7 @@ def _new_sprite_from_image(
     pt = canvas.glp((0, 0))
 
     format_name = image.color_format.name
-    width, height = image.size
+    width, height = image.width, image.height
 
     shader = _get_shader(
         format_name, blur=None, grayscale=1.0 if grayscale else None, grayscale_area=grayscale_area
@@ -1173,7 +1185,7 @@ def _new_sprite_from_image(
     sprite.opacity = opacity
 
     textures = render_state.get("_textures", {})
-    with image.as_c_void_p() as data:
+    with map_buffer(image) as data:
         if format_name == 'NV12':
             _upload_nv12(
                 width, height, data, sprite, textures, image.strides, image.offsets, row_step
@@ -1270,7 +1282,7 @@ class Frame:
     def _main_texture(self):
         """Get or create the main texture from render_state."""
         if "_main_texture" not in self._render_state:
-            width, height = self._image.size
+            width, height = self._image.width, self._image.height
             self._render_state["_main_texture"] = pyglet.image.Texture.create(
                 width, height, GL_TEXTURE_2D, GL_RGBA
             )
@@ -1448,7 +1460,7 @@ class GridFrame(Frame):
         cell_texture_region = self._main_texture.get_region(x0, y0, w, h)
 
         format_name = self._image.color_format.name
-        img_width, img_height = self._image.size
+        img_width, img_height = self._image.width, self._image.height
 
         shader = _get_shader(
             format_name,
@@ -1631,7 +1643,7 @@ class GLDraw(display.Draw):
         self._render_state = render_state
         self._speedometer_smoothing = speedometer_smoothing
         self._options = options
-        self._image_size = image.size
+        self._image_size = (image.width, image.height)
 
         format_name = image.color_format.name
         bind_group = BindGroup(
@@ -1688,7 +1700,7 @@ class GLDraw(display.Draw):
                 canvas_size = window_size
             else:
                 pt_transform = layer_canvas.glp
-                canvas_size = self._image_size
+                canvas_size = layer_canvas.logical_size
             opacity = int(255 * x.visibility)  # TODO: 255 should be x.opacity once added
             if isinstance(x, display._Text):
                 self._text(
@@ -1703,8 +1715,12 @@ class GLDraw(display.Draw):
                     opacity,
                 )
             elif isinstance(x, display._Image):
+                if x.stream_id == -1:
+                    sprite_target = window_size
+                else:
+                    sprite_target = (layer_canvas.width, layer_canvas.height)
                 s = _load_sprite_from_file(
-                    x.path, x.scale, canvas_size, self._batch, self._layer_gr
+                    x.path, x.scale, sprite_target, self._batch, self._layer_gr
                 )
                 s.x, s.y = pt_transform(x.position.as_px(canvas_size))
                 s.opacity = opacity
@@ -2252,7 +2268,11 @@ class GLWindow(pyglet.window.Window):
                 while True:
                     msg = self._queue.get(block=False)
                     if msg is display.SHUTDOWN:
-                        self._queue.clear()
+                        while True:
+                            try:
+                                self._queue.get_nowait()
+                            except queue.Empty:
+                                break
                         pyglet.app.platform_event_loop.post_event(self, "on_close")
                         return
                     if msg is display.THREAD_COMPLETED:
@@ -2293,7 +2313,7 @@ class GLWindow(pyglet.window.Window):
                                 else _STREAM_QUEUE_SIZE
                             )
                             q = self._stream_queues[msg.stream_id] = HighLowQueue(maxlen=maxlen)
-                        q.append((msg.image, msg.meta, blocking))
+                        q.append((msg.image, msg.objects, blocking))
                     else:
                         LOG.debug(f"Unexpected render message {msg}")
             except queue.Empty:

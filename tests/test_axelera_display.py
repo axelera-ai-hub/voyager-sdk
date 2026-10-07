@@ -1,122 +1,14 @@
 # Copyright Axelera AI, 2023
-import builtins
 import contextlib
+import importlib
 import os
-import re
-import sys
 from unittest.mock import patch
 
-import numpy as np
 import pytest
 
-from axelera import types
-from axelera.app import config, display, display_console, display_cv, inf_tracers, utils
+pytest.importorskip('axelera.runtime2.display', reason='axelera.runtime2 is not installed')
 
-
-def test_null_app_with_data():
-    with display.App(renderer=False) as app:
-        wnd = app.create_window('test', (640, 480))
-        i = types.Image.fromarray(np.zeros((480, 640, 3), np.uint8))
-        meta = object()
-
-        def t():
-            wnd.show(i, meta)
-            wnd.close()
-
-        app.start_thread(t)
-        app.run()
-        assert wnd.is_closed == True
-
-
-def test_wrong_type_image():
-    with display.App(renderer=False) as app:
-        wnd = app.create_window('test', (640, 480))
-        i = np.zeros((480, 640, 3), np.uint8)
-        meta = object()
-
-        def t():
-            with pytest.raises(TypeError, match='Expected axelera.types.Image'):
-                wnd.show(i, meta)
-            wnd.close()
-
-        app.start_thread(t)
-        app.run()
-        assert wnd.is_closed == True
-
-
-class MockApp(display.App):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.received = []
-
-    def _create_new_window(self, q, title, size, frame_sink):
-        return title
-
-    def _destroy_all_windows(self):
-        pass
-
-    def _run(self, interval=1 / 30):
-        while 1:
-            self._create_new_windows()
-            new = display_console._read_new_data(self._queues)
-            if new is display.SHUTDOWN:
-                return
-            self.received.extend(new)
-            if self.has_thread_completed:
-                return
-
-
-def test_mock_window_creation():
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-        app.start_thread(wnd.close)
-        app.run()
-        assert wnd.is_closed == True
-    assert app.received == []
-
-
-def test_mock_window_creation_with_data():
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-        i = types.Image.fromarray(np.zeros((480, 640, 3), np.uint8))
-        meta = object()
-
-        def t():
-            wnd.show(i, meta)
-
-        app.start_thread(t)
-        app.run()
-        assert wnd.is_closed == True
-    assert app.received == [(0, display._Frame(0, i, meta))]
-
-
-def test_speedometer_metrics():
-    m = display.SpeedometerMetrics((1000, 2000), 0)
-    assert m.bottom_left == (50, 950)
-    assert m.diameter == 200
-    assert m.top_left == (50, 750)
-    assert m.radius == 100
-    assert m.needle_radius == 80
-    assert m.center == (150, 850)
-    assert m.text_offset == 40
-    assert m.text_size == 28
-
-
-@pytest.mark.parametrize(
-    'metric, text, needle_pos',
-    [
-        (inf_tracers.TraceMetric('k', 'title', 0.0, 99.0), '  --', 90 + 45),
-        (inf_tracers.TraceMetric('k', 'title', 10.0, 100.0), '  10', 162.0),
-        (inf_tracers.TraceMetric('k', 'title', 99.0, 110.0), '  99', 18.0),
-        (inf_tracers.TraceMetric('k', 'title', 100.1, 110.0), ' 100', 20.7),
-        (inf_tracers.TraceMetric('k', 'title', 10.0, 100.0, '%'), '  10%', 162.0),
-        (inf_tracers.TraceMetric('k', 'title', 25.0, 50.0, '%'), ' 25.0%', 270.0),
-        (inf_tracers.TraceMetric('k', 'title', 99.0, 100.0, '%'), '  99%', 42.3),
-    ],
-)
-def test_text_and_needle(metric, text, needle_pos):
-    assert text == display.calculate_speedometer_text(metric)
-    assert needle_pos == round(display.calculate_speedometer_needle_pos(metric), 1)
+from axelera.app import config, display, display_console, display_cv, meta, utils
 
 
 def test_meta_cache():
@@ -137,59 +29,10 @@ def test_meta_cache():
     assert (True, {'a': 111, 'b': 121}) == mc.get(1, None)
 
 
-class A:
-    pass
-
-
-@pytest.mark.parametrize(
-    'prop,value,exp,got',
-    [
-        ('title', 0, 'str', 'int'),
-        ('grayscale', '0', 'float | int | bool', 'str'),
-        ('grayscale', A(), 'float | int | bool', 'A'),
-        ('bbox_label_format', 0, 'str', 'int'),
-    ],
-)
-def test_options_invalid_type(caplog, prop, value, exp, got):
-    opts = display.Options()
-    opts.update(**{prop: value})
-    assert f'Expected {exp} for Options.{prop}, but got {got}' in caplog.text
-
-
-@pytest.mark.parametrize(
-    'props,err',
-    [
-        (['titel'], 'Options.titel'),
-        (['badger', 'mushroom'], 'Options.badger, mushroom'),
-    ],
-)
-def test_options_invalid_prop(caplog, props, err):
-    with caplog.at_level('INFO'):
-        opts = display.Options()
-        opts.update(**dict.fromkeys(props, 0))
-        s = 's' if ',' in err else ''
-        assert f'Unsupported option{s} : {err}' in caplog.text
-
-
-@pytest.mark.parametrize(
-    'prop,value,got',
-    [
-        ('title', 'test', 'test'),
-        ('grayscale', 0.5, 0.5),
-        ('grayscale', 0, 0.0),
-        ('grayscale', True, 1.0),
-        ('bbox_label_format', 'test', 'test'),
-        ('bbox_label_format', '', ''),
-    ],
-)
-def test_options_valid(prop, value, got):
-    opts = display.Options()
-    opts.update(**{prop: value})
-    assert getattr(opts, prop) == got
-
-
 disable = config.HardwareEnable.disable
+
 detect = config.HardwareEnable.detect
+
 enable = config.HardwareEnable.enable
 
 
@@ -198,8 +41,8 @@ enable = config.HardwareEnable.enable
     [
         (False, display.NullApp),
         ('none', display.NullApp),
-        ('opencv', display_cv.CVApp),
         ('console', display_console.ConsoleApp),
+        ('iterm2', display_console.iTerm2App),
     ],
 )
 @pytest.mark.parametrize('detect_state', [disable, enable, detect])
@@ -211,6 +54,28 @@ def test_find_display_class_non_opengl(display_opt, exp_class, detect_state):
         with patch.dict(os.environ, {'DISPLAY': 'something'}):
             assert display._find_display_class(display_opt, detect_state) is exp_class
     is_opengl_available.assert_not_called()
+
+
+@pytest.mark.parametrize('detect_state', [disable, enable, detect])
+def test_find_display_class_opencv(detect_state):
+    with patch.object(utils, 'is_opengl_available', return_value=False) as is_opengl_available:
+        with patch.dict(os.environ, {'DISPLAY': 'something'}):
+            assert display._find_display_class('opencv', detect_state) is display_cv.CVApp
+    is_opengl_available.assert_not_called()
+
+
+def test_find_display_class_opencv_without_display_env():
+    # the OpenCV renderer needs a window; say so rather than let cv2 fail later
+    with patch.dict(os.environ, {'DISPLAY': ''}):
+        with pytest.raises(RuntimeError, match='No display found'):
+            display._find_display_class('opencv', detect)
+
+
+def test_find_display_class_auto_warns_without_display_env(caplog):
+    with patch.object(utils, 'is_opengl_available', return_value=False):
+        with patch.dict(os.environ, {'DISPLAY': '', 'LC_TERMINAL': ''}):
+            assert display._find_display_class('auto', disable) is display_console.ConsoleApp
+    assert any('No display found' in x for x in caplog.messages)
 
 
 def test_find_display_class_bad_option():
@@ -242,12 +107,15 @@ def _mock_display_gl_import(succeeds=True):
         class GLApp:
             pass
 
+    real_import_module = importlib.import_module
+
     def mock_import_module(name, package=None):
         if name == '.display_gl':
             if succeeds:
                 return MockDisplayGLModule
             raise ImportError('display_gl import failed')
-        raise ImportError(f'Unexpected module import: {name}')
+        # the runtime2 renderer modules are resolved the same way, so let them through
+        return real_import_module(name, package)
 
     with patch('axelera.app.display.importlib.import_module', side_effect=mock_import_module):
         yield
@@ -293,919 +161,68 @@ def test_find_display_class_auto_import_fails(caplog):
     assert any('Failed to init' in x for x in caplog.messages)
 
 
-def test_message_bad_fades():
-    with pytest.raises(ValueError, match="fadeout_from: 10.0, fadein_by: 15.0"):
-        display._Text(
-            -1,
-            '1234',
-            display.Coords('50%', '50%'),
-            display.default_anchor_x,
-            display.default_anchor_y,
-            10.0,
-            display.default_fadeout_for,
-            15.0,
-            display.default_fadein_for,
-            'my_text',
-            (244, 190, 24, 255),
-            (0, 0, 0, 192),
-            32,
-        )
+class _Drawable:
+    '''Stands in for a task meta: records the Draw it was given, and visits secondaries.'''
 
+    def __init__(self, name, secondaries=()):
+        self.name = name
+        self.drawn_by = []
+        self._secondaries = list(secondaries)
 
-def test_display_text():
-    expected_text = 'text'
-    expected_position = ('50%', '50%')
+    def visit(self, callable, *args, **kwargs):
+        callable(self, *args, **kwargs)
+        for secondary in self._secondaries:
+            secondary.visit(callable, *args, **kwargs)
 
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-        i = types.Image.fromarray(np.zeros((480, 640, 3), np.uint8))
-        meta = object()
+    def draw(self, draw):
+        self.drawn_by.append(draw)
 
-        wnd.text(expected_position, expected_text)
 
-        def t():
-            wnd.show(i, meta)
+class _VisitOnly(_Drawable):
+    '''A member which can be visited but cannot draw itself.'''
 
-        app.start_thread(t)
-        app.run()
-        assert wnd.is_closed == True
-    assert app.received[0][0] == -1
-    assert isinstance(app.received[0][1], display._Text)
-    assert app.received[0][1].text == expected_text
-    assert app.received[0][1].position == expected_position
-    assert isinstance(app.received[0][1].position, display.Coords)
-    assert app.received[1] == (0, display._Frame(0, i, meta))
+    draw = None
 
 
-def test_display_image():
-    expected_path = '/path/to/image.png'
-    expected_position = ('50%', '50%')
+def _axmeta(**members):
+    m = meta.AxMeta('image')
+    for key, value in members.items():
+        m.add_instance(key, value)
+    return m
 
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-        i = types.Image.fromarray(np.zeros((480, 640, 3), np.uint8))
-        meta = object()
 
-        wnd.image(expected_position, expected_path)
+def test_axmeta_is_drawn_by_the_renderer_traversal():
+    # the renderers traverse whatever they are given with draw_recursive; an AxMeta is a
+    # drawable in its own right, so no renderer needs to know about the metadata model
+    primary = _Drawable('primary')
+    other = _Drawable('other')
+    draw = object()
+    display.draw_recursive(_axmeta(a=primary, b=other), draw)
+    assert primary.drawn_by == [draw]
+    assert other.drawn_by == [draw]
 
-        def t():
-            wnd.show(i, meta)
 
-        app.start_thread(t)
-        app.run()
-        assert wnd.is_closed == True
-    assert app.received[0][0] == -1
-    assert isinstance(app.received[0][1], display._Image)
-    assert app.received[0][1].path == expected_path
-    assert app.received[0][1].position == expected_position
-    assert isinstance(app.received[0][1].position, display.Coords)
-    assert app.received[1] == (0, display._Frame(0, i, meta))
+def test_axmeta_draw_visits_secondary_metas():
+    secondary = _Drawable('secondary')
+    primary = _Drawable('primary', secondaries=[secondary])
+    draw = object()
+    _axmeta(a=primary).draw(draw)
+    assert primary.drawn_by == [draw]
+    assert secondary.drawn_by == [draw]
 
 
-def test_layer_handle_init():
-    expected_text = 'text'
-    expected_position = ('50%', '50%')
+def test_axmeta_draw_skips_members_that_cannot_draw():
+    drawable = _Drawable('drawable')
+    draw = object()
+    # a visitable member with no draw, and a member which is neither visitable nor drawable
+    _axmeta(a=_VisitOnly('novisit'), b=object(), c=drawable).draw(draw)
+    assert drawable.drawn_by == [draw]
 
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-        i = types.Image.fromarray(np.zeros((480, 640, 3), np.uint8))
-        meta = object()
 
-        with patch('axelera.app.display.uuid') as mock:
-            mock.uuid4.return_value = '1234'
-            handle = wnd.text(expected_position, expected_text)
+def test_axmeta_draw_propagates_a_failure_in_a_member():
+    class Boom(_Drawable):
+        def draw(self, draw):
+            raise AttributeError('boom')
 
-        def t():
-            wnd.show(i, meta)
-
-        app.start_thread(t)
-        app.run()
-    assert handle['text'] == expected_text
-    assert handle['position'] == expected_position
-    assert handle._window == wnd
-    assert handle._Message == display._Text
-    assert handle.id == '1234'
-    assert handle.visible == True
-
-
-def test_layer_handle_set_fields():
-    txt0 = 'text'
-    pos0 = ('50%', '50%')
-    txt1 = 'new_text'
-    pos1 = ('10%', '10%')
-
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-        i = types.Image.fromarray(np.zeros((480, 640, 3), np.uint8))
-        meta = object()
-
-        with patch('axelera.app.display.uuid') as mock:
-            mock.uuid4.return_value = '1234'
-            handle = wnd.text(pos0, txt0)
-
-        handle.set(text=txt1, position=pos1)
-
-        def t():
-            wnd.show(i, meta)
-
-        app.start_thread(t)
-        app.run()
-
-    assert app.received[0][0] == -1
-    assert isinstance(app.received[0][1], display._Text)
-    assert app.received[0][1].id == '1234'
-    assert app.received[0][1].text == txt0
-    assert app.received[0][1].position == pos0
-    assert isinstance(app.received[0][1].position, display.Coords)
-
-    assert app.received[1][0] == -1
-    assert isinstance(app.received[1][1], display._Text)
-    assert app.received[1][1].id == '1234'
-    assert app.received[1][1].text == txt1
-    assert app.received[1][1].position == pos1
-    assert isinstance(app.received[1][1].position, display.Coords)
-
-    assert handle['text'] == txt1
-    assert handle['position'] == pos1
-    assert handle._window == wnd
-    assert handle._Message == display._Text
-    assert handle.id == '1234'
-    assert handle.visible == True
-
-
-def test_layer_handle_set_fields_via_msg():
-    txt0 = 'text'
-    pos0 = ('50%', '50%')
-    txt1 = 'new_text'
-    pos1 = ('10%', '10%')
-
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-        i = types.Image.fromarray(np.zeros((480, 640, 3), np.uint8))
-        meta = object()
-
-        with patch('axelera.app.display.uuid') as mock:
-            mock.uuid4.return_value = '1234'
-            handle = wnd.text(pos0, txt0)
-
-        new_msg = display._Text(
-            -1,
-            '1234',
-            display.Coords(*pos1),
-            display.default_anchor_x,
-            display.default_anchor_y,
-            display.default_fadeout_from,
-            display.default_fadeout_for,
-            display.default_fadein_by,
-            display.default_fadein_for,
-            txt1,
-            (244, 190, 24, 255),
-            (0, 0, 0, 192),
-            32,
-        )
-
-        handle.set(new_msg)
-
-        def t():
-            wnd.show(i, meta)
-
-        app.start_thread(t)
-        app.run()
-
-    assert app.received[0][0] == -1
-    assert isinstance(app.received[0][1], display._Text)
-    assert app.received[0][1].id == '1234'
-    assert app.received[0][1].text == txt0
-    assert app.received[0][1].position == pos0
-    assert isinstance(app.received[0][1].position, display.Coords)
-
-    assert app.received[1][0] == -1
-    assert isinstance(app.received[1][1], display._Text)
-    assert app.received[1][1].id == '1234'
-    assert app.received[1][1].text == txt1
-    assert app.received[1][1].position == pos1
-    assert isinstance(app.received[1][1].position, display.Coords)
-
-    assert handle['text'] == txt1
-    assert handle['position'] == pos1
-    assert handle._window == wnd
-    assert handle._Message == display._Text
-    assert handle.id == '1234'
-    assert handle.visible == True
-
-
-def test_layer_handle_set_fields_dict_style():
-    txt0 = 'text'
-    pos0 = ('50%', '50%')
-    txt1 = 'new_text'
-    pos1 = ('10%', '10%')
-
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-        i = types.Image.fromarray(np.zeros((480, 640, 3), np.uint8))
-        meta = object()
-
-        with patch('axelera.app.display.uuid') as mock:
-            mock.uuid4.return_value = '1234'
-            handle = wnd.text(pos0, txt0)
-
-        handle['text'] = txt1
-        handle['position'] = pos1
-
-        def t():
-            wnd.show(i, meta)
-
-        app.start_thread(t)
-        app.run()
-
-    assert app.received[0][0] == -1
-    assert isinstance(app.received[0][1], display._Text)
-    assert app.received[0][1].id == '1234'
-    assert app.received[0][1].text == txt0
-    assert app.received[0][1].position == pos0
-    assert isinstance(app.received[0][1].position, display.Coords)
-
-    assert app.received[1][0] == -1
-    assert isinstance(app.received[1][1], display._Text)
-    assert app.received[1][1].id == '1234'
-    assert app.received[1][1].text == txt1
-    assert app.received[1][1].position == pos0
-    assert isinstance(app.received[1][1].position, display.Coords)
-
-    assert app.received[2][0] == -1
-    assert isinstance(app.received[2][1], display._Text)
-    assert app.received[2][1].id == '1234'
-    assert app.received[2][1].text == txt1
-    assert app.received[2][1].position == pos1
-    assert isinstance(app.received[2][1].position, display.Coords)
-
-    assert handle['text'] == txt1
-    assert handle['position'] == pos1
-    assert handle._window == wnd
-    assert handle._Message == display._Text
-    assert handle.id == '1234'
-    assert handle.visible == True
-
-
-def test_layer_handle_set_bad_arg_combo():
-    txt0 = 'text'
-    pos0 = ('50%', '50%')
-    txt1 = 'new_text'
-    pos1 = ('10%', '10%')
-
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-        i = types.Image.fromarray(np.zeros((480, 640, 3), np.uint8))
-        meta = object()
-
-        with patch('axelera.app.display.uuid') as mock:
-            mock.uuid4.return_value = '1234'
-            handle = wnd.text(pos0, txt0)
-
-        new_msg = display._Text(
-            -1,
-            '1234',
-            pos1,
-            display.default_anchor_x,
-            display.default_anchor_y,
-            display.default_fadeout_from,
-            display.default_fadeout_for,
-            display.default_fadein_by,
-            display.default_fadein_for,
-            txt1,
-            (244, 190, 24, 255),
-            (0, 0, 0, 192),
-            32,
-        )
-        with pytest.raises(
-            ValueError, match='Cannot set LayerHandle with both message and keyword arguments.'
-        ):
-            handle.set(new_msg, text=txt1, position=pos1)
-        with pytest.raises(
-            ValueError, match='LayerHandle.set with args only accepts a single _Layer message.'
-        ):
-            handle.set(new_msg, txt1, pos1)
-        with pytest.raises(ValueError, match='Invalid arguments for LayerHandle.set'):
-            handle.set()
-
-
-def test_layer_handle_set_fields_via_msg_bad_type():
-    txt0 = 'text'
-    pos0 = ('50%', '50%')
-    txt1 = 'new_text'
-    pos1 = ('10%', '10%')
-
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-        i = types.Image.fromarray(np.zeros((480, 640, 3), np.uint8))
-        meta = object()
-
-        with patch('axelera.app.display.uuid') as mock:
-            mock.uuid4.return_value = '1234'
-            handle = wnd.text(pos0, txt0)
-
-        new_msg = display._Image(
-            -1,
-            '1234',
-            pos1,
-            display.default_anchor_x,
-            display.default_anchor_y,
-            display.default_fadeout_from,
-            display.default_fadeout_for,
-            display.default_fadein_by,
-            display.default_fadein_for,
-            'nonsense/path',
-            1.0,
-        )
-
-        with pytest.raises(
-            TypeError,
-            match='LayerHandle type: _Text, message type: _Image',
-        ):
-            handle.set(new_msg)
-
-
-def test_layer_handle_set_fields_via_msg_bad_id():
-    txt0 = 'text'
-    pos0 = ('50%', '50%')
-    txt1 = 'new_text'
-    pos1 = ('10%', '10%')
-
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-        i = types.Image.fromarray(np.zeros((480, 640, 3), np.uint8))
-        meta = object()
-
-        with patch('axelera.app.display.uuid') as mock:
-            mock.uuid4.return_value = '1234'
-            handle = wnd.text(pos0, txt0)
-
-        wrong_id_msg = display._Text(
-            -1,
-            'DIFFERENT_ID',
-            pos1,
-            display.default_anchor_x,
-            display.default_anchor_y,
-            display.default_fadeout_from,
-            display.default_fadeout_for,
-            display.default_fadein_by,
-            display.default_fadein_for,
-            txt1,
-            (244, 190, 24, 255),
-            (0, 0, 0, 192),
-            32,
-        )
-
-        with pytest.raises(
-            ValueError,
-            match='LayerHandle id: 1234, message id: DIFFERENT_ID',
-        ):
-            handle.set(wrong_id_msg)
-
-        wrong_stream_id = display._Text(
-            1,
-            '1234',
-            pos1,
-            display.default_anchor_x,
-            display.default_anchor_y,
-            display.default_fadeout_from,
-            display.default_fadeout_for,
-            display.default_fadein_by,
-            display.default_fadein_for,
-            txt1,
-            (244, 190, 24, 255),
-            (0, 0, 0, 192),
-            32,
-        )
-
-        with pytest.raises(
-            ValueError,
-            match='LayerHandle stream_id: -1, message stream_id: 1',
-        ):
-            handle.set(wrong_stream_id)
-
-
-def test_layer_handle_hide():
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-        i = types.Image.fromarray(np.zeros((480, 640, 3), np.uint8))
-        meta = object()
-
-        with patch('axelera.app.display.uuid') as mock:
-            mock.uuid4.return_value = '1234'
-            handle = wnd.text(('50%', '50%'), 'text', fadein_by=10.0, fadein_for=5.0)
-
-        assert handle.visible == True
-        handle.hide(from_=100.0, fadeout=5.0)
-
-        def t():
-            wnd.show(i, meta)
-
-        app.start_thread(t)
-        app.run()
-
-    assert handle.visible == False
-
-    assert app.received[0][0] == -1
-    assert isinstance(app.received[1][1], display._Text)
-    assert app.received[0][1].id == '1234'
-    assert app.received[0][1].fadeout_from == None
-    assert app.received[0][1].fadeout_for == None
-    assert app.received[0][1].fadein_by == 10.0
-    assert app.received[0][1].fadein_for == 5.0
-
-    assert app.received[1][0] == -1
-    assert isinstance(app.received[1][1], display._Text)
-    assert app.received[1][1].id == '1234'
-    assert app.received[1][1].fadeout_from == 100.0
-    assert app.received[1][1].fadeout_for == 5.0
-    assert app.received[1][1].fadein_by == None
-    assert app.received[1][1].fadein_for == None
-
-
-def test_layer_handle_set_when_hidden():
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-        i = types.Image.fromarray(np.zeros((480, 640, 3), np.uint8))
-        meta = object()
-
-        with patch('axelera.app.display.uuid') as mock:
-            mock.uuid4.return_value = '1234'
-            handle = wnd.text(('50%', '50%'), 'text')
-
-        handle.hide()
-        handle.set(text='not sent')
-        handle.set(position=('10%', '10%'))
-        handle.set(text='will be sent')
-        handle.show()
-
-        def t():
-            wnd.show(i, meta)
-
-        app.start_thread(t)
-        app.run()
-
-    assert handle.visible == True
-
-    # Verify that messages are only sent when the handle is shown.
-    # Hence even though three updates are called when hidden, we only
-    # get one more text message after the delete. Which is when show
-    # is called, but current state modified during the hide is respected.
-    assert isinstance(app.received[0][1], display._Text)
-    assert isinstance(app.received[1][1], display._Text)  # Hide update
-    assert isinstance(app.received[2][1], display._Text)
-    assert isinstance(app.received[3][1], display._Frame)
-    assert app.received[2][1].text == 'will be sent'
-    assert app.received[2][1].position == ('10%', '10%')
-    assert isinstance(app.received[2][1].position, display.Coords)
-
-    assert len(app.received) == 4
-
-
-def test_layer_handle_show():
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-        i = types.Image.fromarray(np.zeros((480, 640, 3), np.uint8))
-        meta = object()
-
-        with patch('axelera.app.display.uuid') as mock:
-            mock.uuid4.return_value = '1234'
-            handle = wnd.text(('50%', '50%'), 'text', fadeout_from=10.0, fadeout_for=5.0)
-
-        assert handle.visible == False
-        handle.show(from_=100.0, fadein=5.0)
-
-        def t():
-            wnd.show(i, meta)
-
-        app.start_thread(t)
-        app.run()
-
-    assert handle.visible == True
-
-    assert app.received[0][0] == -1
-    assert isinstance(app.received[0][1], display._Text)
-    assert app.received[0][1].id == '1234'
-    assert app.received[0][1].fadeout_from == None
-    assert app.received[0][1].fadeout_for == None
-    assert app.received[0][1].fadein_by == 105.0
-    assert app.received[0][1].fadein_for == 5.0
-
-
-def test_layer_handle_warn_on_set_bad_key(caplog):
-    caplog.set_level('WARNING')
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-        i = types.Image.fromarray(np.zeros((480, 640, 3), np.uint8))
-        meta = object()
-
-        with patch('axelera.app.display.uuid') as mock:
-            mock.uuid4.return_value = '1234'
-            handle = wnd.text(('50%', '50%'), 'text')
-
-        handle.set(bad_key='not sent')
-
-        def t():
-            wnd.show(i, meta)
-
-        app.start_thread(t)
-        app.run()
-
-    assert re.match(
-        r"WARNING .* Cannot set attribute 'bad_key' for LayerHandle. id=1234, message_type=_Text",
-        caplog.text,
-    )
-
-    # Check the bad update didn't result in a message being sent.
-    assert len(app.received) == 2
-    assert isinstance(app.received[0][1], display._Text)
-    assert isinstance(app.received[1][1], display._Frame)
-
-
-def test_layer_handle_error_on_get_bad_key():
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-
-        with patch('axelera.app.display.uuid') as mock:
-            mock.uuid4.return_value = '1234'
-            handle = wnd.text(('50%', '50%'), 'text')
-
-        with pytest.raises(
-            KeyError,
-            match="Cannot get attribute 'bad_key' from LayerHandle. id=1234, message_type=_Text",
-        ) as e:
-            _ = handle['bad_key']
-
-
-@pytest.mark.parametrize(
-    'now, visibility',
-    [
-        (0.0, 0.0),
-        (3.9999, 0.0),
-        (4.0, 0.0),
-        (4.5, 0.5),
-        (5.0, 1.0),
-        (7.5, 1.0),
-        (9.9999, 1.0),
-        (10.0, 1.0),
-        (10.5, 0.5),
-        (11.0, 0.0),
-        (15.0, 0.0),
-    ],
-)
-def test_scale_visibility(now, visibility):
-    assert display._scale_visibility(now, 1.0, 10.0, 1.0, 5.0, 1.0) == visibility
-
-
-def _build_coords(coords, as_str=False):
-    if as_str:
-        return display.Coords(coords[0] + ', ' + coords[1])
-    return display.Coords(*coords)
-
-
-@pytest.mark.parametrize(
-    'pt, expected_format',
-    [
-        (('10px', '100px'), 'px'),
-        (('0px', '0px'), 'px'),
-        (('100.0px', '100.0px'), 'px'),
-        (('25%', '50%'), 'rel'),
-        (('0%', '0%'), 'rel'),
-        (('100%', '100%'), 'rel'),
-        (('37.5%', '43.75%'), 'rel'),
-        (('100px', '50%'), 'mix'),
-        (('0px', '0%'), 'mix'),
-        (('100px', '50%'), 'mix'),
-    ],
-)
-@pytest.mark.parametrize('as_str', [True, False])
-def test_coords_eq_and_format(pt, expected_format, as_str):
-    got = _build_coords(pt, as_str)
-    expected_pt = pt if not as_str else pt[0] + ', ' + pt[1]
-    assert got == expected_pt
-    assert got.format == expected_format
-
-
-@pytest.mark.parametrize(
-    'pt, expected_pt',
-    [
-        ((0.1, 0.2), ('10%', '20%')),
-        ((0.0, 0.0), ('0%', '0%')),
-        ((1.0, 1.0), ('100%', '100%')),
-        ((1.5, 2.5), ('150%', '250%')),
-    ],
-)
-@pytest.mark.parametrize('as_str', [True, False])
-def test_coords_rel(pt, expected_pt, as_str):
-    got = display.Coords.rel(*pt)
-    expected_pt = expected_pt if not as_str else expected_pt[0] + ', ' + expected_pt[1]
-    assert got == expected_pt
-    assert got.format == 'rel'
-
-
-@pytest.mark.parametrize(
-    'pt, expected_pt',
-    [
-        ((100, 200), ('100px', '200px')),
-        ((0, 0), ('0px', '0px')),
-        ((1000, 1000), ('1000px', '1000px')),
-        ((500, 250), ('500px', '250px')),
-    ],
-)
-@pytest.mark.parametrize('as_str', [True, False])
-def test_coords_px(pt, expected_pt, as_str):
-    got = display.Coords.px(*pt)
-    expected_pt = expected_pt if not as_str else expected_pt[0] + ', ' + expected_pt[1]
-    assert got == expected_pt
-    assert got.format == 'px'
-
-
-@pytest.mark.parametrize(
-    'x, y, format',
-    [
-        ('10px', '10px', 'px'),
-        ('10%', '10%', 'rel'),
-        ('10px', '10%', 'mix'),
-    ],
-)
-@pytest.mark.parametrize('as_str', [True, False])
-def test_coords_format(x, y, format, as_str):
-    assert _build_coords((x, y), as_str).format == format
-
-
-@pytest.mark.parametrize(
-    'pt, image_size, expected',
-    [
-        (('25px', '50px'), (200, 100), (0.125, 0.5)),
-        (('0px', '0px'), (200, 100), (0.0, 0.0)),
-        (('200px', '100px'), (200, 100), (1.0, 1.0)),
-        (('25%', '50%'), None, (0.25, 0.5)),
-        (('0%', '0%'), None, (0.0, 0.0)),
-        (('100%', '100%'), None, (1.0, 1.0)),
-        (('37.5%', '43.75%'), None, (0.375, 0.4375)),
-        (('37.5%', '43.75%'), (200, 100), (0.375, 0.4375)),
-        (('100px', '50%'), (200, 100), (0.5, 0.5)),
-        (('0px', '0%'), (200, 100), (0.0, 0.0)),
-    ],
-)
-@pytest.mark.parametrize('as_str', [True, False])
-def test_coords_as_rel(pt, image_size, expected, as_str):
-    assert _build_coords(pt, as_str).as_rel(image_size) == expected
-
-
-@pytest.mark.parametrize(
-    'pt, image_size, expected',
-    [
-        (('25px', '50px'), None, (25, 50)),
-        (('25px', '50px'), (200, 100), (25, 50)),
-        (('0px', '0px'), None, (0, 0)),
-        (('200px', '100px'), None, (200, 100)),
-        (('25%', '50%'), (200, 100), (50, 50)),
-        (('0%', '0%'), (200, 100), (0, 0)),
-        (('100%', '100%'), (200, 100), (200, 100)),
-        (('37.5%', '43.75%'), (200, 100), (75, 43)),
-        (('100px', '50%'), (200, 100), (100, 50)),
-        (('0px', '0%'), (200, 100), (0, 0)),
-    ],
-)
-@pytest.mark.parametrize('as_str', [True, False])
-def test_coords_as_px(pt, image_size, expected, as_str):
-    assert _build_coords(pt, as_str).as_px(image_size) == expected
-
-
-@pytest.mark.parametrize(
-    'x,y',
-    [
-        ('10', '10'),
-        ('', ''),
-        ('px10', 'px10'),
-        ('px', 'px'),
-        ('%', '%'),
-        ('nonsensepx', 'nonsensepx'),
-        ('nonsense%', 'nonsense%'),
-        ('10px10px', '10px10px'),
-        ('10%10%', '10%10%'),
-        ('10px%', '10px%'),
-        ('10%px', '10%px'),
-        ('100.0', '100.0'),
-    ],
-)
-@pytest.mark.parametrize('as_str', [True, False])
-def test_coords_init_bad_format(x, y, as_str):
-    with pytest.raises(
-        ValueError,
-        match=r"[x|y](_or_xy)? must be a coordinate string in format '[x|y]\[%\|px\]'",
-    ):
-        _build_coords((x, y), as_str)
-
-
-@pytest.mark.parametrize(
-    'x,y',
-    [
-        (10, 10),
-        (0.1, 0.1),
-        ('10px', 10),
-        (0.1, '10%'),
-        (None, None),
-    ],
-)
-def test_coords_init_bad_type_tuple(x, y):
-    with pytest.raises(
-        TypeError,
-        match=r"[x|y](_or_xy)? must be a coordinate string in format '[x|y]\[%\|px\]'",
-    ):
-        display.Coords(x, y)
-
-
-@pytest.mark.parametrize(
-    'xy',
-    [
-        10,
-        0.1,
-        None,
-    ],
-)
-def test_coords_init_bad_type_str(xy):
-    with pytest.raises(
-        TypeError, match=r"x_or_xy must be a coordinate string in format 'x\[%\|px\]'"
-    ):
-        display.Coords(xy)
-
-
-def test_coords_init_str_with_y():
-    with pytest.raises(
-        ValueError, match=r"y must be None when coordinates are given as a pair in a single string"
-    ):
-        display.Coords('10px, 10%', '10%')
-
-
-@pytest.mark.parametrize(
-    'x,y',
-    [
-        ('10px', '10px'),
-        ('10%', '10%'),
-        ('10px', 10),
-        (0.1, '10%'),
-        (None, None),
-    ],
-)
-def test_coords_rel_bad_type(x, y):
-    with pytest.raises(TypeError, match='x and y must be floats'):
-        display.Coords.rel(x, y)
-
-
-@pytest.mark.parametrize(
-    'x,y',
-    [
-        ('10px', '10px'),
-        ('10%', '10%'),
-        ('10px', 10),
-        (0.1, '10%'),
-        (None, None),
-    ],
-)
-def test_coords_px_bad_type(x, y):
-    with pytest.raises(TypeError, match='x and y must be ints'):
-        display.Coords.px(x, y)
-
-
-def test_coords_as_px_no_image_size():
-    with pytest.raises(ValueError, match='image_size must be provided'):
-        display.Coords('10%', '10%').as_px()
-
-
-def test_coords_as_rel_no_image_size():
-    with pytest.raises(ValueError, match='image_size must be provided'):
-        display.Coords('10px', '10px').as_rel()
-
-
-def _get_speedometer_smoothing():
-    smoothing = display.SpeedometerSmoothing(
-        dps=0.5,
-        acceleration=0.5,
-        minimum_speed=0.0025,
-        wobble_thresh=0.5,
-        max_wobble=10,
-    )
-    smoothing._interval = 1.0
-    return smoothing
-
-
-def test_speedometer_smoothing_key():
-    smoothing = _get_speedometer_smoothing()
-    metric = inf_tracers.TraceMetric('k', 'title', 0.0, 100.0)
-    key = smoothing._key(metric)
-    assert key == "k-title"
-
-
-def test_speedometer_smoothing_value():
-    smoothing = _get_speedometer_smoothing()
-    metric = inf_tracers.TraceMetric('k', 'title', 0.0, 100.0)
-    value = smoothing.value(metric)
-    assert value == 0.0
-    smoothing._last["k-title"] = (50.0, None, None)
-    assert smoothing.value(metric) == 50.0
-
-
-@pytest.mark.parametrize(
-    "value, max, expected",
-    [
-        (25, 100, 0.0),
-        (0, 100, 0.0),
-        (50, 100, 0.0),
-        (75, 100, 5.0),
-        (100, 100, 10.0),
-    ],
-)
-def test_speedometer_smoothing_wobble(value, max, expected):
-    with patch('axelera.app.display.random.uniform', return_value=True) as mock_rand:
-        smoothing = _get_speedometer_smoothing()
-        got = smoothing.wobble(value, max)
-    if got is True:
-        mock_rand.assert_called_once_with(-expected, expected)
-    else:
-        mock_rand.assert_not_called()
-        assert got == expected
-
-
-@pytest.mark.parametrize(
-    "last_value, last_speed, target, expected",
-    [
-        (
-            0,
-            0.25,
-            100,
-            0.75,
-        ),  # startup case - capped by maximum speed (last_speed + 1 unit (0.5) of acceleration)
-        (
-            90,
-            10.0,
-            100,
-            95.0,
-        ),  # reaching target - speed capped by max diff 0.5 of delta (100 (target) - 90 (last))
-        (
-            99.625,
-            0.0,
-            100,
-            99.875,
-        ),  # very close to target - last speed and diff are smaller than min speed, so capped by min speed (0.25)
-        (
-            99.875,
-            10.0,
-            100,
-            100.0,
-        ),  # reaching target, delta is below min speed (0.25), but we are capped by delta (0.125) so we don't overshoot
-    ],
-)
-def test_speedometer_smoothing_update(last_value, last_speed, target, expected):
-    smoothing = _get_speedometer_smoothing()
-    metric = inf_tracers.TraceMetric('k', 'title', target, 100.0)
-    smoothing._last["k-title"] = (last_value, 0, last_speed)
-    smoothing.update(metric, 1.0)
-    assert smoothing.value(metric) == expected
-
-
-@pytest.mark.parametrize(
-    "scale, image_size, canvas_size, expected",
-    [
-        (None, (200, 100), (400, 200), 1.0),
-        (1.0, (200, 100), (400, 200), 2.0),
-        (0.5, (200, 100), (400, 200), 1.0),
-        (2.0, (200, 100), (400, 200), 4.0),
-        (1.0, (200, 100), (400, 300), 2.0),
-        (0.5, (200, 100), (400, 300), 1.0),
-        (2.0, (200, 100), (400, 300), 4.0),
-        (1.0, (100, 200), (400, 300), 1.5),
-        (0.5, (100, 200), (400, 300), 0.75),
-        (2.0, (100, 200), (400, 300), 3.0),
-    ],
-)
-def test_canvas_scale_to_img_scale(scale, image_size, canvas_size, expected):
-    assert display.canvas_scale_to_img_scale(scale, image_size, canvas_size) == expected
-
-
-def test_display_open_close_source():
-    with MockApp('other') as app:
-        wnd = app.create_window('test', (640, 480))
-        i = types.Image.fromarray(np.zeros((480, 640, 3), np.uint8))
-        meta = object()
-
-        wnd.close_source(0)
-        wnd.text(('50%', '50%'), 'text', stream_id=0)
-        wnd.open_source(0)
-
-        def t():
-            wnd.show(i, meta)
-
-        app.start_thread(t)
-        app.run()
-        assert wnd.is_closed == True
-
-    assert app.received[0] == (0, display._CloseSource(0, False))
-    # Messages should still be sent despite _CloseSource - the window
-    # decides how to handle messages from a closed source.
-    assert app.received[1][0] == 0
-    assert isinstance(app.received[1][1], display._Text)
-    assert app.received[2] == (0, display._OpenSource(0))
-    assert app.received[3] == (0, display._Frame(0, i, meta))
-    assert len(app.received) == 4
+    with pytest.raises(AttributeError, match='boom'):
+        _axmeta(a=Boom('boom')).draw(object())

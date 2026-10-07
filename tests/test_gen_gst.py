@@ -17,7 +17,7 @@ onnxruntime = pytest.importorskip(
     'onnxruntime'
 )  # TODO we should not need onnxruntime in the runtime tests
 import yaml
-from yaml_clean import yaml_clean
+from tests.yaml_clean import yaml_clean
 
 from axelera import types
 from axelera.app import config, network, operators, pipe
@@ -286,6 +286,42 @@ YOLOV8N_MANIFEST = types.Manifest(
     postprocess_graph='lib_export/post_process.onnx',
 )
 
+YOLO26N_IN_YAML = 'ax_models/model_cards/yolo/object_detection/yolo26n-coco-onnx.yaml'
+YOLO26N_MANIFEST = types.Manifest(
+    'yolo26n-coco-onnx',
+    input_shapes=[(1, 642, 656, 4)],
+    input_dtypes=['int8'],
+    output_shapes=[
+        [1, 80, 80, 64],
+        [1, 40, 40, 64],
+        [1, 20, 20, 64],
+        [1, 80, 80, 128],
+        [1, 40, 40, 128],
+        [1, 20, 20, 128],
+    ],
+    output_dtypes=['int8'] * 6,
+    quantize_params=[(0.003921568859368563, -128)],
+    dequantize_params=[
+        [0.038154326379299164, -105],
+        [0.06268085539340973, -125],
+        [0.07532625645399094, -125],
+        [0.1859361082315445, 117],
+        [0.8311023116111755, 123],
+        [0.5637736916542053, 120],
+    ],
+    n_padded_ch_inputs=[(0, 0, 1, 1, 1, 15, 0, 1)],
+    n_padded_ch_outputs=[
+        (0, 0, 0, 0, 0, 0, 0, 60),
+        (0, 0, 0, 0, 0, 0, 0, 60),
+        (0, 0, 0, 0, 0, 0, 0, 60),
+        (0, 0, 0, 0, 0, 0, 0, 48),
+        (0, 0, 0, 0, 0, 0, 0, 48),
+        (0, 0, 0, 0, 0, 0, 0, 48),
+    ],
+    model_lib_file='lib_export/yolo26n/model.json',
+    postprocess_graph='lib_export/postprocess_graph.onnx',
+)
+
 SOMETEMPFILE = '/path/to/sometempfile.txt'
 
 
@@ -469,7 +505,7 @@ def _load_highlevel(requested_cores: int, path: str, *manifests, low_latency=Fal
     pconfig = config.PipelineConfig(
         pipe_type='gst', aipu_cores=requested_cores, low_latency=low_latency
     )
-    network.restrict_cores(nn, pconfig, config.Metis.pcie)
+    network.restrict_cores(nn, pconfig, config.Board.pcie)
     device_man = _mock_device_manager()
     for manifest, task in itertools.zip_longest(manifests, nn.tasks):
         task.model_info.manifest = manifest
@@ -879,6 +915,16 @@ def test_lowlevel_output_new_inference(
             YOLOV5S_V5_MANIFEST,
             'yolov5s-axelera-coco-tiled-2sources.yaml',
             2,
+            'x86_64',
+            0,
+        ),
+        (
+            NONE,
+            1,
+            YOLO26N_IN_YAML,
+            YOLO26N_MANIFEST,
+            'yolo26n-axelera-coco-tiled.yaml',
+            1,
             'x86_64',
             0,
         ),

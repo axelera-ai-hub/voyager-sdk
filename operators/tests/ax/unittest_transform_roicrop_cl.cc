@@ -298,6 +298,59 @@ TEST(roicrop_cl, transform_out_of_bounds_fills_black)
   }
 }
 
+// Regression test: Y444 input used to be rejected by roicrop_cl's own
+// valid_formats list; it is now accepted via the shared
+// ax_utils::require_opencl_input_format() list. Also exercises the
+// three-plane multi-plane buffer path (create_buffers) this commit added.
+// roicrop_cl always converts its output to an RGB-family/gray format (like
+// resize_cl/color_convert_cl), so unlike the RGBA-to-RGBA crop test above
+// this only checks that the crop+colour-convert runs and produces non-zero
+// output, not exact per-plane byte values.
+TEST(roicrop_cl, y444_crop_to_rgba)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+
+  const int in_w = 8, in_h = 8;
+  const int crop_x = 2, crop_y = 1;
+  const int out_w = 4, out_h = 4;
+
+  std::unordered_map<std::string, std::string> props = {
+    { "left", std::to_string(crop_x) },
+    { "top", std::to_string(crop_y) },
+    { "width", std::to_string(out_w) },
+    { "height", std::to_string(out_h) },
+    { "format", "rgba" },
+  };
+  auto xform = Ax::LoadTransform(crop_cl_lib, props);
+
+  // Three full-size planes (Y, U, V).
+  std::vector<uint8_t> in_buf(in_w * in_h * 3);
+  for (int r = 0; r < in_h; ++r) {
+    for (int c = 0; c < in_w; ++c) {
+      int idx = r * in_w + c;
+      in_buf[idx] = static_cast<uint8_t>(10 + idx); // Y
+      in_buf[in_w * in_h + idx] = static_cast<uint8_t>(80 + idx); // U
+      in_buf[2 * in_w * in_h + idx] = static_cast<uint8_t>(150 + idx); // V
+    }
+  }
+  std::vector<uint8_t> out_buf(out_w * out_h * 4, 0);
+
+  std::vector<size_t> strides{ size_t(in_w), size_t(in_w), size_t(in_w) };
+  std::vector<size_t> offsets{ 0, size_t(in_w * in_h), size_t(2 * in_w * in_h) };
+  auto in = AxVideoInterface{ { in_w, in_h, in_w, 0, AxVideoFormat::Y444 },
+    in_buf.data(), strides, offsets, -1 };
+  auto out = AxVideoInterface{ { out_w, out_h, out_w * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { size_t(out_w * 4) }, { 0 }, -1 };
+
+  Ax::MetaMap metadata;
+  ASSERT_NO_THROW({ xform->transform(in, out, 0, 1, metadata); });
+
+  EXPECT_FALSE(std::all_of(
+      out_buf.begin(), out_buf.end(), [](uint8_t value) { return value == 0; }));
+}
+
 TEST(roicrop_cl, query_supports_opencl_buffers)
 {
   if (!has_opencl_platform()) {

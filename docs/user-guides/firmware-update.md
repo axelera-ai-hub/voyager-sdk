@@ -3,7 +3,7 @@ title: "Firmware Update"
 ---
 # Firmware Update
 
-How to update the firmware on your Metis PCIe or M.2 board.
+How to update the firmware on your Axelera AI PCIe or M.2 board.
 
 > [!WARNING]
 > **Firmware updates are currently Linux-only.** If you are on Windows, temporarily connect the board to a Linux host to perform the update, then reconnect to Windows when done.
@@ -83,7 +83,7 @@ axdevice
 
 Expected output:
 ```
-Device 0: metis-0:1:0 4GiB pcie flver=1.4.0 bcver=7.0 clock=800MHz(0-3:800MHz) mvm=0-3:100%
+Device 0: metis-0:1:0 130p 4GiB flver=1.4.0 bcver=7.0 clock=800MHz(0-3:800MHz) mvm=0-3:100%
 ```
 
 Check `flver` (firmware version) and `bcver` (board controller version) match the target release.

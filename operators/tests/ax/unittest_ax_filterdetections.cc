@@ -1,3 +1,4 @@
+// Copyright Axelera AI, 2025
 #include "gtest/gtest.h"
 #include <memory>
 #include "AxFilterDetections.hpp"

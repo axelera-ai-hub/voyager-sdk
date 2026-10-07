@@ -1,0 +1,40 @@
+---
+#######################
+# FILES & DIRECTORIES #
+#######################
+
+# All paths are relative to the root of the repo and start with '/', e.g. '/docs'
+# All dirs starting with a dot are already automatically ignored e.g. '/.tox'
+
+Ignore files:
+# e.g.
+# - /docs/mydocument.md
+
+Ignore dirs:
+# e.g.
+# - /docs
+
+#########
+# LINKS #
+#########
+
+# It's possible that you have a file that is not present in this repo but maybe present, say,
+# in a release repo. So you can add the file path here to ignore it.
+Ignore links to these files:
+
+Alias link path:
+# It's possible that you have a directory that is, say, in a different location in the release
+# repo, but you want to alias it to point to a different directory in the current repo to still
+# check the links are good
+  - /ax_models/zoo : /ax_models/model_cards
+
+# Ignore a link to a specific file and title section.
+Ignore file-section links:
+# e.g.
+# - /docs/mydocument.md#mysection
+
+# Ignore a link to a specific URL. e.g. we have a link to an internal Confluence page in some
+# internal documention in application.framework
+Ignore URL links:
+# e.g.
+# - https://axelera.ai/

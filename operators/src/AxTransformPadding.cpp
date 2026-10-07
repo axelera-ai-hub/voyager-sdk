@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2023
 #include <unordered_map>
 #include <unordered_set>
 #include "AxDataInterface.h"
@@ -45,7 +45,13 @@ init_and_set_static_properties(
       prop->paddings.push_back(single_padding);
     }
   }
-  prop->fill = Ax::get_property(input, "fill", "padding_properties", prop->fill);
+  auto tmp_fill = Ax::get_property(
+      input, "fill", "padding_properties", std::optional<int16_t>{});
+  if (tmp_fill.has_value()) {
+    prop->fill = std::clamp(*tmp_fill,
+        static_cast<int16_t>(std::numeric_limits<int8_t>::min()),
+        static_cast<int16_t>(std::numeric_limits<int8_t>::max()));
+  }
   prop->in_shape
       = Ax::get_property(input, "input_shape", "padding_properties", prop->in_shape);
   prop->out_shape

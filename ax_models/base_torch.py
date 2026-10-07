@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 # Helper class for pytorch models
 from __future__ import annotations
 

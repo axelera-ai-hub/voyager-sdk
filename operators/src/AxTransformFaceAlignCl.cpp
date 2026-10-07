@@ -64,13 +64,8 @@ __kernel void warpaffine(%s__global uchar *out, int4 image_dims,
     float2 corrected = (float2)(dot(coord_f, affine_matrix.s0123), dot(coord_f, affine_matrix.s4567));
 
     // Define image description for sampling
-    image_description img = {
-        image_dims,
-        strides,
-        offsets,
-        (int4)(0, 0, image_dims.z, image_dims.w),  // Output region
-        (int4)(crop_x, crop_y, 0, 0)                // Crop offset
-    };
+    image_description img = { .image_dims = image_dims, .strides = strides,
+        .offsets = offsets, .crop = (int2)(crop_x, crop_y) };
 
 )##";
 
@@ -93,7 +88,6 @@ add_alpha(AxVideoFormat format)
 class CLWarpAffine
 {
   using buffer = CLProgram::ax_buffer;
-  using kernel = CLProgram::ax_kernel;
 
   public:
   CLWarpAffine(opencl_details *ocl, Ax::Logger &logger)
@@ -130,20 +124,13 @@ class CLWarpAffine
   cl_kernel get_converter(ax_utils::CLProgram &program, AxVideoFormat in_format,
       AxVideoFormat out_format, int num_planes)
   {
-    auto hash = (static_cast<int>(in_format) << 16)
-                + (static_cast<int>(out_format) << 8) + 0;
-    auto it = std::find_if(std::begin(all_kernels), std::end(all_kernels),
-        [hash](auto &x) { return x.hash == hash; });
-    if (it != all_kernels.end()) {
-      return *it->cl_prog;
-    }
-    auto k = build_kernel(program, in_format, out_format, num_planes);
-    return *all_kernels.emplace_back(hash, std::move(k)).cl_prog;
+    return kernel_cache.get_or_build(in_format, out_format,
+        [&] { return build_kernel(program, in_format, out_format, num_planes); });
   }
 
 
   int run(const buffer_details &in, const buffer_details &out,
-      const std::vector<cl_float> &matrix_3x4, bool downstream_supports_opencl)
+      const cl_float16 &affine_in, bool downstream_supports_opencl)
   {
     auto num_planes = ax_utils::get_num_planes(in);
     auto converter = get_converter(program, in.format, out.format, num_planes);
@@ -151,17 +138,16 @@ class CLWarpAffine
     bool start_flush = !downstream_supports_opencl;
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
 
-    std::array<cl_int, 4> image_dims = { in.width, in.height, out.width, out.height };
-    auto strides = ax_utils::build_strides(in, out);
-    auto offsets = ax_utils::build_offsets(in, out, num_planes);
-    auto in_bufs = program.create_buffers(1, ax_utils::determine_buffer_size(in),
-        CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, in.data, in.offsets.size());
-    auto color_matrix = ax_utils::get_color_conversion_matrix(in.format, out.format);
+    cl_float16 affine
+        = ax_utils::fold_crop_into_transform(affine_in, in.crop_x, in.crop_y);
+    cl_int4 image_dims = ax_utils::image_dims_for_crop(in, out);
+    auto ri = ax_utils::prepare_run_inputs(program, in, out, num_planes);
     cl_uchar fill = 0;
 
-    program.set_kernel_args(converter, 0, in_bufs, *outbuf, image_dims, strides,
-        offsets, in.crop_x, in.crop_y, matrix_3x4, color_matrix, fill);
-    return run_kernel(program, converter, in, out, in_bufs[0], outbuf, start_flush);
+    program.set_kernel_args(converter, 0, ri.in_bufs, *outbuf, image_dims,
+        ri.strides, ri.offsets, (cl_int) in.crop_x, (cl_int) in.crop_y, affine,
+        ri.color_matrix, fill);
+    return run_kernel(program, converter, in, out, ri.in_bufs[0], outbuf, start_flush);
   }
 
   bool can_use_dmabuf() const
@@ -172,11 +158,7 @@ class CLWarpAffine
   private:
   CLProgram program;
   int error{};
-  struct kernels {
-    int hash;
-    kernel cl_prog{ nullptr };
-  };
-  std::vector<kernels> all_kernels;
+  ax_utils::KernelCache kernel_cache;
 };
 
 // Helper function to convert 2x3 affine matrix to float16 format for OpenCL
@@ -187,24 +169,23 @@ class CLWarpAffine
 //         [m10 m11 m12 0]  (row 1 of float16)
 //         [0   0   1   0]  (row 2 of float16)
 //         [0   0   0   0]  (row 3 of float16, padding)
-static std::vector<cl_float>
+static cl_float16
 convert_affine_matrix_to_3x4(const cv::Mat &M)
 {
   if (M.rows != 2 || M.cols != 3) {
     throw std::runtime_error("Affine matrix must be 2x3");
   }
-
   if (M.type() != CV_32F) {
     throw std::runtime_error("Affine matrix must be CV_32F (float type)");
   }
-  return {
-    // clang-format off
+  // clang-format off
+  return (cl_float16){
     M.at<float>(0, 0), M.at<float>(0, 1), M.at<float>(0, 2), 0.0F,
     M.at<float>(1, 0), M.at<float>(1, 1), M.at<float>(1, 2), 0.0F,
     0.0F,              0.0F,              1.0F,              0.0F,
     0.0F,              0.0F,              0.0F,              0.0F,
-    // clang-format on
   };
+  // clang-format on
 }
 
 extern "C" const std::unordered_set<std::string> &
@@ -339,16 +320,14 @@ perform_fallback_alignment(const AxDataInterface &input, const AxDataInterface &
   cv::Mat M = face_align::compute_fallback_matrix(
       box, output_video.info.width, output_video.info.height);
 
-  // Convert to 3x4 format for OpenCL
-  auto matrix_3x4 = convert_affine_matrix_to_3x4(M);
-
   // Extract buffer details using proper utility function
   auto input_details = ax_utils::extract_buffer_details(input);
+  ax_utils::require_opencl_input_format(input_details[0].format, "Face Align");
   auto output_details = ax_utils::extract_buffer_details(output);
 
-  // Run OpenCL kernel
+  // Convert to 3x4 format for OpenCL and run the kernel
   int result = prop->warpaffine->run(input_details[0], output_details[0],
-      matrix_3x4, prop->downstream_supports_opencl);
+      convert_affine_matrix_to_3x4(M), prop->downstream_supports_opencl);
   if (result != 0) {
     logger(AX_ERROR) << "OpenCL warpaffine failed with error: " << result << std::endl;
   }
@@ -681,10 +660,12 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
     }
   }
 
-  auto matrix_3x4 = convert_affine_matrix_to_3x4(M);
+  // Extract buffer details using proper utility function
   auto input_details = ax_utils::extract_buffer_details(input);
+  ax_utils::require_opencl_input_format(input_details[0].format, "Face Align");
   auto output_details = ax_utils::extract_buffer_details(output);
 
-  prop->warpaffine->run(input_details[0], output_details[0], matrix_3x4,
-      prop->downstream_supports_opencl);
+  // Convert to 3x4 format for OpenCL and run the kernel
+  prop->warpaffine->run(input_details[0], output_details[0],
+      convert_affine_matrix_to_3x4(M), prop->downstream_supports_opencl);
 }

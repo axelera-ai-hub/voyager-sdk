@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 #
 # Double buffering example for the axelera.runtime API.
 #

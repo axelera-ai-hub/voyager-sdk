@@ -1,3 +1,4 @@
+# Copyright Axelera AI, 2025
 """
 Utility functions for axelera.runtime examples.
 

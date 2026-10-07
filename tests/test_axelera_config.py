@@ -330,6 +330,15 @@ DEFAULT_BUILD_ROOT = Path('/some_build_root')
             'yolo dataset --display=auto',
             dict(display='auto', enable_opengl=config.HardwareEnable.disable),
         ),
+        (
+            'yolo dataset --cl-platform=intel',
+            dict(cl_platform='intel', enable_opencl=config.HardwareEnable.enable),
+        ),
+        ('yolo dataset', dict(cl_platform='auto', enable_opencl=config.HardwareEnable.detect)),
+        (
+            'yolo dataset --cl-platform=intel --disable-opencl',
+            dict(cl_platform='intel', enable_opencl=config.HardwareEnable.disable),
+        ),
         ('yolo dataset --show-stats', dict(show_stats=True)),
         ('yolo dataset --show-stats --pipe=torch', dict(show_stats=False)),
         ('yolo dataset --aipu-cores=1', dict(aipu_cores=1)),
@@ -500,11 +509,19 @@ def test_inference_parser_errors_from_cascaded(args, error):
         ('yolo --mode=quantcompile', dict(mode=config.DeployMode.QUANTCOMPILE)),
         ('yolo --mode=prequantized', dict(mode=config.DeployMode.PREQUANTIZED)),
         ('yolo --mode=PREQUANTIZED', dict(mode=config.DeployMode.PREQUANTIZED)),
-        ('yolo', dict(metis=config.Metis.none)),
-        ('yolo --metis=m2', dict(metis=config.Metis.m2)),
-        ('yolo --metis=pcie', dict(metis=config.Metis.pcie)),
-        ('yolo --metis=auto', dict(metis=config.Metis.none)),
-        ('yolo --metis=none', dict(metis=config.Metis.none)),
+        ('yolo', dict(board=config.Board.none)),
+        ('yolo --board=m2', dict(board=config.Board.m2)),
+        ('yolo --board=pcie', dict(board=config.Board.pcie)),
+        ('yolo --board=europa', dict(board=config.Board.europa)),
+        ('yolo --board=auto', dict(board=config.Board.none)),
+        ('yolo --board=none', dict(board=config.Board.none)),
+        # new board short names, accepted as aliases of the internal tokens
+        ('yolo --board=110m', dict(board=config.Board.m2)),
+        ('yolo --board=113m', dict(board=config.Board.m2)),
+        ('yolo --board=130p', dict(board=config.Board.pcie)),
+        ('yolo --board=150p', dict(board=config.Board.pcie)),
+        ('yolo --board=232p', dict(board=config.Board.europa)),
+        ('yolo --board=250p', dict(board=config.Board.europa)),
     ],
 )
 def test_deploy_parser(args, exp):
@@ -526,6 +543,70 @@ def test_deploy_parser(args, exp):
         args = p.parse_args(shlex.split(args))
         actual = {k: getattr(args, k) for k in exp.keys()}
         assert actual == exp
+
+
+def _metis_parser():
+    p = argparse.ArgumentParser(prog='test')
+    config.add_metis_arg(p)
+    return p
+
+
+@pytest.mark.parametrize(
+    'token,expected',
+    [
+        ('110m', config.Board.m2),
+        ('113m', config.Board.m2),
+        ('130p', config.Board.pcie),
+        ('150p', config.Board.pcie),
+        ('232p', config.Board.europa),
+        ('250p', config.Board.europa),
+        # the internal tokens must keep working unchanged
+        ('m2', config.Board.m2),
+        ('pcie', config.Board.pcie),
+        ('europa', config.Board.europa),
+        ('none', config.Board.none),
+        ('auto', config.Board.none),
+    ],
+)
+def test_metis_arg_accepts_board_names_and_internal_tokens(token, expected):
+    args = _metis_parser().parse_args([f'--board={token}'])
+    assert args.board is expected
+
+
+@pytest.mark.parametrize(
+    'token',
+    ['110m', '113m', '130p', '150p', '232p', '250p', 'm2', 'pcie', 'europa', 'none', 'auto'],
+)
+def test_metis_arg_is_a_deprecated_alias_for_board(token, caplog):
+    expected = _metis_parser().parse_args([f'--board={token}']).board
+    actual = _metis_parser().parse_args([f'--metis={token}']).board
+    assert actual is expected
+    assert '--metis is deprecated; use --board instead' in caplog.text
+
+
+def test_metis_enum_is_a_backward_compatible_board_alias():
+    assert config.Metis is config.Board
+
+
+def test_metis_arg_help_leads_with_board_names():
+    p = _metis_parser()
+    action = next(a for a in p._actions if a.dest == 'board')
+    new_names = ['110m', '113m', '130p', '150p', '232p', '250p']
+    assert list(action.choices)[: len(new_names)] == new_names
+    assert p.format_help().index('--board') < p.format_help().index('--metis')
+    # every internal token remains a valid choice
+    assert {m.name for m in config.Board} <= set(action.choices)
+    help_text = p.format_help()
+    for token in new_names + [m.name for m in config.Board]:
+        assert token in help_text
+
+
+def test_metis_arg_rejects_unknown_token(capsys):
+    with pytest.raises(SystemExit):
+        _metis_parser().parse_args(['--board=999x'])
+    err = capsys.readouterr().err
+    assert '113m' in err
+    assert 'm2' in err
 
 
 def test_task_render_config_dataclass():
@@ -1109,3 +1190,32 @@ def test_tiling_config_from_source_string(source_str, exp_tiling_kwargs, exp_pre
 def test_tiling_config_from_source_string_errors(source_str, error_pattern):
     with pytest.raises(ValueError, match=error_pattern):
         Source(source_str)
+
+
+def _display_parser():
+    parser = argparse.ArgumentParser()
+    config.add_display_arguments(parser)
+    return parser
+
+
+def test_window_size_argument():
+    assert _display_parser().parse_args(['--window-size=800x600']).window_size == (800, 600)
+
+
+def test_fullscreen_is_resolved_when_parsed_not_when_the_parser_is_built():
+    # resolving it while building the parser would make every command line - deploy
+    # included - depend on the display stack
+    with patch.object(config, '_window_size') as window_size:
+        parser = _display_parser()
+    window_size.assert_not_called()
+
+    with patch.object(config, '_window_size', return_value=(1920, 1080)) as window_size:
+        assert parser.parse_args(['--fullscreen']).window_size == (1920, 1080)
+    window_size.assert_called_once_with('fullscreen')
+
+
+def test_fullscreen_is_not_resolved_when_not_given():
+    parser = _display_parser()
+    with patch.object(config, '_window_size') as window_size:
+        parser.parse_args([])
+    window_size.assert_not_called()

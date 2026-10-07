@@ -5,3 +5,9 @@ in https://www.axelera.ai/eula
 
 Please refer to the `licenses` sub-directory for licenses of open source
 components used in this Software
+
+The AxScript model recipes in the `model_axscript` directory are licensed
+separately under the Apache License, Version 2.0. See `model_axscript/LICENSE`
+and `model_axscript/NOTICE`. That licence covers the code in that directory
+only; the pretrained model weights the recipes download are published by third
+parties under their own licences, listed in `licenses/Credits.txt`.

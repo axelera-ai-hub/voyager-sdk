@@ -1,3 +1,4 @@
+// Copyright Axelera AI, 2024
 #include "GstAxMeta.hpp"
 
 #include <numeric>
@@ -111,16 +112,6 @@ gst_buffer_has_general_meta(GstBuffer *buffer)
 }
 
 
-struct extern_named_meta {
-  const char *name{}; // The name used to access the metadata
-  extern_meta meta{}; // The metaddata chunk
-};
-
-struct all_extern_meta {
-  int num_meta{}; // The total number of buffers returned
-  extern_named_meta *meta{}; // The array of buffers
-};
-
 extern "C" void
 set_meta_to_buffer(GstBuffer *buffer, const char *meta_key, const extern_meta *meta)
 {
@@ -180,34 +171,11 @@ get_meta_from_buffer(GstBuffer *buffer)
 }
 
 extern "C" void
-free_meta(extern_meta *all_meta)
+free_meta(extern_named_meta *all_meta)
 {
   delete[] all_meta;
 }
 
-
-struct extern_indexed_submeta {
-  extern_meta *meta_vector{}; // The metadata chunk
-  int subframe_index{}; // The subframe index of the metadata chunk
-  int num_extern_meta{}; // The size of the extern_meta vector
-};
-
-struct extern_named_submeta_collection {
-  const char *name_submodel{}; // The name of the submodel
-  extern_indexed_submeta *meta_indices{}; // The array of buffers for each index
-  int subframe_number{}; // The total number of subframes
-};
-
-struct all_extern_submeta {
-  const char *name_model{}; // The name of the model
-  int num_submeta{}; // The total number of submodels
-  extern_named_submeta_collection *meta_submodels{}; // The array of buffers for each submodel
-};
-
-struct all_extern_submeta_all_models {
-  int num_meta{}; // The total number of models
-  all_extern_submeta *meta_models{}; // The array of buffers for each model
-};
 
 extern "C" all_extern_submeta_all_models
 get_submeta_from_buffer(GstBuffer *buffer)
@@ -268,11 +236,17 @@ extern "C" void
 free_submeta(all_extern_submeta_all_models *all_models)
 {
   for (int i_model = 0; i_model < all_models->num_meta; ++i_model) {
-    for (int i_submodel = 0;
-         i_submodel < all_models->meta_models[i_model].num_submeta; ++i_submodel) {
-      delete[] all_models->meta_models[i_model].meta_submodels[i_submodel].meta_indices;
+    auto &model = all_models->meta_models[i_model];
+    for (int i_submodel = 0; i_submodel < model.num_submeta; ++i_submodel) {
+      auto &submodel = model.meta_submodels[i_submodel];
+      //  get_submeta_from_buffer() allocates one extern_meta array per subframe,
+      //  so each has to be released before the array of subframes that holds them.
+      for (int i_subframe = 0; i_subframe < submodel.subframe_number; ++i_subframe) {
+        delete[] submodel.meta_indices[i_subframe].meta_vector;
+      }
+      delete[] submodel.meta_indices;
     }
-    delete[] all_models->meta_models[i_model].meta_submodels;
+    delete[] model.meta_submodels;
   }
   delete[] all_models->meta_models;
 }

@@ -1,3 +1,4 @@
+// Copyright Axelera AI, 2025
 #include <algorithm>
 #include <iomanip> // For std::fixed and std::setprecision
 #include <iostream>

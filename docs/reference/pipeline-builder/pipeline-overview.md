@@ -3,15 +3,14 @@ title: "Pipeline Overview"
 ---
 # Pipeline Overview
 
-> [!IMPORTANT]
-> **Alpha**
-> Core operators (detection, classification, pose, segmentation, tracking) are stable. Cascade (`op.for_each`, `op.crop_roi`) and streaming APIs are still in development.
-
+> [!NOTE]
+> **Beta.** The Pipeline Builder is in beta. See [Pipeline Builder](README.md)
+> for what that means for your project.
 
 > [!TIP]
 > **New here?**
-> Start with the [Quickstart](quickstart.md) for an overview,
-> or [Model Compilation](model-compilation.md) if you need to compile a model first.
+> Start with the [Quickstart](../../tutorials/pipeline-builder/quickstart.md) for an overview,
+> or [Model Compilation](../../tutorials/pipeline-builder/model-compilation.md) if you need to compile a model first.
 > This page is the full pipeline reference.
 
 
@@ -62,7 +61,7 @@ Image -> Transforms -> Model Inference -> Decode -> NMS -> Coordinate Transform 
 | **Model Inference** | Run the neural network | `op.load('model.axm')` or `op.onnx_model('model.onnx')` |
 | **Decode** | Parse raw tensor into structured array | `op.decode_detections()`, `op.decode_pose()`, `op.decode_segmentation()` |
 | **NMS** | Remove duplicate overlapping detections | `op.nms()` |
-| **Coordinate Transform** | Map from model input space to original image pixels | `op.to_image_space()` |
+| **Coordinate Transform** | Map from model input space to normalized [0,1] coordinates of the original image | `op.to_image_space()` |
 | **Result Wrapper** (optional) | Convert array to typed Python objects. Without this step you get raw `np.ndarray` which is perfectly usable. | `op.ax_detection()`, `op.ax_pose()`, `op.ax_segmentation()` |
 
 ---
@@ -77,7 +76,7 @@ into a pipeline. Frame context is managed automatically.
 Calling `pipeline.optimized()` analyzes the chain and fuses adjacent operations
 (e.g., merging letterbox + to_tensor + normalize into a single step that runs inside
 the `.axm` model execution). This reduces memory copies and speeds up inference.
-The pipeline works without `optimized()` -- it just runs faster with it.
+The pipeline works without `optimized()`; it just runs faster with it.
 
 ```python
 pipeline = op.seq(
@@ -93,7 +92,7 @@ optimized = pipeline.optimized()   # fuse ops for speed (optional)
 detections = optimized(image)
 ```
 
-**Step-by-step** gives maximum flexibility -- useful for debugging, mixing custom
+**Step-by-step** gives maximum flexibility. It is useful for debugging, mixing custom
 Python logic between operators, or inspecting intermediate values. You must manage
 the frame context manually with `op.frame_context(image)`.
 
@@ -148,7 +147,7 @@ pipeline = op.seq(
         confidence_threshold=0.25,
     ),
     op.nms(iou_threshold=0.45, max_boxes=300),  # Remove overlapping boxes
-    op.to_image_space(),                    # MODEL_PIXEL -> IMAGE_PIXEL coordinates
+    op.to_image_space(),                    # model pixels -> normalized [0,1] image coords
     op.ax_detection(class_id_type=op.CocoClasses),  # -> list[DetectedObject]
 )
 
@@ -156,19 +155,6 @@ pipeline = op.seq(
 detections = pipeline(image)  # list[DetectedObject]
 for det in detections:
     print(f"{det.class_id.name}: {det.score:.0%} at {det.bbox}")
-```
-
-**Step-by-step equivalent** (same result, but each step visible):
-
-```python
-with op.frame_context(image):
-    x = op.letterbox(640, 640)(image)
-    x = op.to_tensor()(x)
-    x = op.load('yolov8n-coco.axm')(x)
-    x = op.decode_detections(algo='yolov8', num_classes=80, confidence_threshold=0.25)(x)
-    x = op.nms(iou_threshold=0.45, max_boxes=300)(x)
-    x = op.to_image_space()(x)
-    detections = op.ax_detection(class_id_type=op.CocoClasses)(x)
 ```
 
 ---
@@ -183,6 +169,7 @@ pipeline = op.seq(
     op.normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 
     op.load('squeezenet1.0-imagenet.axm'),
+    op.softmax(),                                            # logits -> probabilities
     op.ax_classification(class_id_type=op.ImagenetClasses),  # -> list[Classification]
     op.top_k(k=5),                                           # -> top 5 classifications
 )
@@ -264,9 +251,6 @@ with op.frame_context(image):
 
 ## Cascade Pipeline (for_each + crop_roi)
 
-> **Work in progress:** Cascade support (`op.for_each`, `op.crop_roi`) is not yet complete.
-> The API shape shown below reflects the planned design but may change.
-
 Cascade pipelines run a second-stage model on each detection from the first stage.
 `for_each` iterates over a list, and `crop_roi` extracts the image region for each detection.
 
@@ -275,7 +259,7 @@ pipeline = op.seq(
     # First stage: detect objects
     op.letterbox(640, 640),
     op.to_tensor(),
-    op.load('yolov8n-coco.axm'),
+    op.load(f'{MODEL_DIR}/yolov8n-coco.axm'),
     op.decode_detections(algo='yolov8', num_classes=80),
     op.nms(),
     op.to_image_space(),
@@ -283,16 +267,23 @@ pipeline = op.seq(
 
     # Second stage: classify each detected region
     op.for_each(
-        'classifications',                    # Name for output field
+        'classifications',                     # Name for output field
         op.crop_roi(property='bbox'),          # Crop image region from detection bbox
-        op.resize(224, 224),
+        op.resize(width=224, height=224),
         op.to_tensor(),
-        op.load('classifier.axm'),
-        op.ax_classification(),
+        op.normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        op.load(f'{MODEL_DIR}/resnet50-imagenet.axm'),
+        op.softmax(),
+        op.ax_classification(class_id_type=op.ImagenetClasses),
+        op.top_k(k=1),
     ),
 )
 # Result: NamedTuple(input=[DetectedObject, ...], classifications=[Classification, ...])
 ```
+
+Selecting which detections reach the second stage, cascading behind a tracker,
+nesting one cascade inside another, and what the extra calls cost:
+[Cascade Tutorial](../../tutorials/pipeline-builder/cascade-tutorial.md).
 
 ---
 
@@ -321,7 +312,7 @@ pipeline = op.seq(
 ```
 
 By default only active tracks are returned. Pass `return_all_states=True` to
-also receive `lost` and `removed` tracks -- useful for visualisation, but adds
+also receive `lost` and `removed` tracks. That is useful for visualisation, but adds
 ~7% overhead and breaks MOT evaluation metrics.
 
 ### Track States
@@ -368,43 +359,31 @@ For the full parameter reference, see
 
 ## Model Formats
 
-Two file formats are used for models:
+`op.load()` takes either a compiled model (`.axm`), around which you build the
+pipeline as on this page, or a saved pipeline package (`.axe`), which is ready
+to call. `pipeline.save_axe('name.axe')` writes one. See
+[Model Formats](model-formats.md) for what each holds and what an `.axe`
+cannot carry.
 
-**`.axm` (Axelera Model)** -- A compiled neural network for the Axelera AIPU. This is
-the output of `deploy.py` (the compilation step). When loaded with `op.load()`, it
-runs the model and returns raw numpy output tensors. You build the surrounding
-pipeline (preprocessing, decoding, NMS, etc.) yourself. See
-[Model Compilation](model-compilation.md) for how to produce `.axm` files from
-PyTorch, ONNX, or Ultralytics models.
+### Loading options
 
-**`.axe` (Axelera Executable)** -- A complete pipeline package. It is a ZIP archive
-containing a `pipeline.toml` (which describes the full operator chain) and an embedded
-`.axm`. When loaded with `op.load()`, you get a ready-to-run pipeline -- no need to
-add preprocessing or postprocessing.
+`op.load()` takes three keyword options for an `.axm`:
 
-`op.load()` handles both formats automatically:
-
-```python
-# .axm -- you build the pipeline around it
-detector = op.seq(
-    op.letterbox(640, 640),
-    op.to_tensor(),
-    op.load('yolov8n-coco.axm'),       # just the model, returns raw tensors
-    op.decode_detections(algo='yolov8', num_classes=80),
-    op.nms(),
-    op.to_image_space(),
-    op.ax_detection(class_id_type=op.CocoClasses),
-)
-
-# .axe -- everything is bundled, just call it
-detector = op.load('yolov8n-coco.axe')  # complete pipeline
-detections = detector(image)
-```
-
-To save a pipeline you built as an `.axe` file for later reuse:
+- `core_allocation`: how many AIPU cores this model gets. `None` (default)
+  shares the cores equally with the other models on the same scheduler; an int
+  assigns that many cores; a percentage string such as `'50%'` takes that share
+  of the cores left after absolute allocations, so it scales with the hardware.
+- `using_postamble`: a `Postamble` naming a native kernel for the model's
+  postamble, in place of the onnxruntime tail. See [Postambles](postamble.md).
+- `device_config`: board settings the cores running this model must hold, for
+  example `DeviceConfig({'110m': BoardConfig(mvm_limitation=57)})`. See
+  [`device_config`](api/axelera.runtime.device_config.md).
 
 ```python
-pipeline.save_axe('yolov8n-coco.axe')
+from axelera.runtime import op
+
+detector = op.load('yolov8n-coco.axm', core_allocation='75%')
+classifier = op.load('resnet50-imagenet.axm', core_allocation='25%')
 ```
 
 ---
@@ -449,7 +428,7 @@ img.convert('RGB')      # -> new Image in RGB
 `Image.from_any(x, fallback_color_format=...)` accepts an ndarray, torch tensor, PIL
 image, or existing `Image`; the `fallback_color_format` is consulted only for formatless
 inputs (numpy/torch). A format-carrying input (`Image`/PIL) always wins. Passing a plain
-array straight to a pipeline works too — operators wrap it internally — but supplying an
+array straight to a pipeline works too (operators wrap it internally), but supplying an
 `Image` (or an explicit `src=` on `op.color_convert`) avoids format guesswork.
 
 ### Streaming Over Video and Image Folders
@@ -484,9 +463,18 @@ for image, detections in pipeline.stream('rtsp://camera.local/stream'):
         print(f"{det.class_id.name}: {det.score:.0%} at {det.bbox}")
 ```
 
-Results are yielded in source order, and many frames may be in flight at once.
-Frame context is managed automatically, just as when you call the pipeline
-directly.
+Results are yielded in source order, and many frames may be in flight at once:
+`max_in_flight` bounds how many (default four per AIPU core; `1` runs inline,
+which helps when debugging). Frame context is managed automatically, just as
+when you call the pipeline directly.
+
+Two more `stream` arguments serve a low-latency display: `split_at` names an
+operator before the first `op.load` at which to split the pipeline, and
+`frame_callback(frame)` receives each frame as that prefix finishes, before
+inference is submitted. The callback runs in the frame's critical path, so keep
+it light. `multipipeline_decoded_tee.py`, `barrel_correct_yolo.py` and
+`perspective_yolo.py` in the [examples](../../../examples/pipeline_builder/README.md)
+show the pattern.
 
 A camera or RTSP stream is **unbounded**: `pipeline.stream` keeps yielding frames
 until the stream ends or you break out of the loop. Live sources stay real-time by
@@ -495,8 +483,8 @@ is skipped. Break out of the loop at any time to stop reading the source early.
 
 ### Video Sources (`cv.create_source`)
 
-`pipeline.stream` accepts a path directly, but when you want the frames themselves —
-plus metadata like frame rate and frame count — open the source explicitly with
+`pipeline.stream` accepts a path directly, but when you want the frames themselves,
+plus metadata like frame rate and frame count, open the source explicitly with
 `cv.create_source`. It returns a `VideoSource`: an iterable of `Image` frames that also
 works as a context manager.
 
@@ -511,21 +499,33 @@ with cv.create_source('clip.mp4') as source:
 
 Key arguments:
 
-- `backend` — `"ffmpeg"` (default) or `"opencv"`. FFmpeg gives the widest format support;
+- `backend`: `"ffmpeg"` (default) or `"opencv"`. FFmpeg gives the widest format support;
   OpenCV is the fallback.
-- `buffer_size` — decode queue depth (default 30); larger absorbs bursts at the cost of memory.
-- `live_source` — override the file-vs-live classification. RTSP/RTP/RTMP/SRT/UDP/MJPEG URIs
-  and `/dev/video*` are auto-detected as live (drop frames to stay real-time); everything else
-  blocks. Pass `live_source=True` for HTTP live streams (HLS), or `False` to force blocking.
-- `event_callback(code, message)` — decoder events/errors (FFmpeg backend only).
+- `buffer_size`: decode queue depth. Defaults to 30 for a file, where a deep queue is
+  read-ahead and costs only memory, and 2 for a live source, where it is a latency floor:
+  a consumer that falls behind a camera trails it by the whole depth for the rest of the run.
+- `live_source`: override the file-vs-live classification. RTSP/RTP/RTMP/SRT/UDP/MJPEG URIs
+  and `/dev/video*` are auto-detected as live: on a full queue the arriving frame evicts the
+  stale ones, so the consumer stays current and loses frames instead of accumulating lag.
+  Everything else blocks the decoder to deliver every frame. Pass `live_source=True` for HTTP
+  live streams (HLS), or `False` to force blocking. On a live-classified URI that block is
+  capped at one second per frame: a camera cannot be asked to slow down, so the cap keeps the
+  reader alive rather than preventing loss: a sustained stall still drops, just in counted
+  frames rather than silently in the socket buffer.
+- `source.dropped`: frames the consumer never saw, and the only way to tell a drop from slow
+  inference (both show up downstream as nothing but a lower frame rate). `source.may_drop`
+  says up front whether loss is possible at all; it is false only for a plain file, and
+  `is_live` does not answer this, since forcing either policy against the classification also
+  drops.
+- `event_callback(code, message)`: decoder events/errors (FFmpeg backend only).
 
 A `VideoSource` can be handed straight to `pipeline.stream(source)` to get pipelined
 `(image, result)` pairs instead of iterating frames yourself.
 
 ### Batching (`pipeline.batch`)
 
-To submit several inputs at once — letting the scheduler fill the AIPU more fully than
-one-at-a-time calls — collect frames and pass them to `pipeline.batch`. It returns a list
+To submit several inputs at once, letting the scheduler fill the AIPU more fully than
+one-at-a-time calls, collect frames and pass them to `pipeline.batch`. It returns a list
 of results in input order. Call `pipeline.optimized()` first so the preprocess/postprocess
 ops are fused for the batched path.
 
@@ -537,8 +537,10 @@ for img, result in zip(queued, pipeline.batch(queued)):
     ...
 ```
 
-`pipeline.batch`, `pipeline.stream`, and `pipeline.optimized` all run via the active
-scheduler; see [`scheduler`](api/README.md) for device selection.
+`pipeline.batch` and `pipeline.stream` run on the current scheduler, which by default
+uses every device. To target specific devices, or to give a thread its own scheduler,
+wrap the run in `scheduler.create(devices=...)`; see
+[`scheduler`](api/axelera.runtime.scheduler.md).
 
 ### Color Handling
 
@@ -575,7 +577,7 @@ is ignored.
 Result wrappers (`op.ax_detection`, `op.ax_pose`, etc.) are **optional**. They convert
 raw numpy arrays into typed Python objects (`DetectedObject`, `PoseObject`, etc.).
 
-**Without wrappers** -- you get raw `np.ndarray` directly, which is perfectly fine
+**Without wrappers**, you get raw `np.ndarray` directly, which is perfectly fine
 for custom processing or when you want full control:
 
 ```python
@@ -586,12 +588,12 @@ pipeline_raw = op.seq(
     op.decode_detections(algo='yolov8', num_classes=80),
     op.nms(),
     op.to_image_space(),
-    # no ax_detection -- returns np.ndarray (N, 6)
+    # no ax_detection: returns np.ndarray (N, 6)
 )
-raw = pipeline_raw(image)  # np.ndarray: [x0, y0, x1, y1, score, class_id]
+raw = pipeline_raw(image)  # np.ndarray: [x0, y0, x1, y1, score, class_id], boxes normalized [0,1]
 ```
 
-**With wrappers** -- you get typed objects with named attributes (`det.bbox`,
+**With wrappers**, you get typed objects with named attributes (`det.bbox`,
 `det.score`, `det.class_id`). Use wrappers when you want:
 - **Cascade pipelines**: `op.for_each` + `op.crop_roi` read the `.bbox` attribute from typed objects
 - **Built-in rendering**: typed objects have a `.draw()` method for visualization
@@ -616,14 +618,22 @@ with op.frame_context(image) as fc:
 
 ## Supported Models
 
-Currently supported model families:
+Decoders and result wrappers cover these model families:
 
-- **YOLO object detection**: YOLOv5, YOLOv7, YOLOv8, YOLOv9, YOLOv10, YOLO11, YOLO26
-- **YOLO pose estimation**: YOLOv8-pose, YOLO11-pose
-- **YOLO instance segmentation**: YOLOv8-seg, YOLO11-seg
-- **Classifiers**: Any model with softmax output (ImageNet-style)
+- **YOLO object detection**: YOLOv5, YOLOv7, YOLOX, YOLOv8, YOLOv9, YOLOv10, YOLO11,
+  YOLO26 (`op.decode_detections`)
+- **YOLO pose estimation**: YOLOv8-pose, YOLO11-pose (`op.decode_pose`)
+- **YOLO instance segmentation**: YOLOv8-seg, YOLO11-seg (`op.decode_segmentation`)
+- **Oriented bounding boxes**: YOLOv8-obb, YOLO11-obb (`op.decode_obb`)
+- **Other detectors and segmenters**: SSD (`op.decode_ssd`), RetinaFace
+  (`op.decode_retina_face`), YOLACT (`op.decode_yolact`), semantic segmentation
+  (`op.decode_semantic_segmentation`)
+- **Classifiers**: any model with softmax output (ImageNet-style)
+- **Dense and embedding outputs**: depth maps (`op.ax_depth_map`), embeddings
+  (`op.ax_embedding`), and LPRNet plate reading (`op.decode_lprnet`)
 
-More architectures (the model-zoo models) are coming soon.
+See [Postprocess](api/axelera.runtime.op.postprocess.md) and
+[Results](api/axelera.runtime.op.results.md) for each operator's parameters.
 
 ---
 
@@ -683,13 +693,11 @@ built-in operators are optimized and eligible for future pipeline fusion, while
 custom operators are opaque to the optimizer
 (see [Postprocess](api/axelera.runtime.op.postprocess.md#filter)).
 
-Custom operators work at runtime but are not saved to `.axe` files unless
-registered:
-
-```python
-from axelera.runtime.op import OperatorRegistry
-OperatorRegistry.register('log_detections', LogDetections)
-```
+Defining the class registers it under its snake_case class name
+(`LogDetections` becomes `log_detections`), so the name must not collide with
+an existing operator. A custom operator is saved into an `.axe` file like any
+other, and the process that loads the file must import the module that defines
+it before calling `op.load()`; see [Model Formats](model-formats.md#limitations).
 
 ---
 
@@ -703,6 +711,6 @@ OperatorRegistry.register('log_detections', LogDetections)
 | `op.pack()` | `a, b -> (a, b)` | Collect positional args into tuple | After unnamed par, before itemgetter |
 | `op.unpack()` | `(a, b) -> a, b` | Mark tuple for arg unpacking | When operator returns tuple but next expects separate args |
 | `op.itemgetter(i)` | `(a, b) -> a` (if i=0) | Extract element from tuple | Selecting from decode output or par results |
-| `op.identity(x)` | `x -> x` | Pass through unchanged | Placeholder in par branches |
+| `op.identity()` | `x -> x` | Pass through unchanged | Placeholder in par branches |
 
 **Key rule:** Unnamed `par` automatically unpacks its result. Named `par` (all operators have names) returns a NamedTuple that is NOT unpacked.

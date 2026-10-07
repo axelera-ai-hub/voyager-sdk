@@ -6,22 +6,106 @@ path, or the newer AxMO + graph-compiler `axgraph` path), and how to wire the
 compiled artifact into a high-efficiency end-to-end pipeline in just a few
 lines with Pipeline Builder.
 
-Neither compiling a model (`axelera.compiler`/AxMO APIs) nor running it
-end-to-end (`axelera.runtime2.op`) needs `axelera-zoo`. The committed recipes
-import it anyway, for shared asset/calibration-resolution helpers and so
-`--run`/`--benchmark` numbers match `axzoo benchmark`, but none of that is
-structurally required; you could write the same compile-and-run script with
-zero zoo imports.
+A recipe never needs `axelera-zoo`. Everything the catalog knew about the
+model, the compiler configuration, the weight URL and checksum, and the
+calibration source, is baked into the file as a literal, so the recipe *is*
+the resolved catalog entry. Once you have it, the catalog is out of the
+picture:
+
+| Command | Requires |
+|---|---|
+| `python yolov8n_coco_axrelay.py` | `axelera-compiler` |
+| `python yolov8n_coco_axrelay.py --run <input>` | `axelera-runtime` |
+| `python yolov8n_coco_axrelay.py --benchmark <input>` | `axelera-runtime` |
+| `python yolov8n_coco_axrelay.py --eval` | `axelera-zoo[eval]` |
+
+Only `--eval` needs the zoo, because the evaluators, the datasets and the
+ground truth live there. Without it installed, `--eval` stops and names the
+package rather than failing on an import; every other command is unaffected.
+If you score the pipeline in your own eval harness, you never install it.
+Downloading the weights the recipe names is a cached fetch with a checksum,
+not a catalog lookup.
+
+What a vision recipe does NOT repeat is the part that is the same in all of
+them. The command line, the weight download and the accuracy legs live in
+[`shared/`](shared/), which ships beside the recipes and travels with a fork.
+So a recipe reads as this model: its preprocess, its pipelines, and the
+compiler call that builds it.
+
+The LLM recipes under [`llm/`](llm/) are the exception: a decoder's build,
+prompt handling and eval have little in common with a vision pipeline, so each
+carries its own command line and imports no `shared/`. Nothing below about
+copying that directory applies to them, and `axzoo fork --script` writes none
+beside one.
+
+## Measure accuracy
+
+`--eval` scores one leg and prints its metrics:
+
+```
+$ python detection/yolov8n_coco_axrelay.py --eval
+Evaluating COCO (aipu): 5000 samples
+yolov8n-coco COCO/val on aipu (preprocess: none): mAP_box=<value>, mAP50_box=<value>, ...
+key metric: mAP_box
+```
+
+That is the compiled model on the device. On its own it cannot tell you whether
+a low number came from the model, the dataset, the pipeline, or from
+quantization and compilation. `--engine host` answers that: it runs the fp32
+weight the build consumes, on this machine, through the same preprocess,
+decode tail, dataset and evaluator.
+
+```
+$ python detection/yolov8n_coco_axrelay.py --eval --engine host
+Evaluating COCO (host): 5000 samples
+yolov8n-coco COCO/val on host (preprocess: none): mAP_box=<value>, ...
+```
+
+The difference between the two is what deployment cost, and nothing else. Each
+run reports one engine, so run the verb twice for the pair; `--engine host`
+needs no `.axm` and so no compile, which means you can take the reference
+before you build. Add `--frames N` for a quick check, remembering that a split
+stored in class order is truncated rather than sampled, and `--data-root DIR`
+to point at your own copy of the dataset.
+
+`preprocess:` on those lines is the second axis of the number. `--run` and
+`--benchmark` fuse the preprocess by default (`--optimize auto`), which replaces
+the declared resize with an OpenCL or SIMD kernel; `--eval` does not, because
+that kernel moves pixels and can move the metric, so the reported figure is the
+op sequence this file declares. To score what you deploy instead, name the
+policy:
+
+```
+$ python detection/yolov8n_coco_axrelay.py --eval --optimize auto
+yolov8n-coco COCO/val on aipu (preprocess: auto): mAP_box=<value>, ...
+```
+
+Both figures are valid and they are not the same measurement, which is why the
+line says which one it is.
+
+If you would rather not run the recipe at all, `axzoo eval` takes the same two
+legs from the packaged config and reports them in the same shape:
+
+```
+$ axzoo eval yolov8n-coco --engine host
+$ axzoo eval yolov8n-coco --engine aipu
+```
+
+Both front doors call the same evaluator on the same dataset through the same
+pipeline, so their numbers are comparable with each other and with the ones in
+the Model Zoo's published accuracy data.
 
 The Model Zoo remains the source of truth for supported models, benchmark
 numbers and accuracy data. Existing YAML model definitions remain supported.
-Pipeline Builder is Alpha in this release; full production-level throughput
-is planned for an upcoming release. If you already have a production
-pipeline on an existing YAML Model Zoo model, no need to move it: the
-YAML/GStreamer flow remains the most performant path today. If you need a
-model only available through `axgraph` (ViT classifiers, DINOv2
-segmentation), start on Pipeline Builder now: throughput is on its way, and
-it's the only runnable path for those models today.
+Pipeline Builder is Beta in this release. Its concepts are all in place, and
+compared with a YAML pipeline it is more modular, more flexible and easier to
+scale. It already performs well on many models; some still have significant
+room to improve, and that work is planned for the 2.0 release. If you already
+have a production pipeline on an existing YAML Model Zoo model, there is no
+need to move it: the YAML/GStreamer flow remains the most performant path for
+those models today. If you need a model only available through `axgraph` (ViT
+classifiers, DINOv2 segmentation), start on Pipeline Builder now: it is the
+only runnable path for those models today.
 
 Recipe coverage is expanding: every model currently released only as a YAML
 definition is on track to get a recipe here too, so "selected" above will
@@ -39,11 +123,17 @@ customer builds, and maintain long-lived model variants.
 Use this path when an existing recipe is close to your model architecture or
 pipeline.
 
-1. Copy a recipe anywhere, for example
-   [`detection/yolov8n_coco_axrelay.py`](detection/yolov8n_coco_axrelay.py).
-   The destination doesn't matter; the recipe is a self-contained script.
+1. Copy a vision recipe anywhere, for example
+   [`detection/yolov8n_coco_axrelay.py`](detection/yolov8n_coco_axrelay.py),
+   together with [`shared/`](shared/). The destination doesn't matter, but the
+   two travel together: the recipe declares the model, and `shared/` holds what
+   every recipe does the same way (the command line, the asset fetch, the
+   accuracy legs). The few recipes that declare `PRE_COMPILE_PASSES` also read
+   those rewrites from [`shared/passes/`](shared/passes/), so copy
+   that directory alongside too. `axzoo fork --script` does all of it for you,
+   and a recipe copied without `shared/` says so and names the directory.
 2. Point `load_source()` at your exported `.onnx` or `.pt2` file.
-3. Replace `CALIBRATION` with 100 to 400 images representative of your
+3. Replace `CALIBRATION_DIR` with 100 to 400 images representative of your
    deployment scene, drawn from your training set or a held-out calibration/
    validation split.
 4. Update `preprocess` so calibration and runtime inference use the same image
@@ -99,11 +189,18 @@ Each recipe follows the same broad structure:
 | --- | --- |
 | Provenance block | The packaged model, upstream framework, weight source, and license. |
 | `preprocess` | The runtime image transforms; calibration uses this same sequence. |
-| `build_pipeline(axm_path)` | The readable Alpha Pipeline Builder graph used for run/benchmark checks: preprocess, `op.load()`, post-processing, and result conversion. |
-| `CALIBRATION` | The representative data used for quantization. Replace this for your deployment scene. |
+| `build_pipeline(axm_path)` | The readable Pipeline Builder graph used for run/benchmark checks: preprocess, `op.load()`, post-processing, and result conversion. |
+| `CALIBRATION_DIR` | The representative data used for quantization. Replace this for your deployment scene (`CALIBRATION_URL` is the packaged set it falls back to). |
 | `load_source()` | Where the `.onnx` or `.pt2` source artifact comes from. |
+| `POSTAMBLE` | The native kernel that runs the model's postamble, when one covers the model. See [Postamble](#postamble). |
+| `DEVICE_CONFIG` | Board settings this model needs before it runs, when it needs any. See [Pipeline runtime settings](#pipeline-runtime-settings). Most recipes have no such section. |
+| `PRE_COMPILE_PASSES` | Graph rewrites applied before compiling, when the model needs any: each name is a file in [`shared/passes/`](shared/passes/) working around a pattern the compiler does not yet read. Most recipes have no such section. [`shared/passes/README.md`](shared/passes/README.md) says how to tell whether your model needs one, and how to write your own. |
 | Compiler calls | The `CompilerConfig` (or AxMO config, for `axgraph`) and the quantize/compile calls that build the `.axm`: exactly what `axzoo` runs for this model. |
+| `build_eval_pipeline(model_op)` | The pipeline `--eval` scores. Same preprocess and model as above, different tail: presenting a result and scoring one are different jobs. |
+| `EVAL_TARGET` | The task, dataset and split this model's accuracy is measured against. |
+| `main()` | Hands the above to [`shared/cli.py`](shared/cli.py), which is where each verb is carried out. |
 | `--run` / `--benchmark` | Optional development checks for the recipe's Pipeline Builder path. |
+| `--eval` | Accuracy, on the device (`aipu`) or against the fp32 source (`host`). See **Measure accuracy** above. |
 
 YAML models also carry per-model settings, but `deploy.py` auto-picks how to
 apply them behind the scenes depending on the case. A recipe has no such
@@ -119,6 +216,103 @@ function from your training code (for example a
 `torchvision.transforms.Compose`), assign it to `preprocess` directly;
 anything that isn't already a Pipeline Builder operator is auto-wrapped when
 it's composed inside `build_pipeline`.
+
+## Postamble
+
+The compiler leaves the last host-side piece of a model, its postamble (for
+example a detector's box decoding or a classifier's softmax), as a small graph
+inside the `.axm`. By default `op.load` runs that graph on onnxruntime. A recipe
+whose model is covered by a built-in native kernel names it once, as
+`POSTAMBLE`, and passes it to `op.load` in both `build_pipeline` and the
+accuracy leg, so the demo, the benchmark and `--eval` run the same tail:
+
+```python
+POSTAMBLE = Postamble(fused_kernel='UltralyticsYoloPostamble', num_classes=80, dfl_bins=16)
+```
+
+The kernel changes how the model's output tensors are computed, not what they
+are, and it changes nothing about the build: delete `POSTAMBLE` and its
+`using_postamble=` argument and the same `.axm` runs the onnxruntime tail. When
+you adapt a recipe to a model with a different class count or head, update the
+kernel's parameters to match, or remove it while you bring the model up.
+[Postambles](../docs/reference/pipeline-builder/postamble.md) lists the built-in
+kernels and their parameters, and shows how to write your own.
+
+## Pipeline runtime settings
+
+A few settings are neither part of the build nor part of the pipeline graph:
+they are device settings the card has to be holding while the model runs.
+A recipe that needs one declares it as `DEVICE_CONFIG` and hands it to
+`op.load`, and Pipeline Builder writes it to the device before the first frame.
+
+```python
+DEVICE_CONFIG = DeviceConfig({'110m': BoardConfig(mvm_limitation=57)})
+
+
+def build_pipeline(axm_path):
+    return op.seq(
+        preprocess,
+        op.load(str(axm_path), using_postamble=POSTAMBLE, device_config=DEVICE_CONFIG),
+        ...
+    )
+```
+
+The key is the **board model**, the name `axdevice` prints for your card
+(`110m`, `113m`, `111c`, `130p`, `150p`, `232p`, or `pcie` for the legacy
+single-chip card), and not the form factor. That is the point rather than a
+detail: an Axelera Embedded 110m and a 113m are both M.2 cards, and a setting
+meant for one of them must not reach the other. A board the config does not
+name is left exactly as it is, so one recipe runs unchanged everywhere, and a
+name that is not a board model is rejected where you wrote it.
+
+| Setting | Declared for | What it does |
+| --- | --- | --- |
+| `mvm_limitation` | `110m` | Caps MVM utilisation at that percentage (1 to 100). Some models draw more power at full utilisation than a 110m can dissipate. The compiled artifact is the same either way, so the limit belongs to the run and not to the build. |
+
+**Declared for** is where a packaged model asks for the setting, not a claim
+about which boards support it. The setting exists on other boards too, and
+what a given board can sustain depends on your own enclosure, airflow and power
+budget. If you want to cap a board the recipe says nothing about, or run a
+different cap on the one it does, set `AXELERA_CONFIGURE_BOARD` (below) rather
+than editing the recipe: it applies to whatever board is present.
+
+A recipe that declares `DEVICE_CONFIG` explains, in the comment above it, what
+each setting does and why the board is listed for it.
+
+A setting applies to the AI cores running that model, not to the whole card, so
+two models in one pipeline each keep their own and a model that declares
+nothing runs at full utilisation beside one that does. This is the same rule
+the YAML/GStreamer flow uses for its static core ranges.
+
+It is not applied the same way, though, and the difference costs a little.
+The YAML flow binds a core to one model for the whole run, so it writes each
+setting once at startup and never again. Pipeline Builder shares cores between
+models, so when a model moves to a core last used by a model wanting a
+different value, the setting is written again: a few milliseconds, on the
+frame that causes the move. A pipeline whose models all want the same value, or
+none, pays that at most once per core. If you need the switching cost gone
+entirely, give each model its own cores with `op.load(core_allocation=...)`.
+
+Values are not written to the card's configuration file, and every core this
+pipeline changed is put back when it finishes, so whatever you run next sees
+the card as it was. A board whose firmware owns these settings is left alone
+and says so.
+
+### Overriding from the command line
+
+`AXELERA_CONFIGURE_BOARD` decides this for the whole process, and what you set
+there beats what the recipe asks for. It reads the same way it does on the
+YAML/GStreamer path:
+
+| Value | Effect |
+| --- | --- |
+| unset, or `1` | Apply what the model asked for. The default. |
+| `0` | Leave the device alone. The model's request is dropped. |
+| `[clock],[mvm]` | Apply your values instead, on whatever board is present. Either part may be empty: `,90` caps MVM at 90% and leaves the clock, `400` sets the core clock to 400 MHz and leaves MVM to the model. |
+
+```bash
+AXELERA_CONFIGURE_BOARD=,90 python detection/yolov8l_coco_axrelay.py --benchmark input.mp4
+```
 
 ## Backend names
 
@@ -205,7 +399,32 @@ dependencies in your working venv just to get one file out of it.
 ## Where `axzoo` fits
 
 The `axzoo` command is installed with `axelera-devkit` through the
-`axelera-zoo` package. General application developers can usually work from
-recipes directly. `axzoo` is useful when you want to discover packaged configs,
-generate a fresh recipe, build from a managed config, or maintain a model catalog
-over time.
+`axelera-zoo` package. You can work from recipes without it. It is useful to
+find a model, see where it came from, and reproduce or adapt how its source
+artifact was exported. `axzoo <command> --help` documents every option.
+
+`axzoo` resolves a model by name; a recipe has already been resolved. That is
+the whole difference, and it is why the recipe carries no zoo dependency:
+
+- `axzoo build yolov8n-coco` looks the model up in the catalog, fetches the
+  published weights and the calibration images, then compiles.
+- `python yolov8n_coco_axrelay.py` compiles the same model from the URL and
+  checksum already written into the script.
+
+Accuracy evaluation is the exception on both paths, because the evaluators and
+datasets are part of the zoo rather than of any one model.
+
+| Command | What it gives you |
+| --- | --- |
+| `axzoo list [GROUP]` | The packaged models grouped by task (`detection`, `classification`, ...), each with the compiler backends it is released on. `--backend` filters by backend. |
+| `axzoo info <model>` | The model card: display name, task, license, upstream (framework, model and version, or source repository and pinned ref), the recipe it generates, default backend, calibration source, and the upstream and expected accuracy. For a model that compiles from a hub checkpoint (the LLM and AxScript models) it names the checkpoint, for example `Source: huggingface Qwen/Qwen3-0.6B`. It also prints the model's `Postamble` exactly as its recipe declares it, with the file that defines the kernel (`none` when the onnxruntime tail runs). For a model whose source artifact is exported, it prints the `axzoo export` command and the absolute path of the export script in your install (a torchvision model has no export script; `info` gives the `torchvision.models` call that loads the same weights instead), and, when the model is built from an upstream repository, the build hook and the `axzoo fork --export` command. |
+| `axzoo info --axm <path>` | The build snapshot recorded in a `.axm` that `axzoo` built: weight format, compiler backend and version, compiler configuration, content hash, pre-compile passes applied, and upstream provenance. It prints only what the build recorded. |
+| `axzoo export <model> --format pt2` | Produces the model's source artifact (`pt2` or `onnx`, as `axzoo info` lists) the same way the packaged weight was produced, in an isolated venv. `--to PATH` chooses the destination. See [PyTorch model, ONNX, or `.pt2`?](#pytorch-model-onnx-or-pt2). |
+| `axzoo fork <model> --export` | An editable copy of the script that builds the source artifact from an upstream repository, with a header that records the repository, the pinned ref, the formats and the build parameters. Edit its build function to point at your own checkpoint or variant. Only for models built from an upstream repository; for the others the command says so. |
+| `axzoo fork <model> --script` | The standalone recipe for the model, regenerated from the installed package (see [Generate an editable recipe](#generate-an-editable-recipe-with-axzoo-fork)). |
+
+To export your own weights for a packaged architecture, start from
+`axzoo info <model>`: it prints the path of the export script that produced the
+packaged weight, so you can open it. For a model built from an upstream
+repository, `axzoo fork <model> --export` gives you an editable copy of the
+build. Point the recipe's `load_source()` at the file your export produces.

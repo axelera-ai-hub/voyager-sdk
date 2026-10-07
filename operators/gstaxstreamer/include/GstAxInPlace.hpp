@@ -1,3 +1,4 @@
+// Copyright Axelera AI, 2024
 #pragma once
 
 #include <gst/base/gstbasetransform.h>

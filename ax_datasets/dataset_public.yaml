@@ -1,3 +1,6 @@
+# Which table an entry belongs in, what a customer sees once it is here, and why a gated
+# set is preferred on the HuggingFace hub: axelera_zoo/docs/internal/dataset_management.md
+# Read it before adding a row. The choice is not recoverable from this file.
 # Dataset Configuration File
 #
 # Format:
@@ -253,3 +256,62 @@ LFWPeople:
         check_files:
           - lfw-py/lfw-deepfunneled
           - lfw-py/people.txt
+
+ADE20K:
+  description: ADE20K SceneParse150 scene-parsing benchmark.
+  download_hint: |
+    Downloaded automatically from
+    https://data.csail.mit.edu/places/ADEchallenge/ADEChallengeData2016.zip into the
+    ADEChallengeData2016 folder of the data root. To use a copy you already have, place it
+    there holding images/<split>/ and annotations/<split>/.
+  splits:
+    val:
+      # No checksum is published for this archive, so a truncated download surfaces as a
+      # failed extraction rather than as a dataset that scores badly.
+      - url: https://data.csail.mit.edu/places/ADEchallenge/ADEChallengeData2016.zip
+        # The zip wraps its contents in a folder of the same name; strip that one component
+        # so they land directly in the dataset directory.
+        drop_dirs: 1
+        check_files:
+          - images/validation
+          - annotations/validation
+    train:
+      - url: https://data.csail.mit.edu/places/ADEchallenge/ADEChallengeData2016.zip
+        drop_dirs: 1
+        check_files:
+          - images/training
+          - annotations/training
+
+Pitts30k:
+  description: Pittsburgh 30k visual place-recognition benchmark.
+  # No url and no hub: the set is obtained by request from its authors, so the hint is the
+  # whole entry and check_files is what verifies whatever the user placed.
+  download_hint: |
+    Pittsburgh 30k is provided on request by its authors and is not downloaded here. Place a
+    copy in the pitts30k folder of the data root, holding images/<split>/database/ and
+    images/<split>/queries/.
+  splits:
+    val:
+      - check_files:
+          - images/val/database
+          - images/val/queries
+
+tiny-imagenet:
+  description: tiny-imagenet 200-class 64px set, used for the kNN feature-extraction probe.
+  # Served by the HuggingFace hub and cached by `datasets`, so it lands in the hub cache
+  # rather than in a folder of the data root. The revision is the pin: a set the hub owns end
+  # to end has no archive of ours to checksum.
+  download_hint: |
+    Read from the HuggingFace hub. Install the eval extra to get the client:
+    pip install "axelera-zoo[eval]".
+
+    Provenance: `zh-plus/tiny-imagenet` is a third-party upload of a 200-class
+    64px subset of ILSVRC. It is not distributed by Axelera and we make no
+    representation about its terms; whatever governs it is between you, the
+    uploader and the ILSVRC terms. It stands in for ImageNet-1k here because
+    that requires an account with its publisher.
+  splits:
+    train+valid:
+      - hub:
+          repo: zh-plus/tiny-imagenet
+          revision: 5a77092c28e51558c5586e9c5eb71a7e17a5e43f

@@ -4,11 +4,12 @@
 
 This guide explains how to handle postamble graphs with the low-level `axelera.runtime` Python API. When models are compiled for Axelera's Metis AIPU, the compiler may split the model graph to extract operations that are not efficient to run on the AIPU (like certain pooling, regression, or normalization operations). These extracted operations typically appear at the beginning or end of the model, and are available as preamble and postamble ONNX graphs along with other compiled model artifacts. If you do not handle the processing of the operations in these graphs, you will get incorrect output from your model. This guide explains how to incorporate the post-processing graphs correctly with your application so you get the results you expect.
 
-When using the low-level API, you must manually handle postamble processing that higher-level APIs (InferenceStream, AxInferenceNet) manage automatically. If you haven't completed the [Quick Start](axruntime-python-quickstart.md) yet, start there to understand basic inference execution and tensor transformations.
+When using the low-level API, you must manually handle postamble processing that higher-level APIs (Pipeline Builder `op.load`, InferenceStream, AxInferenceNet) manage automatically. If you haven't completed the [Quick Start](axruntime-python-quickstart.md) yet, start there to understand basic inference execution and tensor transformations.
 
 For most models, the pre-processing "preamble" ONNX graph is empty, meaning all operations at the beginning of the model are executed on the AIPU in the core graph. This guide focuses on the post-processing "postamble" graph, but the same techniques apply to any preamble graph.
 
 **Voyager SDK API-level differences:**
+- **Pipeline Builder `op.load`**: Runs pre/postamble graphs automatically, and can replace the postamble graph with a native kernel (see [Postambles](../../reference/pipeline-builder/postamble.md))
 - **Python InferenceStream and C++ AxInferenceNet**: Handle pre/postamble graphs automatically
 - **Low-level `axelera.runtime` API**: You must handle postamble processing manually
 
@@ -402,6 +403,7 @@ This approach ensures exact output matching your original ONNX model while lever
 ## Related Documentation
 
 - [Basic Usage Tutorial](basic-usage-tutorial.md) - Understanding TensorInfo and quantization
+- [Postambles in Pipeline Builder](../../reference/pipeline-builder/postamble.md) - Running the postamble with `op.load`, and writing a native kernel for it
 - [API Reference](../../reference/apis/axruntime-py.md) - Complete API documentation
 
 ---

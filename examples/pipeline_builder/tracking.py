@@ -27,11 +27,6 @@ Use cases:
 - Analyze detection-to-track assignments
 - Access raw detection scores for post-processing
 
-Auto-generated from rt_demo.py's @publicdemo `tracking` by
-tools/export_pipeline_builder_demo.py.  Edit the original demo in rt_demo.py
-rather than this file -- regenerate with
-`python tools/export_pipeline_builder_demo.py tracking`.
-
 Usage:
     python tracking.py PATH [--display opencv|console|none|auto] [--no-wait]
 """
@@ -112,7 +107,7 @@ if __name__ == "__main__":
     parser.add_argument("input", help="Image or video file to process")
     parser.add_argument(
         "--display",
-        choices=["none", "opencv", "console", "iterm2", "auto"],
+        choices=["none", "opencv", "vulkan", "console", "iterm2", "auto"],
         default="auto",
         help="Display backend (default: auto)",
     )

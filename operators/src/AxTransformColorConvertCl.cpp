@@ -17,21 +17,23 @@
 //
 const char *kernel_sig = R"##(
 
-// Utility functions for coordinate transformations
 __kernel void informat_to_outformat(int width, int height, int4 strides,
-    int4 offsets, int crop_x, int crop_y, float16 color_matrix,
+    int4 offsets, float16 color_matrix, float16 transform_matrix,
     %s__global %s *out) {
     const int col = get_global_id(0);
     const int row = get_global_id(1);
     if (row >= height || col >= width) {
         return;
     }
-)##";
-
-
-const char *crop_code = R"##(
-    corrected.x += crop_x;
-    corrected.y += crop_y;
+    const float col_c = col + 0.5f, row_c = row + 0.5f;
+    // transform_matrix's third row (s8,s9,sa) is always {0,0,1} for every matrix
+    // this kernel receives (see get_transform_matrix / fold_crop_into_transform,
+    // which only ever write the first two rows), so the perspective divide is
+    // always by a constant 1.0 -- skip computing and dividing by it per pixel.
+    float2 corrected = (float2)(
+        transform_matrix.s0 * col_c + transform_matrix.s1 * row_c + transform_matrix.s2,
+        transform_matrix.s4 * col_c + transform_matrix.s5 * row_c + transform_matrix.s6
+    );
 )##";
 
 class CLColorConvert;
@@ -51,7 +53,7 @@ using ax_utils::opencl_details;
 
 ax_utils::CLProgram::ax_kernel
 build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
-    AxVideoFormat out_format, int flip_type, int num_planes)
+    AxVideoFormat out_format, int num_planes)
 {
   bool fp16 = program.has_fp16();
   std::string kernel_code = kernel_sig;
@@ -69,11 +71,9 @@ build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
   snprintf(buffer.data(), buffer.size(), kernel_code.c_str(),
       input_details.input_params.c_str(), out_type.c_str());
   auto final_kernel = std::string(buffer.data());
-  final_kernel += ax_utils::get_rotation(flip_type);
-  final_kernel += crop_code;
   final_kernel += sampler_code;
   final_kernel += output_code;
-  final_kernel = ax_utils::get_kernel_utils(flip_type, fp16) + final_kernel;
+  final_kernel = ax_utils::get_kernel_utils(0, fp16) + final_kernel;
   return program.build_kernel_from_source(final_kernel, "informat_to_outformat");
 }
 
@@ -81,7 +81,6 @@ class CLColorConvert
 {
   public:
   using buffer = CLProgram::ax_buffer;
-  using kernel = CLProgram::ax_kernel;
 
   CLColorConvert(int flip_type, opencl_details *display, Ax::Logger &logger)
       : program("", display, logger),
@@ -90,17 +89,10 @@ class CLColorConvert
   }
 
   cl_kernel get_converter(ax_utils::CLProgram &program, AxVideoFormat in_format,
-      AxVideoFormat out_format, int flip_type, int num_planes)
+      AxVideoFormat out_format, int num_planes)
   {
-    auto hash = (static_cast<int>(in_format) << 16)
-                + (static_cast<int>(out_format) << 8) + flip_type;
-    auto it = std::find_if(std::begin(all_kernels), std::end(all_kernels),
-        [hash](auto &x) { return x.hash == hash; });
-    if (it != all_kernels.end()) {
-      return *it->cl_prog;
-    }
-    auto k = build_kernel(program, in_format, out_format, flip_type, num_planes);
-    return *all_kernels.emplace_back(hash, std::move(k)).cl_prog;
+    return kernel_cache.get_or_build(in_format, out_format,
+        [&] { return build_kernel(program, in_format, out_format, num_planes); });
   }
 
   int run(const buffer_details &in, const buffer_details &out,
@@ -108,19 +100,15 @@ class CLColorConvert
   {
     bool start_flush = prop && prop->downstream_supports_opencl == 0;
     auto num_planes = ax_utils::get_num_planes(in);
-    auto converter = get_converter(program, in.format, out.format, flip_type, num_planes);
+    auto converter = get_converter(program, in.format, out.format, num_planes);
 
-    auto strides = ax_utils::build_strides(in, out);
-    auto offsets = ax_utils::build_offsets(in, out, num_planes);
-    auto matrix = ax_utils::get_color_conversion_matrix(in.format, out.format);
-
-    auto in_bufs = program.create_buffers(1, ax_utils::determine_buffer_size(in),
-        CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, in.data, in.offsets.size());
+    auto transform = ax_utils::get_transform_matrix(flip_type, out.width, out.height);
+    transform = ax_utils::fold_crop_into_transform(transform, in.crop_x, in.crop_y);
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
-
-    program.set_kernel_args(converter, 0, out.width, out.height, strides,
-        offsets, in.crop_x, in.crop_y, matrix, in_bufs, *outbuf);
-    return run_kernel(program, converter, in, out, in_bufs[0], outbuf, start_flush);
+    auto ri = ax_utils::prepare_run_inputs(program, in, out, num_planes);
+    program.set_kernel_args(converter, 0, out.width, out.height, ri.strides,
+        ri.offsets, ri.color_matrix, transform, ri.in_bufs, *outbuf);
+    return run_kernel(program, converter, in, out, ri.in_bufs[0], outbuf, start_flush);
   }
 
   bool can_use_dmabuf() const
@@ -132,11 +120,7 @@ class CLColorConvert
   CLProgram program;
   int flip_type{};
   int error{};
-  struct kernels {
-    int hash;
-    kernel cl_prog{ nullptr };
-  };
-  std::vector<kernels> all_kernels;
+  ax_utils::KernelCache kernel_cache;
 };
 
 std::string_view flips[] = {
@@ -326,6 +310,7 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
     throw std::runtime_error(
         "color_convert works on single tensor (possibly batched) output only");
   }
+  ax_utils::require_opencl_input_format(input_details[0].format, "ColorConvert");
   if (std::holds_alternative<void *>(input_details[0].data)) {
     const int pagesize = 4096;
     auto ptr = std::get<void *>(input_details[0].data);

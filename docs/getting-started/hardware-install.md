@@ -1,12 +1,12 @@
 # Hardware Installation
 
-This page covers physically installing your Metis hardware. Choose your product below.
+This page covers physically installing your Axelera AI board. Choose your product below.
 
 > [!WARNING]
 > Disconnect the power source before handling or installing any hardware. Wear an anti-static wrist strap to prevent electrostatic discharge (ESD). Do not touch the connector pins.
 
 
-## Metis M.2 AI Accelerator
+## Axelera Embedded 110m / 113m (M.2 AI Accelerator)
 
 ### Prerequisites
 
@@ -51,7 +51,7 @@ If insufficient power is detected, check your motherboard specifications or cons
 
 ---
 
-## Metis PCIe 1-AIPU AI Accelerator Card
+## Axelera Edge 130p (PCIe 1-AIPU AI Accelerator Card)
 
 ### Prerequisites
 
@@ -90,7 +90,7 @@ Look for `MaxPower` in the output. If your system does not meet the recommended 
 
 ---
 
-## Metis PCIe 4-AIPU AI Accelerator Card
+## Axelera Server 150p (PCIe 4-AIPU AI Accelerator Card)
 
 ### Prerequisites
 
@@ -106,7 +106,7 @@ Look for `MaxPower` in the output. If your system does not meet the recommended 
 4. Connect the PCIe auxiliary power cable to the 2x4 connector on the card.
 
 > [!NOTE]
-> The Metis PCIe 4-AIPU card requires auxiliary power. It will not function from slot power alone.
+> The 150p card requires auxiliary power. It will not function from slot power alone.
 
 
 ### Post-install checklist
@@ -118,9 +118,9 @@ Look for `MaxPower` in the output. If your system does not meet the recommended 
 
 ---
 
-## Metis Compute Board
+## Axelera Embedded 111c (Compute Board)
 
-The Compute Board is a standalone system — there is no card to install. Connect peripherals and power to get started.
+The 111c is a standalone system — there is no card to install. Connect peripherals and power to get started.
 
 
 ### Connect the board
@@ -138,9 +138,9 @@ The Compute Board is a standalone system — there is no card to install. Connec
 
 The board boots automatically when power is connected. It displays the Axelera logo during POST. Access a shell by clicking the terminal icon in the top-left corner.
 
-### Compute Board: additional setup
+### 111c: additional setup
 
-The Compute Board requires flashing the Board Support Package (BSP) and runs the Voyager SDK in a Docker container. These steps differ from the PCIe/M.2 path.
+The 111c requires flashing the Board Support Package (BSP) and runs the Voyager SDK in a Docker container. These steps differ from the PCIe/M.2 path.
 
 
 > [!TIP]

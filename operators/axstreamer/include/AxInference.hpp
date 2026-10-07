@@ -112,6 +112,13 @@ using InferenceReadyCallback = std::function<void(uint64_t frame_id, bool ok)>;
 std::unique_ptr<Inference> create_inference(Logger &logger,
     const InferenceProperties &props, InferenceReadyCallback callback);
 
+// Decides whether create_inference() dispatches via the fully-pipelined async
+// executor (AsyncPipelinedInference) instead of the blocking one
+// (MultiThreadedInference): only for batch-size-1 models, and only when a
+// real completion callback is supplied. Exposed for unit testing.
+bool should_use_async_pipeline(const InferenceReadyCallback &callback,
+    const AxTensorsInterface &input_shapes);
+
 std::unique_ptr<BasicInference> create_axruntime_inference(Logger &logger,
     axrContext *ctx, axrModel *model, const InferenceProperties &props);
 

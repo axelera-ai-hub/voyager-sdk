@@ -1,3 +1,4 @@
+// Copyright Axelera AI, 2025
 #include <glib.h>
 #include <gst/allocators/allocators.h>
 

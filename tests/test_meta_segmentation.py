@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 import re
 from unittest.mock import Mock, patch
 
@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from axelera import types
-from axelera.app import display_cv, plot_utils
+from axelera.app import plot_utils
 from axelera.app.meta import ClassificationMeta, InstanceSegmentationMeta
 from axelera.app.meta.segmentation import _translate_image_space_rect
 
@@ -33,7 +33,7 @@ def mock_get_color(index):
     return colors[index % len(colors)]
 
 
-def test_draw_no_masks():
+def test_draw_no_masks(display_cv):
     draw, image = mock_draw(2, 2)
     meta = InstanceSegmentationMeta()
     container_meta = create_container_with_render_config("segmentation_meta")
@@ -342,3 +342,37 @@ def create_container_with_render_config(meta_name, show_labels=True, show_annota
     )
     container_meta.set_render_config(render_config)
     return container_meta
+
+
+def test_decode_places_each_mask_on_its_detection_box():
+    """The gst mask rect is the detection box, and that is what the renderer wants.
+
+    A letterboxed model reaches the same rect either way, which is the point: the
+    crop the decoder emits is the box mapped into mask space, so mapping it back
+    can only reproduce the box or disagree with it. Numbers here are a 640x640
+    model on a 1280x720 source, so the letterbox inverse carries a real 280 pixel
+    offset rather than a degenerate one.
+    """
+    base_box = 0, 0, 1280, 720
+    seg_shape = 160, 160
+    mask_rect = 50, 60, 70, 85
+    box = 400, 200, 560, 400
+    mask = np.arange(20 * 25, dtype=np.uint8)
+
+    data = {
+        'bbox': np.array([box], dtype=np.int32).tobytes(),
+        'segment_shape': np.array([1, seg_shape[1], seg_shape[0]], dtype=np.uint64).tobytes(),
+        'segment_bboxs': np.array(mask_rect, dtype=np.int32).tobytes(),
+        'base_boxes': np.array(base_box, dtype=np.int32).tobytes(),
+        'segment_maps': mask.tobytes(),
+        'scores': np.array([0.9], dtype=np.float32).tobytes(),
+        'classes': np.array([3], dtype=np.int32).tobytes(),
+    }
+
+    meta = InstanceSegmentationMeta.decode(data)
+    assert len(meta.masks) == 1
+    entry = meta.get_mask(0)
+    assert entry[:4] == mask_rect
+    assert tuple(entry[4:8]) == box
+    assert entry[-1].shape == (25, 20)
+    assert _translate_image_space_rect(mask_rect, base_box, seg_shape) == box

@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 // Optimized anchor-free YOLOX decoder
 
 #include "AxDataInterface.h"
@@ -86,6 +86,12 @@ sort_tensors(const AxTensorsInterface &tensors, int num_classes, Ax::Logger &log
            > std::tie(tensors[b].sizes[width_or_height_idx], tensors[b].sizes[channels_idx]);
   });
 
+  // The box tensor is always 4 channels here, so the literal is the box width rather
+  // than a guess. At one class the class-score and objectness tensors are both 1
+  // channel and tie in the sort, but the two roles are interchangeable at that count:
+  // the reported score is their product, and the early exit on objectness below the
+  // confidence threshold can never drop a row the product keeps, because for factors
+  // in [0, 1] the product is at most either factor.
   auto swap = num_classes < 4;
   std::vector<tensor_pair> tensor_pairs;
   for (auto i = size_t{}; i != indices.size(); i += 3) {

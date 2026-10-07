@@ -40,7 +40,7 @@ AxInferenceNet is the engine of the pipeline. It is an asynchronous interface in
 
 ### push_new_frame
 ```cpp
-void push_new_frame(std::shared_ptr\<void\> &&buffer,
+void push_new_frame(std::shared_ptr<void> &&buffer,
       const AxVideoInterface &video, MetaMap &metamap, int stream_id = 0);
 ```
 
@@ -75,10 +75,12 @@ Call this to stop the inference pipeline, join all threads, and release resource
 ```cpp
 struct CompletedFrame {
   bool end_of_input = false;
+  bool inference_failed = false;
   int stream_id;
   uint64_t frame_id;
-  std::shared_ptr\<void\> buffer_handle{};
+  std::shared_ptr<void> buffer_handle{};
   AxVideoInterface video = {};
+  MetaMap *meta_map = nullptr;
 };
 
 using InferenceDoneCallback = std::function<void(CompletedFrame &)>;
@@ -90,6 +92,8 @@ The members of `CompletedFrame` are:
 
 `end_of_input` when true, the rest of the `CompletedFrame` should be ignored. If there are further AxInferenceNets, this should be used to signal to them that they should also end by calling their [`end_of_input()`](#end_of_input). If an output queue is used from the callback, this should be used to indicate a terminating condition. The `InferenceDoneCallback` will not be called again after this special marker has been passed.
 
+`inference_failed` when true, the inference call for this frame failed, for example with a device or queue error. `video` and the metadata are still valid, but the tensor data is stale: it is whatever a previous frame left in that pool slot, not a result for this frame. Check this before treating the frame as a normal result.
+
 `stream_id` this is the ID passed to [`push_new_frame`](#push_new_frame).
 
 `frame_id` this is a sequentially per-stream ID.
@@ -97,8 +101,10 @@ The members of `CompletedFrame` are:
 `buffer_handle` this is the handle passed to [`push_new_frame`](#push_new_frame). If the user wishes to gain ownership, they should move out of it thus:
 
 ```cpp
-auto user_frame = std::static_pointer_cast\<UserFrame\>(std::move(completed.buffer_handle))
+auto user_frame = std::static_pointer_cast<UserFrame>(std::move(completed.buffer_handle))
 ```
+
+`meta_map` the metadata map passed to [`push_new_frame`](#push_new_frame), carrying the decoded inference results.
 
 ### Ax::LatencyCallback
 ```cpp
@@ -114,6 +120,16 @@ The parameters are:
 `throughput_ns` the throughput for this operator in nanoseconds.
 
 `latency_ns` the latency for this operator in nanoseconds.
+
+## Asynchronous execution
+
+AxInferenceNet chooses how to drive the accelerator from the model's batch size, with no property to set.
+
+A model compiled with a batch size of 1, which is how most Axelera models perform best, runs on the asynchronous executor. That executor submits without blocking and receives completions on the runtime's own threads, so several frames are in flight on one instance at once and the pipeline is always in its low-latency mode. `max_inflight` and `max_pending` bound that concurrency, and `double_buffer` is ignored because the executor does not need it.
+
+A batched model runs on the blocking executor, one batch per call on a dedicated worker thread per instance. `double_buffer` applies there.
+
+Frames still reach [InferenceDoneCallback](#inferencedonecallback) in order in both cases. Because a failed frame is reported rather than dropped, a callback should check [`inference_failed`](#inferencedonecallback) before reading the tensor data.
 
 ## Ax::InferenceNetProperties
 
@@ -131,23 +147,27 @@ struct Ax::OperatorProperties {
 
 struct Ax::InferenceNetProperties {
   std::string model;
-  bool double_buffer\{ false \};
-  bool dmabuf_inputs\{ false \};
-  bool dmabuf_outputs\{ false \};
-  int skip_stride\{ 1 \};
-  int skip_count\{ 0 \};
-  int num_children\{ 0 \};
-  float margin\{0\};
+  bool double_buffer{ false };
+  bool dmabuf_inputs{ false };
+  bool dmabuf_outputs{ false };
+  int skip_stride{ 1 };
+  int skip_count{ 0 };
+  int num_children{ 0 };
+  float margin{0};
   std::string options;
   std::string meta;
   std::string devices;
+  std::string which_cl;
+  int max_buffers{ 0 };
+  int max_inflight{ 4 };
+  int max_pending{ 8 };
   Ax::OperatorProperties preproc[Ax::MAX_OPERATORS];
   Ax::OperatorProperties postproc[Ax::MAX_OPERATORS];
 };
 ```
 `model` path to the Axelera model. If this is compiled using the pipeline builder it will be located at `build/networkname/modelname/1/model.json`
 
-`double_buffer` double buffering is an optimization to increase throughput by overlaying host to device data transfer with inference execution. It typically improves throughput from 10-40% depending on the model. However, enabling it has a drawback of increasing latency.
+`double_buffer` double buffering is an optimization to increase throughput by overlaying host to device data transfer with inference execution. It typically improves throughput from 10-40% depending on the model. However, enabling it has a drawback of increasing latency. It applies to batched models only: a batch-size-1 model runs on the asynchronous executor described in [Asynchronous execution](#asynchronous-execution), which keeps several frames in flight per instance instead, and this property is ignored.
 
 `dmabuf_inputs` enabling this causes the use of Linux DMA Buffers for transferring data to the Metis accelerator. This is ignored on systems that do not support DMA Bufs. This should always be enabled.
 
@@ -156,6 +176,10 @@ struct Ax::InferenceNetProperties {
 `skip_stride` / `skip_count` at present these members are ignored.
 
 `num_children` how many instances of the model should be instantiated per device. Most Axelera models perform best when compiled with a batch size of 1. In this case `num_children` is equal to the number of AIPU cores the model will execute on. Increasing this value up to 4 will increase throughput. But at present it will result in increased latency. In most single model applications this should be passed as 4 unless the application is very sensitive to latency. 0 is considered as equivalent to 1.
+
+`max_inflight` / `max_pending` these tune the asynchronous executor described in [Asynchronous execution](#asynchronous-execution). `max_inflight` is how many frames may be in flight on one instance; `max_pending` is how many may be submitted but not yet completed. The defaults suit most pipelines. Both are ignored for batched models, and neither is exposed as a GStreamer element property.
+
+`which_cl` / `max_buffers` these select the OpenCL device and cap the buffer pool. They are not currently documented and should be left at their defaults.
 
 `options` these options are not currently documented, it should be left empty.
 
@@ -179,13 +203,15 @@ Each preproc or postproc operator accepts the following parameters:
 
 `options` a semi-colon separated list of colon separated key:value pairs. For example `"width:640;height:640;padding:114;letterbox:1"`.
 
-`mode` determines whether the operator needs access, at present this parameter is ignored.
+`mode` relevant only to AxInPlace plugins, and now deprecated. It is ignored.
 
-## properties_from_string
+`batch` ignored.
+
+## read_inferencenet_properties
 
 Determining the correct options for Ax::InferenceNet requires careful design; consideration for available accelerator hardware, such as OpenCL, as well as transferring key pieces of model information about quantization and normalization to the properties struct.
 
-For this reason there is a utility to create the them. When inference.py runs it emits a file in the `build/networkname/model.axnet` directory which can be directly parsed by `Ax::properties_from_string`.
+For this reason there is a utility to create them. When inference.py runs it emits a file at `build/<network>/<network>.axnet` which can be read directly by `Ax::read_inferencenet_properties`.
 
 The format of this file for YOLOV8 might look for example:
 
@@ -208,18 +234,24 @@ postprocess1_lib=libinplace_nms.so
 postprocess1_options=meta_key:object_detections;max_boxes:300;nms_threshold:0.45;class_agnostic:1;location:CPU
 ```
 
-This can be read in and, then passed to :
+Read it with either overload, then pass the result to
+[`create_inference_net`](#creating-axinferencenet):
 
 ```cpp
-InferenceNetProperties properties_from_string(const std::string &s, Ax::Logger &logger);
+InferenceNetProperties read_inferencenet_properties(std::istream &s, Ax::Logger &logger);
+InferenceNetProperties read_inferencenet_properties(const std::string &path, Ax::Logger &logger);
 ```
 
 ### Creating Ax::InferenceNet
 
 ```cpp
-std::unique_ptr\<InferenceNet\> create_inference_net(
+std::unique_ptr<InferenceNet> create_inference_net(
     const InferenceNetProperties &properties, Ax::Logger &logger,
-    InferenceDoneCallback done_callback, LatencyCallback latency_callback = {});
+    InferenceDoneCallback done_callback);
+
+std::unique_ptr<InferenceNet> create_inference_net(
+    const InferenceNetProperties &properties, Ax::Logger &logger,
+    InferenceDoneCallback done_callback, LatencyCallback latency_callback);
 ```
 
 Create an instance of Ax::InferenceNet.

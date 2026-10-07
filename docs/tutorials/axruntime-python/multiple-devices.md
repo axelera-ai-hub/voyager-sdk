@@ -8,7 +8,7 @@ This guide assumes familiarity with the low-level API's connection and model ins
 
 **Prerequisites:**
 - Completed [Quick Start](axruntime-python-quickstart.md) and [Basic Usage Tutorial](basic-usage-tutorial.md)
-- Multiple Metis devices in your system (e.g., 4-AIPU PCIe card, or two M.2 devices)
+- Multiple Metis devices in your system (e.g., an Axelera Server 150p card, or two M.2 devices)
 - SDK installed: `source venv/bin/activate`
 
 ---

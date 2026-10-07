@@ -1,3 +1,4 @@
+# Copyright Axelera AI, 2025
 """
 YOLOv8/YOLO11 Model Utilities for Detection and Pose Estimation.
 

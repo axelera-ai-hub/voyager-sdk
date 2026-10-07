@@ -123,7 +123,7 @@ Does not persist across reboots.
 
 ## Operating range
 
-For PCIe and M.2 boards (REV1.1):
+For PCIe (first-generation) and Axelera Embedded 110m boards (REV1.1):
 
 | | Value |
 |---|---|
@@ -163,11 +163,11 @@ axdevice -v
 
 ### Hardware support
 
-The power limiter is currently supported on **M.2 MAX** (M.2 Rev2) boards only.
+The power limiter is currently supported on **Axelera Embedded 113m** (M.2 Max) boards only.
 
 | Board | Form factor | Interface power budget | Supported |
 |-------|-------------|------------------------|-----------|
-| M.2 MAX | M.2 | ~23 W | Yes |
+| 113m | M.2 | ~23 W | Yes |
 | Other | — | — | No |
 
 > [!WARNING]

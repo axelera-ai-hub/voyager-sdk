@@ -410,7 +410,7 @@ def compile(
     model_dir: Path,
     is_export: bool,
     deploy_mode: config.DeployMode,
-    metis: config.Metis,
+    board: config.Board,
     decoration_flags: str,
     dump_core_model: bool,
     toml_metadata: dict = None,

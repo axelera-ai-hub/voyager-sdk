@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # General functions for handling boxes with different coordinate representations
 
 import sys
@@ -269,3 +269,27 @@ def batch_probiou(obb1: np.ndarray, obb2: np.ndarray, eps: float = 1e-7) -> np.n
     bd = np.clip(t1 + t2 + t3, eps, 100.0)
     hd = np.sqrt(1.0 - np.exp(-bd) + eps)
     return 1.0 - hd
+
+
+def faster_rcnn_box_decode(locations, priors, center_variance, size_variance):
+    """
+    Decode predicted offsets to bounding box using Faster R-CNN box coder.
+
+    Args:
+    locations (ndarray): Predicted offsets for each prior box.
+    priors (ndarray): Prior boxes in [cx, cy, w, h] format.
+    center_variance, size_variance: Scaling factors.
+
+    Returns:
+    Decoded bounding boxes in [xmin, ymin, xmax, ymax] format.
+    """
+    boxes = np.concatenate(
+        [
+            locations[:, :2] * center_variance * priors[:, 2:] + priors[:, :2],
+            np.exp(locations[:, 2:] * size_variance) * priors[:, 2:],
+        ],
+        axis=1,
+    )
+    boxes[:, :2] -= boxes[:, 2:] / 2
+    boxes[:, 2:] += boxes[:, :2]
+    return boxes

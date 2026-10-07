@@ -1,3 +1,4 @@
+// Copyright Axelera AI, 2025
 #include <unordered_map>
 #include "AxDataInterface.h"
 #include "AxLog.hpp"

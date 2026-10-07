@@ -104,9 +104,7 @@ This throttles playback to 10 FPS using a wall-clock sleep per frame. It will no
 The SDK ships with sample videos in the `media/` directory. If these are missing, download them:
 
 ```bash
-deactivate
-./install.sh --media
-source venv/bin/activate
+# `install.sh --media` has been removed; use axdownloadmedia instead
 ```
 
 ## Validation dataset (`dataset`)

@@ -66,9 +66,8 @@ ImageNet:
   description: ImageNet is a large-scale image dataset for image recognition.
   download_hint: "To download the dataset, it is necessary to register at https://image-net.org/download-images.\n\
     Then, please ensure that the files {split_files}\nare placed in the requested\
-    \ directory.\n\nLastly, execute the script 'inference.py' to initiate the inference\
-    \ process.\n\nFurther information on dataset downloading can be found here:\n\
-    \    https://pytorch.org/vision/main/generated/torchvision.datasets.ImageNet.html\n\
+    \ directory.\n\nThen rerun the command you were running.\n\nFurther information\
+    \ on dataset downloading can be found here:\n    https://pytorch.org/vision/main/generated/torchvision.datasets.ImageNet.html\n\
     \    https://tensorflow.org/datasets/catalog/imagenet2012_subset\n"
   splits:
     subset:
@@ -80,22 +79,24 @@ ImageNet:
       file: imagenet_subset.zip
     train:
     - drop_dirs: 0
+      extract: false
       file: ILSVRC2012_devkit_t12.tar.gz
     - check_files:
       - train/n01443537
       - train/n01518878/ILSVRC2012_val_00010594.JPEG
       drop_dirs: 0
+      extract: false
       file: ILSVRC2012_img_train.tar
-      sub_dir: train
     val:
     - check_files:
       - val/n01641577
       - val/n01440764/ILSVRC2012_val_00003014.JPEG
       drop_dirs: 0
+      extract: false
       file: ILSVRC2012_devkit_t12.tar.gz
     - drop_dirs: 0
+      extract: false
       file: ILSVRC2012_img_val.tar
-      sub_dir: val
 MMLab-Cityscapes:
   description: Cityscapes dataset for semantic segmentation
   download_hint: 'Please ensure the dataset is correctly placed.

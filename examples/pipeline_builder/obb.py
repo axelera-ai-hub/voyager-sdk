@@ -8,11 +8,6 @@ Detects objects with rotation using YOLO11n-obb model trained on DOTA dataset
 Usage:
     rt-demo.py obb data/P0019_0_2304.png --no-display --save-dir rtout
 
-Auto-generated from rt_demo.py's @publicdemo `obb` by
-tools/export_pipeline_builder_demo.py.  Edit the original demo in rt_demo.py
-rather than this file -- regenerate with
-`python tools/export_pipeline_builder_demo.py obb`.
-
 Usage:
     python obb.py PATH [--display opencv|console|none|auto] [--no-wait]
 """
@@ -38,7 +33,7 @@ def main(args):
             op.to_tensor(),
             op.load(f'{MODEL_DIR}/yolo11n-obb-dotav1-onnx.axm'),
             op.decode_obb(num_classes=15, confidence_threshold=0.25),
-            op.nms(iou_threshold=0.45, max_boxes=300, box_format='xywhr'),
+            op.nms(iou_threshold=0.45, max_boxes=300, box_format='xywhr', iou_metric='probiou'),
             op.to_image_space(box_format='xywhr'),
             op.ax_obb(class_id_type=op.DotaClasses),
         )
@@ -61,7 +56,7 @@ if __name__ == "__main__":
     parser.add_argument("input", help="Image or video file to process")
     parser.add_argument(
         "--display",
-        choices=["none", "opencv", "console", "iterm2", "auto"],
+        choices=["none", "opencv", "vulkan", "console", "iterm2", "auto"],
         default="auto",
         help="Display backend (default: auto)",
     )

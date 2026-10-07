@@ -19,7 +19,7 @@ def make_aipu_tracer(frequency=600e6, log_content=''):
     mi.manifest.input_shapes = [[1, 3, 224, 224]]
     mis.add_model(mi, '/path/to/manifest.json')
     tracer = inf_tracers.AipuTracer(1)
-    tracer.initialize_models(mis, config.Metis.pcie, {0: frequency}, ['metis-0:1:0'])
+    tracer.initialize_models(mis, config.Board.pcie, {0: frequency}, ['metis-0:1:0'])
     tracer.start_monitoring = Mock(return_value=None)
     mock_triton = Mock()
     reads = [log_content]

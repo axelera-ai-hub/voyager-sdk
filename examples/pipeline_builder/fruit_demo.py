@@ -7,11 +7,6 @@ Three-stage pipeline (mirrors ax_models/reference/cascade/fruit-demo.yaml):
 - segmentations: YOLOv8s-seg on top-5 ROIs by bbox area, filtered for banana/apple/orange
 - object_detections: YOLOv8s on full frame, filtered for banana/apple/orange
 
-Auto-generated from rt_demo.py's @publicdemo `fruit_demo` by
-tools/export_pipeline_builder_demo.py.  Edit the original demo in rt_demo.py
-rather than this file -- regenerate with
-`python tools/export_pipeline_builder_demo.py fruit_demo`.
-
 Usage:
     python fruit_demo.py PATH [--display opencv|console|none|auto] [--no-wait]
 """
@@ -93,7 +88,7 @@ if __name__ == "__main__":
     parser.add_argument("input", help="Image or video file to process")
     parser.add_argument(
         "--display",
-        choices=["none", "opencv", "console", "iterm2", "auto"],
+        choices=["none", "opencv", "vulkan", "console", "iterm2", "auto"],
         default="auto",
         help="Display backend (default: auto)",
     )

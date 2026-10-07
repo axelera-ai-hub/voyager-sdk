@@ -15,6 +15,10 @@ from axelera.app.meta.keypoint import (
     TopDownKeypointDetectionMeta,
 )
 
+requires_runtime2 = pytest.mark.skipif(
+    not display.HAVE_RUNTIME2, reason='axelera.runtime2 is not installed'
+)
+
 
 class MockTaskRenderConfig:
     def __init__(self, show_labels=True, show_annotations=True):
@@ -344,6 +348,7 @@ def test_BottomUpKeypointDetectionMeta_to_evaluation(bottom_up_keypoints_meta):
         bottom_up_keypoints_meta.to_evaluation()
 
 
+@requires_runtime2
 def test_coco_keypoint_detection_meta_draw(coco_body_keypoints_meta):
     draw = Mock(display.Draw)
     coco_body_keypoints_meta.draw(draw)

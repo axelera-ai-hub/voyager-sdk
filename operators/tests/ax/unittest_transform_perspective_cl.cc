@@ -154,6 +154,36 @@ TEST(perspective_cl, happy_path_test)
   EXPECT_TRUE(in_buf != out_buf);
 }
 
+// Regression test: Y444 input used to be rejected by perspective_cl's own
+// valid_formats list; it is now accepted via the shared
+// ax_utils::require_opencl_input_format() list.
+TEST(perspective_cl, y444_input_test)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "matrix", "1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0" },
+  };
+
+  auto xform = Ax::LoadTransform("perspective_cl", input);
+  std::vector<uint8_t> in_buf(16 * 16 * 3); // 3 full-size planes: Y, U, V
+  std::iota(in_buf.begin(), in_buf.end(), 1);
+  std::vector<uint8_t> out_buf(16 * 16 * 3, 0);
+
+  std::vector<size_t> strides{ 16, 16, 16 };
+  std::vector<size_t> offsets{ 0, 16 * 16, 16 * 16 * 2 };
+  auto in = AxVideoInterface{ { 16, 16, int(strides[0]), 0, AxVideoFormat::Y444 },
+    in_buf.data(), strides, offsets, -1 };
+  auto out
+      = AxVideoInterface{ { 16, 16, 16 * 3, 0, AxVideoFormat::RGB }, out_buf.data() };
+  Ax::MetaMap metadata;
+  EXPECT_NO_THROW({ xform->transform(in, out, 0, 1, metadata); });
+
+  EXPECT_FALSE(std::all_of(
+      out_buf.begin(), out_buf.end(), [](uint8_t value) { return value == 0; }));
+}
+
 TEST(perspective_cl, invalid_matrix_test)
 {
   if (!has_opencl_platform()) {

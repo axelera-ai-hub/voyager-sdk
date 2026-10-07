@@ -365,13 +365,13 @@ class ModelInfos:
         """Get the YAML directory for TOML path resolution."""
         return self._yaml_dir
 
-    def model_compiler_overrides(self, model_name: str, metis: config.Metis) -> Dict[str, Any]:
+    def model_compiler_overrides(self, model_name: str, board: config.Board) -> Dict[str, Any]:
         if self.is_classical_cv_model(model_name):
             return {}
         if model_name not in self._compiler_overrides:
             raise ValueError(f"Model {model_name} not found in models")
 
-        overrides = _collapse_compiler_overrides(self._compiler_overrides[model_name], metis)
+        overrides = _collapse_compiler_overrides(self._compiler_overrides[model_name], board)
         # Add yaml_dir to help with TOML path resolution (only if set)
         if self._yaml_dir is not None:
             overrides['_yaml_dir'] = self._yaml_dir
@@ -380,13 +380,13 @@ class ModelInfos:
     def _hw_option(
         self,
         model: str,
-        metis: config.Metis,
+        board: config.Board,
         option: str,
         default: Any,
         converter: Callable[[Any], Any],
     ) -> Any:
         overrides = self._compiler_overrides[model]
-        opts = _collapse_compiler_overrides(overrides, metis)
+        opts = _collapse_compiler_overrides(overrides, board)
         if option in opts:
             try:
                 return converter(opts[option])
@@ -394,23 +394,23 @@ class ModelInfos:
                 LOG.warning(f"Invalid {option}: {opts[option]}")
         return default
 
-    def clock_profile(self, model: str, metis: config.Metis) -> int:
+    def clock_profile(self, model: str, board: config.Board) -> int:
         default = (
             config.DEFAULT_CORE_CLOCK_EUROPA
-            if metis.hw_generation == config.HWGeneration.europa
+            if board.hw_generation == config.HWGeneration.europa
             else config.DEFAULT_CORE_CLOCK
         )
-        return self._hw_option(model, metis, 'clock_profile', default, int)
+        return self._hw_option(model, board, 'clock_profile', default, int)
 
-    def mvm_limitation(self, model: str, metis: config.Metis) -> int:
-        return self._hw_option(model, metis, 'mvm_limitation', 100, int)
+    def mvm_limitation(self, model: str, board: config.Board) -> int:
+        return self._hw_option(model, board, 'mvm_limitation', 100, int)
 
     def determine_deploy_cores(
-        self, name: str, execution_cores: int, metis: config.Metis, low_latency: bool = False
+        self, name: str, execution_cores: int, board: config.Board, low_latency: bool = False
     ) -> int:
         if self.is_classical_cv_model(name):
             return 0
-        overrides = _collapse_compiler_overrides(self._compiler_overrides.get(name, {}), metis)
+        overrides = _collapse_compiler_overrides(self._compiler_overrides.get(name, {}), board)
         if len(self._compiler_overrides) > 1:
             if 'aipu_cores' not in overrides:
                 raise logging_utils.UserError(
@@ -424,30 +424,30 @@ class ModelInfos:
             max_compiler = overrides.get('max_compiler_cores', config.env.max_compiler_cores)
         default_max_exec = (
             config.DEFAULT_MAX_EXECUTION_CORES_EUROPA
-            if metis.hw_generation == config.HWGeneration.europa
+            if board.hw_generation == config.HWGeneration.europa
             else config.DEFAULT_MAX_EXECUTION_CORES
         )
         max_exec = overrides.get('max_execution_cores', default_max_exec)
         ncores = min(desired, max_compiler)
         if max_compiler < desired:
-            due_to = f'max_compiler_cores setting (for metis: {metis.name})'
+            due_to = f'max_compiler_cores setting (for board: {board.name})'
             LOG.debug(f"Deploying for {max_compiler} cores instead of {desired} due to {due_to}")
         if max_exec < ncores:
-            due_to = f'max_execution_cores setting (for metis: {metis.name})'
+            due_to = f'max_execution_cores setting (for board: {board.name})'
             LOG.debug(f"Deploying for {max_exec} cores instead of {ncores} due to {due_to}")
             ncores = max_exec
         return ncores
 
     def determine_deploy_decoration(
-        self, name: str, deploy_cores: int, metis: config.Metis
+        self, name: str, deploy_cores: int, board: config.Board
     ) -> str:
         deploy_flags = [deploy_cores]
         return '-'.join(str(f) for f in deploy_flags)
 
-    def determine_execution_cores(self, name: str, requested_cores: int, metis: config.Metis):
+    def determine_execution_cores(self, name: str, requested_cores: int, board: config.Board):
         if self.is_classical_cv_model(name):
             return 0
-        overrides = _collapse_compiler_overrides(self._compiler_overrides.get(name, {}), metis)
+        overrides = _collapse_compiler_overrides(self._compiler_overrides.get(name, {}), board)
         if len(self._compiler_overrides) > 1:
             if 'aipu_cores' not in overrides:
                 raise logging_utils.UserError(
@@ -456,14 +456,14 @@ class ModelInfos:
         desired = overrides.get('aipu_cores', requested_cores)
         default_max_exec = (
             config.DEFAULT_MAX_EXECUTION_CORES_EUROPA
-            if metis.hw_generation == config.HWGeneration.europa
+            if board.hw_generation == config.HWGeneration.europa
             else config.DEFAULT_MAX_EXECUTION_CORES
         )
         max_exec = overrides.get('max_execution_cores', default_max_exec)
         if max_exec < requested_cores:
             # TODO if we could distinguish between the user setting a value and the default then this
             # would be a warning
-            due_to = f'max_execution_cores setting (for metis: {metis.name})'
+            due_to = f'max_execution_cores setting (for board: {board.name})'
             LOG.debug(
                 f"Executing on {max_exec} cores instead of {requested_cores} due to {due_to}"
             )
@@ -1133,7 +1133,7 @@ def _parse_network(
 def restrict_cores(
     network: AxNetwork,
     pipeline_config: config.PipelineConfig,
-    metis: config.Metis,
+    board: config.Board,
     deploy: bool = False,
 ):
     for task in network.tasks:
@@ -1148,12 +1148,12 @@ def restrict_cores(
             ncores = network.model_infos.determine_deploy_cores(
                 task.model_info.name,
                 pipeline_config.aipu_cores,
-                metis,
+                board,
                 pipeline_config.low_latency,
             )
         else:
             ncores = network.model_infos.determine_execution_cores(
-                task.model_info.name, pipeline_config.aipu_cores, metis
+                task.model_info.name, pipeline_config.aipu_cores, board
             )
         task.aipu_cores = ncores
         task.model_info.extra_kwargs['aipu_cores'] = ncores
@@ -1207,11 +1207,11 @@ def parse_network_from_path(
 
 
 def _collapse_compiler_overrides(
-    extra_kwargs: Dict[str, Any], metis_type: config.Metis
+    extra_kwargs: Dict[str, Any], board_type: config.Board
 ) -> Dict[str, Any]:
     '''Parse compiler option overrides from extra_kwargs (via model info) in the yaml.'''
     obj = {}
-    read_from = [extra_kwargs, extra_kwargs.get(metis_type.name, {})]
+    read_from = [extra_kwargs, extra_kwargs.get(board_type.name, {})]
     for extra_kwargs in read_from:
         for top in TOP_LEVEL_MODEL_OPTIONS:
             if top in extra_kwargs:
@@ -1280,7 +1280,7 @@ def read_deployed_model_infos(
     nn_dir: Path,
     nn: AxNetwork,
     pipeline_config: config.PipelineConfig,
-    metis: config.Metis,
+    board: config.Board,
 ) -> ModelInfos:
     '''
     For all models, check if both binary and JSON are available.
@@ -1290,7 +1290,7 @@ def read_deployed_model_infos(
 
     `execution_cores` is the value given to `--aipu-cores` and is the number of cores
     to execute upon, unless overridden by the model's `max_execution_cores` setting
-    for the metis board type.
+    for the board type.
     '''
     model_infos = ModelInfos()
     for i, model_info_from_yaml in enumerate(nn.model_infos.models(), 1):
@@ -1308,9 +1308,10 @@ def read_deployed_model_infos(
             model_info = types.ModelInfo.from_json(model_json.read_text())
             model_info.weight_path = localise_path(model_info.weight_path)
             model_info.class_path = os.path.join(config.env.framework, model_info.class_path)
-            # extra_kwargs path values (eg darknet_cfg_path) are stored in portable
-            # $AXELERA_FRAMEWORK form in model_info.json; expand them on load.
+            # extra_kwargs path values (eg darknet_cfg_path) are stored relative
+            # to the framework root in model_info.json.
             utils.make_paths_in_dict_absolute(config.env.framework, model_info.extra_kwargs)
+            utils.reroot_paths_in_dict(config.env.framework, model_info.extra_kwargs)
             # # fill manifest with dummy values for non-aipu pipelines, it
             # # will be overwritten by the manifest file if it exists
             # model_info.manifest = types.Manifest("", (), ())
@@ -1345,10 +1346,10 @@ def read_deployed_model_infos(
 
         # elif pipe_type in ['torch-aipu', 'gst']:
         deploy_cores = model_infos.determine_deploy_cores(
-            name, pipeline_config.aipu_cores, metis, pipeline_config.low_latency
+            name, pipeline_config.aipu_cores, board, pipeline_config.low_latency
         )
         root = model_json.parent / model_infos.determine_deploy_decoration(
-            name, deploy_cores, metis
+            name, deploy_cores, board
         )
         try:
             manifest_file = _find_manifest(i, root)

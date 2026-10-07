@@ -7,6 +7,8 @@ How to chain two models together so the output of the first feeds the input of t
 
 A typical use case: a detector finds objects of interest, then a classifier runs on each detected region to make a finer prediction.
 
+This page covers YAML pipelines. To build the same cascade from Python operators, see the [Cascade Tutorial](pipeline-builder/cascade-tutorial.md).
+
 ---
 
 ## How it works

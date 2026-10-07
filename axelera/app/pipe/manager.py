@@ -39,7 +39,7 @@ def _deploy_one_model_via_subprocess(
     pipe_type: str,
     deploy_config: config.DeployConfig,
     aipu_cores: int,
-    metis: config.Metis,
+    board: config.Board,
 ):
     num_cal_images = deploy_config.num_cal_images
     default_representative_images = deploy_config.default_representative_images
@@ -68,7 +68,7 @@ def _deploy_one_model_via_subprocess(
                 f'{run_dir}/deploy.py --model {model} --num-cal-images {num_cal_images} '
                 f'{cores_argv} '
                 f'--data-root {data_root}{pipe}{mode} --build-root {build_root} {nn_name} '
-                f'--aipu-cores {aipu_cores} --metis {metis.name} {cal_argv} {dump_core_model_argv}',
+                f'--aipu-cores {aipu_cores} --board {board.name} {cal_argv} {dump_core_model_argv}',
             )
 
     except subprocess.CalledProcessError as e:
@@ -86,18 +86,18 @@ def _get_or_deploy_models(
     system_config: config.SystemConfig,
     pipeline_config: config.PipelineConfig,
     deploy_config: config.DeployConfig,
-    metis: config.Metis,
+    board: config.Board,
 ) -> network.ModelInfos:
     nn_dir = system_config.build_root / nn.name
-    model_infos = network.read_deployed_model_infos(nn_dir, nn, pipeline_config, metis)
+    model_infos = network.read_deployed_model_infos(nn_dir, nn, pipeline_config, board)
     model_infos.add_label_enums(nn.datasets)
     if not model_infos.ready:
         for model in model_infos.missing():
             exec_cores = model_infos.determine_execution_cores(
-                model, pipeline_config.aipu_cores, metis
+                model, pipeline_config.aipu_cores, board
             )
             deploy_cores = model_infos.determine_deploy_cores(
-                model, exec_cores, metis, pipeline_config.low_latency
+                model, exec_cores, board, pipeline_config.low_latency
             )
             if deploy_cores < exec_cores:
                 _for = f'up to {deploy_cores} cores' if deploy_cores > 1 else 'single-core'
@@ -113,10 +113,10 @@ def _get_or_deploy_models(
                 pipeline_config.pipe_type,
                 deploy_config,
                 deploy_cores,
-                metis,
+                board,
             )
 
-        model_infos = network.read_deployed_model_infos(nn_dir, nn, pipeline_config, metis)
+        model_infos = network.read_deployed_model_infos(nn_dir, nn, pipeline_config, board)
         model_infos.check_ready()
     return model_infos
 
@@ -225,7 +225,6 @@ def _create_inference_operators(
     device_man: device_manager.DeviceManager,
     nn: network.AxNetwork,
     low_latency: bool,
-    async_mode: bool = False,
 ):
     def _instantiate_model(model_name: str) -> types.Model:
         with nn.from_model_dir(model_name):
@@ -255,7 +254,6 @@ def _create_inference_operators(
             task.model_info,
             task.inference_op_config,
             low_latency,
-            async_mode,
         )
 
 
@@ -423,17 +421,17 @@ class PipeManager:
         self._parent_callback = None
         self._device_man = device_manager.create_device_manager(
             pipeline_config.pipe_type,
-            system_config.metis,
+            system_config.board,
             device_selector=pipeline_config.device_selector,
         )
-        metis = self._device_man.get_metis_type()
+        board = self._device_man.get_board_type()
 
         self._network = nn = network.parse_network_from_path(
             network_path, deploy_config, pipeline_config.eval_mode, system_config.data_root
         )
         if pipeline_config.pipe_type in ('torch', 'torch-aipu') or pipeline_config.eval_mode:
             utils.ensure_dependencies_are_installed(nn.dependencies)
-        network.restrict_cores(nn, pipeline_config, metis)
+        network.restrict_cores(nn, pipeline_config, board)
 
         nn.model_infos = _get_or_deploy_models(
             network_path,
@@ -441,7 +439,7 @@ class PipeManager:
             system_config,
             pipeline_config,
             deploy_config,
-            metis,
+            board,
         )
         self.tracers = self._device_man.configure_boards_and_tracers(nn, tracers)
         self.hardware_caps = system_config.hardware_caps
@@ -454,7 +452,6 @@ class PipeManager:
             self._device_man,
             nn,
             low_latency=pipeline_config.low_latency,
-            async_mode=pipeline_config.async_mode,
         )
         nn.model_infos.add_label_enums(nn.datasets)
         _propagate_model_and_context_info(nn, task_graph)

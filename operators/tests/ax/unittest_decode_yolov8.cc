@@ -533,4 +533,81 @@ TEST(yolov8_errors, tensor_padding_size_mismatch_throws)
   // Should throw runtime error for tensor/padding size mismatch (3 tensors, 2 padding entries)
   EXPECT_THROW(decoder->decode_to_meta(score_tensors, 0, 1, map, video_info), std::runtime_error);
 }
+
+std::unordered_map<std::string, std::string>
+box_and_class_properties(int num_classes, int dfl_size)
+{
+  return {
+    { "meta_key", "yolov8" },
+    { "padding", "0,0,0,0,0,0,0,0|0,0,0,0,0,0,0,0" },
+    { "zero_points", "0, 0" },
+    { "scales", "1.0, 1.0" },
+    { "confidence_threshold", "0.20" },
+    { "classes", std::to_string(num_classes) },
+    { "multiclass", "0" },
+    { "model_width", "640" },
+    { "model_height", "640" },
+    { "scale_up", "1" },
+    { "dfl_size", std::to_string(dfl_size) },
+  };
+}
+
+TEST(yolov8_tensor_roles, box_and_class_pair_across_the_class_count_matrix)
+{
+  // A level's two tensors are told apart by channel width, so the pairing has to hold
+  // wherever the class count sits relative to the box tensor, not only where the box
+  // tensor is the wider of the two. Equal widths are the one undecidable case.
+  for (const int dfl_size : { 1, 16 }) {
+    const int box_channels = dfl_size * 4;
+    for (int num_classes = 1; num_classes <= 80; ++num_classes) {
+      SCOPED_TRACE("dfl_size=" + std::to_string(dfl_size)
+                   + " num_classes=" + std::to_string(num_classes));
+      auto boxes = std::vector<int8_t>(box_channels);
+      auto scores = std::vector<int8_t>(num_classes);
+      auto decoder
+          = Ax::LoadDecode("yolov8", box_and_class_properties(num_classes, dfl_size));
+
+      AxVideoInterface video_info{ { 64, 48, 64, 0, AxVideoFormat::RGB }, nullptr };
+      std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
+      auto tensors = tensors_from_vector(scores, { 1, 1, 1, num_classes });
+      auto box_tensors = tensors_from_vector(boxes, { 1, 1, 1, box_channels });
+      tensors.push_back(box_tensors[0]);
+
+      if (num_classes == box_channels) {
+        EXPECT_THROW(decoder->decode_to_meta(tensors, 0, 1, map, video_info), std::runtime_error);
+      } else {
+        EXPECT_NO_THROW(decoder->decode_to_meta(tensors, 0, 1, map, video_info));
+      }
+    }
+  }
+}
+
+TEST(yolov8_tensor_roles, decodes_box_and_class_when_classes_are_fewer_than_box_channels)
+{
+  // Absence of a throw does not say the two tensors were read in their own roles, so
+  // pin a detection whose class index and whose four box edges are all distinct.
+  const int num_classes = 10;
+  auto properties = box_and_class_properties(num_classes, 1);
+  properties["scales"] = "0.1, 0.01";
+
+  auto scores = std::vector<int8_t>(num_classes, -128);
+  scores[7] = 40; // sigmoid(4.0) = 0.98, over the 0.20 threshold; the rest are ~0.
+  // ltrb offsets from the centre of the single cell, dequantized by 0.01.
+  auto boxes = std::vector<int8_t>{ 10, 20, 30, 20 };
+
+  auto decoder = Ax::LoadDecode("yolov8", properties);
+  AxVideoInterface video_info{ { 64, 48, 64, 0, AxVideoFormat::RGB }, nullptr };
+  std::unordered_map<std::string, std::unique_ptr<AxMetaBase>> map{};
+  auto tensors = tensors_from_vector(scores, { 1, 1, 1, num_classes });
+  auto box_tensors = tensors_from_vector(boxes, { 1, 1, 1, 4 });
+  tensors.push_back(box_tensors[0]);
+
+  decoder->decode_to_meta(tensors, 0, 1, map, video_info);
+
+  auto [actual_boxes, actual_scores, actual_classes] = get_object_meta(map, "yolov8");
+  ASSERT_EQ(actual_classes.size(), 1);
+  EXPECT_EQ(actual_classes[0], 7);
+  // Normalized xyxy (0.4, 0.3, 0.8, 0.7), letterboxed onto the 64x48 frame.
+  EXPECT_EQ(actual_boxes, (std::vector<int32_t>{ 26, 11, 51, 37 }));
+}
 } // namespace

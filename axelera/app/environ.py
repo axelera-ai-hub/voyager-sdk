@@ -182,6 +182,20 @@ class Environment:
         return '1'
 
     @_var
+    def slog_level(self) -> str:
+        '''Device sysctrl log level, applied whenever a device is opened.
+
+        The firmware leaves this log verbose. Shipping it off the device costs enough host
+        CPU to starve the host-side pipeline: the device keeps reporting full fps while
+        end-to-end throughput collapses to single digits.
+
+        err = (default) errors only.
+        Set to an empty string to leave the level as the firmware set it, or to any
+        configuration string accepted by `axtrace --slog-level` (e.g. dbg) when debugging.
+        '''
+        return 'err'
+
+    @_var
     def videoflip(self) -> str:
         '''Set to a gstreamer GstVideoFlipMethod value to add a videoflip in the video stream.
 

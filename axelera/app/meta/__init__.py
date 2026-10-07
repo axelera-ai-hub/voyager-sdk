@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Metadata for streaming pipeline
 
 # Import all meta modules so that subclasses are known about

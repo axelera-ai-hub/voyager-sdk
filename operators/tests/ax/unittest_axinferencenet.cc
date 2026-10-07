@@ -495,13 +495,6 @@ TEST(axstreamer_utils, set_inference_property)
       props.double_buffer, true, false);
   test_inference_property(
       props, Ax::AXINFERENCE_PROP_NUM_CHILDREN, props.num_children, 4, 0);
-  test_inference_property(
-      props, Ax::AXINFERENCE_PROP_ASYNC_MODE, props.async_mode, true, false);
-  test_inference_property(
-      props, Ax::AXINFERENCE_PROP_MAX_INFLIGHT, props.max_inflight, 8, 4);
-  test_inference_property(
-      props, Ax::AXINFERENCE_PROP_MAX_PENDING, props.max_pending, 16, 8);
-
   auto type_string = static_cast<std::string *>(nullptr);
 
   GValue skip_old{};
@@ -702,7 +695,6 @@ TEST(axinferencenet, read_inferencenet_properties)
       "dmabuf_inputs=1\n"
       "dmabuf_outputs=true\n"
       "num_children=3\n"
-      "async_mode=1\n"
       "max_inflight=4\n"
       "max_pending=8\n"
       "options=blahblah\n"
@@ -726,7 +718,6 @@ TEST(axinferencenet, read_inferencenet_properties)
   EXPECT_EQ(props.skip_stride, 1);
   EXPECT_EQ(props.skip_count, 0);
   EXPECT_EQ(props.num_children, 3);
-  EXPECT_EQ(props.async_mode, true);
   EXPECT_EQ(props.max_inflight, 4);
   EXPECT_EQ(props.max_pending, 8);
   EXPECT_EQ(props.options, "blahblah");
@@ -749,4 +740,36 @@ TEST(axinferencenet, read_inferencenet_properties_does_not_exist)
   Ax::Logger logger{ Ax::Severity::trace };
   ASSERT_THROW(Ax::read_inferencenet_properties("does_not_exist.axnet", logger),
       std::runtime_error);
+}
+
+// Ax::create_inference's default async-executor selection: batch-size-1
+// models with a real completion callback get the async pipeline, everything
+// else (batched models, or no callback e.g. GstAxInference) gets the
+// blocking executor.
+TEST(should_use_async_pipeline, batch_one_with_callback_is_async)
+{
+  Ax::InferenceReadyCallback callback = [](uint64_t, bool) {};
+  AxTensorsInterface input_shapes{ AxTensorInterface{ { 1, 224, 224, 3 }, 1 } };
+  EXPECT_TRUE(Ax::should_use_async_pipeline(callback, input_shapes));
+}
+
+TEST(should_use_async_pipeline, batched_model_is_not_async)
+{
+  Ax::InferenceReadyCallback callback = [](uint64_t, bool) {};
+  AxTensorsInterface input_shapes{ AxTensorInterface{ { 4, 224, 224, 3 }, 1 } };
+  EXPECT_FALSE(Ax::should_use_async_pipeline(callback, input_shapes));
+}
+
+TEST(should_use_async_pipeline, no_callback_is_not_async)
+{
+  Ax::InferenceReadyCallback callback;
+  AxTensorsInterface input_shapes{ AxTensorInterface{ { 1, 224, 224, 3 }, 1 } };
+  EXPECT_FALSE(Ax::should_use_async_pipeline(callback, input_shapes));
+}
+
+TEST(should_use_async_pipeline, no_callback_and_batched_is_not_async)
+{
+  Ax::InferenceReadyCallback callback;
+  AxTensorsInterface input_shapes{ AxTensorInterface{ { 4, 224, 224, 3 }, 1 } };
+  EXPECT_FALSE(Ax::should_use_async_pipeline(callback, input_shapes));
 }

@@ -3,7 +3,7 @@
 The Voyager SDK makes it easy to build high-performance inferencing applications with Axelera AI Metis devices.
 
 > [!IMPORTANT]
-> This is a production-ready release of Voyager SDK. Software components and features that are in development are marked **\[Beta\]** indicating tested functionality that will continue to grow in future releases, **\[Alpha\]** indicating usable but incomplete functionality where breaking changes are possible, or **\[Experimental\]** indicating early-stage feature with limited testing.
+> This is a production-ready release of Voyager SDK. Software components and features that are in development are marked **\[Beta\]** indicating tested functionality that will continue to grow in future releases or **\[Experimental\]** indicating early-stage feature with limited testing.
 
 
 ## Finding your way around
@@ -26,11 +26,11 @@ The Voyager SDK makes it easy to build high-performance inferencing applications
 
 | Document | Description |
 | :--- | :--- |
-| [Hardware installation](getting-started/hardware-install.md) | Install your Metis M.2, PCIe or Compute Board |
-| [SDK installation](user-guides/sdk-install.md) | Clone the repo, run the installer, activate your environment |
+| [Hardware installation](getting-started/hardware-install.md) | Install your Axelera Embedded (110m/113m/111c), Edge (130p) or Server (150p) board |
+| [SDK installation](user-guides/sdk-install.md) | Clone the repo, run `quick-start.sh`, activate your environment |
 | [Verify setup](getting-started/verify-setup.md) | Confirm the device is detected and the stack is working |
 | [Windows setup](user-guides/windows-setup.md) | Install Voyager SDK and run a model in Windows 11 (WSL2 + native) |
-| [AxDevice manual](reference/tools/axdevice.md) | Lists all Metis boards connected to your system and configures their settings |
+| [AxDevice manual](reference/tools/axdevice.md) | Lists all Metis devices connected to your system and configures their settings |
 | [Firmware update](user-guides/firmware-update.md) | Update your board firmware |
 
 ## Deploy models on Metis devices
@@ -55,19 +55,20 @@ The Voyager SDK makes it easy to build high-performance inferencing applications
 | [Video sources](tutorials/video-sources.md) | Cameras, RTSP streams, video files, and multiple inputs |
 | [Measure accuracy](tutorials/measure-accuracy.md) | Benchmark a model against a validation dataset |
 | [Inferencing manual (`inference.py`)](reference/tools/inference-py.md) | All options provided by the command-line inferencing tool |
-| [Cascaded pipelines](tutorials/cascaded-pipelines.md) | Chain models together (e.g. detect then classify) |
+| [Cascaded pipelines (YAML pipeline)](tutorials/cascaded-pipelines.md) | Chain models together (e.g. detect then classify) |
+| [Cascade tutorial (Pipeline Builder)](tutorials/pipeline-builder/cascade-tutorial.md) | The same thing in Python operators, with runnable demos |
 | [LLM inference](user-guides/llm.md) | Run Language Models on Metis devices \[experimental\] |
 
 ## Two ways to build pipelines
 
 The Voyager SDK provides two pipeline approaches. Use whichever fits your workflow, or combine them.
 
-| | [YAML Pipeline](reference/pipeline/README.md) | [Pipeline Builder](reference/pipeline-builder/README.md) **\[Alpha\]** |
+| | [YAML Pipeline](reference/pipeline/README.md) | [Pipeline Builder](reference/pipeline-builder/README.md) **\[Beta\]** |
 | :--- | :--- | :--- |
 | **Best for** | Production deployment, standard workflows | Custom inter-stage logic, rapid prototyping |
 | **Define pipelines in** | YAML configuration files | Python code (`axelera.runtime.op`) |
 | **Strengths** | Optimized GStreamer throughput, battle-tested | Composable operators, Jupyter-friendly, full Python control |
-| **Maturity** | Stable — production systems run on this today | Alpha — not yet running at target performance; not advised for benchmarks or production workloads |
+| **Maturity** | Stable: production systems run on this today | Beta: all concepts in place (cascades, tracking, streaming, batching); many models at target performance, the rest improving toward 2.0 |
 
 **Hybrid approach:** Many teams use YAML pipelines for primary inference (detection, segmentation) via InferenceStream, then hand off to Pipeline Builder operators for tracking, filtering, and custom business logic in Python.
 
@@ -77,9 +78,11 @@ The Voyager SDK allows you to develop inferencing pipelines and end-user applica
 
 | API | Description |
 | :--- | :--- |
-| [Pipeline Builder](reference/pipeline-builder/README.md) | Pythonic API for composable ML pipelines using `axelera.runtime.op` operators \[alpha\] |
+| [Pipeline Builder](reference/pipeline-builder/README.md) | Pythonic API for composable ML pipelines using `axelera.runtime.op` operators \[Beta\] |
 | [InferenceStream](reference/apis/inference-stream.md) (high level) | Python library for reading pipeline image and inference metadata from within your application |
+| [AxInferenceNet](reference/apis/axinferencenet.md) (middle level) | C++ API for integrating model inferencing and pipeline construction directly within an application |
 | [AxRuntime](reference/apis/axruntime-py.md) (low level) | Python API for manually constructing, configuring and executing pipelines |
+| [AxRuntime C/C++](reference/apis/axruntime-cpp.md) (low level) | C API for direct AIPU access, callable from C or C++ |
 | [GStreamer plugins](reference/pipeline/gst-operators.md) | Plugins for integrating Metis inferencing within a GStreamer pipeline |
 
 ## Code examples
@@ -104,7 +107,7 @@ Complete, runnable examples demonstrating different integration patterns.
 | Document | Description |
 | :--- | :--- |
 | [Pipeline basics](reference/pipeline/pipeline-basics.md) | How inference pipelines work |
-| [Model formats](reference/pipeline/model-formats.md) | The `model.json` file and compiled output structure |
+| [Model formats (YAML pipeline)](reference/pipeline/model-formats.md) | The `model.json` file and compiled output structure. For `.axm` and `.axe`, see [Model Formats](reference/pipeline-builder/model-formats.md) |
 | [YAML operators](reference/pipeline/yaml-operators.md) | Pipeline operators for YAML configuration |
 | [GStreamer operators](reference/pipeline/gst-operators.md) | GStreamer pipeline plugins reference |
 | [Inference configuration](reference/pipeline/inference-configuration.md) | Advanced inference settings |
@@ -113,10 +116,8 @@ Complete, runnable examples demonstrating different integration patterns.
 | [Model adapters](reference/models/adapters.md) | Custom dataset adapters and evaluators |
 | [Additional models](reference/models/additional-models.md) | Models beyond the standard zoo |
 | [AxRunmodel](reference/tools/axrunmodel.md) | Run deployed models with DMA buffers, double buffering, multiple cores |
-| [install.sh](reference/tools/install-sh.md) | Installer options and what it installs |
+| [install.sh](reference/tools/install-sh.md) | Removed; use `quick-start.sh` or pip |
 | [Hardware](reference/system/hardware.md) | Metis hardware specifications and capabilities |
-| [Environment variables](reference/system/environment-variables.md) | SDK environment variables reference |
-| [Virtual environments](reference/system/virtual-environments.md) | Why activation is required and how it works |
 | [Thermal and power](user-guides/thermal.md) | Thermal behavior, power management, and monitoring |
 | [AxMonitor](user-guides/axmonitor.md) | Real-time device monitoring tool |
 | [Performance](reference/measurement/performance.md) | Performance benchmarking methodology |

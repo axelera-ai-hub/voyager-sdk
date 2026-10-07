@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 # Custom exceptions for the Axelera AI app
 
 import inspect

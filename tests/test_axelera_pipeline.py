@@ -1,4 +1,6 @@
 # Copyright Axelera AI, 2023
+import json
+import os
 import pathlib
 import textwrap
 from unittest.mock import MagicMock, patch
@@ -1184,3 +1186,21 @@ def test_inference_config_handle_all_property(handle_all_value):
         assert config.handle_transpose is handle_all_value
         assert config.handle_dequantization_and_depadding is handle_all_value
         assert config.handle_postamble is handle_all_value
+
+
+def test_write_model_info_stores_framework_paths_portably(tmp_path):
+    framework = config.env.framework
+    cfg = framework / 'ax_models/yolo/cfg/yolov4.cfg'
+    model_info = types.ModelInfo('yolov4-416-coco', 'ObjectDetection', [3, 416, 416])
+    model_info.class_path = str(framework / 'ax_models/yolo/ax_darknet.py')
+    model_info.extra_kwargs = {'darknet_cfg_path': str(cfg), 'aipu_cores': 1}
+    out_json = tmp_path / 'build/model_info.json'
+
+    pipeline._write_model_info(model_info, out_json)
+
+    written = json.loads(out_json.read_text())
+    assert written['class_path'] == 'ax_models/yolo/ax_darknet.py'
+    assert written['extra_kwargs'] == {
+        'darknet_cfg_path': 'ax_models/yolo/cfg/yolov4.cfg',
+        'aipu_cores': 1,
+    }

@@ -257,7 +257,10 @@ sort_tensors(const AxTensorsInterface &tensors, int num_classes,
           tensor_pair{ conf_idx, box_idx, -1, -1, mask_idx, prototype_idx });
     }
   } else {
-    auto swap = num_classes < 64;
+    // The level's tensors are sorted widest first, so the class-score tensor
+    // leads the pair only when it is wider than the box tensor. The two widths
+    // are never equal here: that case is rejected above.
+    auto swap = num_classes < box_channels;
     int tensors_per_level = has_extra_tensor ? 3 : 2;
 
     for (auto i = size_t{}; i != indices.size(); i += tensors_per_level) {

@@ -75,7 +75,7 @@ The Axelera Voyager SDK builds end-to-end AI inference pipelines running on the 
    resize · letterbox · colour convert · normalise
         │  (dmabuf)
         ▼
-[Metis AIPU Inference]    ← AxInference (Metis PCIe / M.2)
+[Metis AIPU Inference]    ← AxInference (Metis AIPU)
         │
         ▼ OpenCL (optional post-processing)
 [Application Output]

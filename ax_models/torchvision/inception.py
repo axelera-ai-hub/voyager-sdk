@@ -1,3 +1,4 @@
+# Copyright Axelera AI, 2024
 from classifiers import AxTorchvisionClassifierModel
 from torchvision import models
 from torchvision.models._utils import _ovewrite_named_param

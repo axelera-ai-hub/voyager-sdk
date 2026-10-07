@@ -1,0 +1,58 @@
+#!/bin/bash
+
+if [[ -z "${VIRTUAL_ENV:-}" ]]; then
+    echo "containerless-info: no active virtual environment" >&2
+    exit 1
+fi
+
+info_file="${VIRTUAL_ENV}/.containerless-info"
+if [[ ! -f "${info_file}" ]]; then
+    echo "containerless-info: provenance unavailable; reactivate with --update once" >&2
+    exit 1
+fi
+
+application_framework_commit=""
+application_framework_dirty=""
+containerless_env=""
+containerless_hf=""
+containerless_python=""
+software_platform_dirty=""
+software_platform_ref=""
+while IFS='=' read -r key value; do
+    case "${key}" in
+        application_framework_commit) application_framework_commit="${value}" ;;
+        application_framework_dirty) application_framework_dirty="${value}" ;;
+        containerless_env) containerless_env="${value}" ;;
+        containerless_hf) containerless_hf="${value}" ;;
+        containerless_python) containerless_python="${value}" ;;
+        software_platform_dirty) software_platform_dirty="${value}" ;;
+        software_platform_ref) software_platform_ref="${value}" ;;
+    esac
+done < "${info_file}"
+
+if [[ -z "${application_framework_commit}" || -z "${application_framework_dirty}" || \
+      -z "${containerless_env}" || -z "${containerless_hf}" || \
+      -z "${containerless_python}" || -z "${software_platform_dirty}" || \
+      -z "${software_platform_ref}" ]]; then
+    echo "containerless-info: invalid provenance data" >&2
+    exit 1
+fi
+
+software_platform_suffix=""
+application_framework_suffix=""
+hf_option="--no-hf"
+[[ "${software_platform_dirty}" == "false" ]] || software_platform_suffix=" (dirty)"
+[[ "${application_framework_dirty}" == "false" ]] || application_framework_suffix=" (dirty)"
+[[ "${containerless_hf}" == "true" ]] && hf_option="--hf"
+
+echo "software-platform: ${software_platform_ref}${software_platform_suffix}"
+echo "application.framework: ${application_framework_commit}${application_framework_suffix}"
+echo "recreate from an application.framework checkout:"
+if [[ "${application_framework_commit}" != "unknown" ]]; then
+    echo "  git checkout ${application_framework_commit}"
+fi
+echo "  . containerless.sh ${containerless_env} ${software_platform_ref} ${hf_option} --python \"\$(command -v ${containerless_python})\" --update"
+if [[ "${software_platform_dirty}" != "false" || \
+      "${application_framework_dirty}" != "false" ]]; then
+    echo "warning: dirty changes are not included in these commands"
+fi

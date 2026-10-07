@@ -1,12 +1,10 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 from unittest.mock import ANY, Mock, call, patch
 
 from PIL import ImageDraw, ImageFont
 import numpy as np
 import pytest
 
-from axelera import types
-from axelera.app import display_cv
 from axelera.app.eval_interfaces import ClassificationEvalSample, ClassificationGroundTruthSample
 from axelera.app.meta import AxMeta, ClassificationMeta, ClassifiedObject
 
@@ -18,7 +16,9 @@ CLS1_COLOR = (255, 178, 125, 255)
 CLS2_COLOR = (255, 255, 255, 255)
 
 
-def mock_draw(width, height, boxes, scores, class_ids, labels, monkeypatch, softmax=False):
+def mock_draw(
+    rt2_img, width, height, boxes, scores, class_ids, labels, monkeypatch, softmax=False
+):
     mock = Mock(ImageDraw.ImageDraw)
     monkeypatch.setattr(ImageFont.FreeTypeFont, "getbbox", lambda *args, **kwargs: (0, 0, 40, 8))
     meta = ClassificationMeta(labels=labels, extra_info={"softmax": softmax})
@@ -37,7 +37,7 @@ def mock_draw(width, height, boxes, scores, class_ids, labels, monkeypatch, soft
     object.__setattr__(meta, 'subframe_index', 0)
     object.__setattr__(meta, 'meta_name', "mock_meta")
 
-    image = types.Image.fromarray(np.zeros((height, width, 3), np.uint8))
+    image = rt2_img.Image.from_array(np.zeros((height, width, 3), np.uint8), 'RGB')
     return mock, meta, image
 
 
@@ -60,10 +60,11 @@ class MockTaskRenderConfig:
         pytest.param([0, 1], ["car", "person"], lambda x: x, ["car", "person"]),
     ],
 )
-def test_colors_text(class_ids, labels, map_color, texts, monkeypatch):
+def test_colors_text(display_cv, rt2_img, class_ids, labels, map_color, texts, monkeypatch):
     output_width = 1280
     output_height = 1280
     draw, meta, image = mock_draw(
+        rt2_img,
         output_width,
         output_height,
         [[10.0, 10.0, 20.0, 20.0]] * len(class_ids),
@@ -74,8 +75,8 @@ def test_colors_text(class_ids, labels, map_color, texts, monkeypatch):
     )
 
     with patch("PIL.ImageDraw.Draw", mock_image_draw(draw)):
-        composite = types.Image.fromarray(
-            np.zeros((output_height, output_width, 3), dtype=np.uint8)
+        composite = rt2_img.Image.from_array(
+            np.zeros((output_height, output_width, 3), dtype=np.uint8), 'RGB'
         )
         display_draw = display_cv.CVDraw(0, 1, composite, image, [])
         meta.draw(display_draw)
@@ -105,10 +106,11 @@ def test_colors_text(class_ids, labels, map_color, texts, monkeypatch):
         pytest.param([0, 1], ["car", "person"], ["car", "person"]),
     ],
 )
-def test_label_softmax(class_ids, labels, texts, monkeypatch):
+def test_label_softmax(display_cv, rt2_img, class_ids, labels, texts, monkeypatch):
     output_width = 1280
     output_height = 1280
     draw, meta, image = mock_draw(
+        rt2_img,
         output_width,
         output_height,
         [[10.0, 10.0, 20.0, 20.0]] * len(class_ids),
@@ -120,8 +122,8 @@ def test_label_softmax(class_ids, labels, texts, monkeypatch):
     )
 
     with patch("PIL.ImageDraw.Draw", mock_image_draw(draw)):
-        composite = types.Image.fromarray(
-            np.zeros((output_height, output_width, 3), dtype=np.uint8)
+        composite = rt2_img.Image.from_array(
+            np.zeros((output_height, output_width, 3), dtype=np.uint8), 'RGB'
         )
         display_draw = display_cv.CVDraw(0, 1, composite, image, [])
         meta.draw(display_draw)
@@ -225,6 +227,8 @@ def test_label_softmax(class_ids, labels, texts, monkeypatch):
     ],
 )
 def test_classification_box_cls_known(
+    display_cv,
+    rt2_img,
     class_ids,
     labels,
     boxes,
@@ -237,6 +241,7 @@ def test_classification_box_cls_known(
     output_width = 1280
     output_height = 1280
     draw, meta, image = mock_draw(
+        rt2_img,
         output_width,
         output_height,
         boxes,
@@ -247,8 +252,8 @@ def test_classification_box_cls_known(
     )
 
     with patch("PIL.ImageDraw.Draw", mock_image_draw(draw)):
-        composite = types.Image.fromarray(
-            np.zeros((output_height, output_width, 3), dtype=np.uint8)
+        composite = rt2_img.Image.from_array(
+            np.zeros((output_height, output_width, 3), dtype=np.uint8), 'RGB'
         )
         display_draw = display_cv.CVDraw(0, 1, composite, image, [])
         meta.draw(display_draw)

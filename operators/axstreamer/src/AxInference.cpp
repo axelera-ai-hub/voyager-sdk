@@ -391,45 +391,6 @@ class RoundRobinExecutor : public Executor
 };
 
 
-class LowLatencyExecutor : public Executor
-{
-  public:
-  explicit LowLatencyExecutor(Ax::InferenceReadyCallback callback)
-      : inq_(4),
-        callback_(std::move(callback))
-  {
-  }
-
-
-  void dispatch(Ax::InferenceParams params) override
-  {
-    inq_.push(std::move(params));
-  }
-
-  void collect() override
-  {
-  }
-
-  void stop() override
-  {
-    inq_.stop();
-  }
-
-  void thread_func(size_t n, Ax::BasicInference &instance) override
-  {
-    while (auto p = inq_.wait_one()) {
-      auto frame_id = p.frame_id;
-      instance.execute(std::move(p));
-      // execute() throws on failure, so reaching here always means success.
-      callback_(frame_id, true);
-    }
-  }
-
-  // TODO we need to empirally measure some other queue sizes here:
-  Ax::BlockingQueue<Ax::InferenceParams> inq_;
-  Ax::InferenceReadyCallback callback_;
-};
-
 // Shared model-load/shape-discovery/per-device-subprops setup, used by both
 // MultiThreadedInference (blocking) and AsyncPipelinedInference (async_mode).
 struct ModelSetup {
@@ -472,24 +433,16 @@ setup_model(Ax::Logger &logger, const Ax::InferenceProperties &props)
 class MultiThreadedInference : public Ax::Inference
 {
   public:
-  MultiThreadedInference(Ax::Logger &logger,
-      const Ax::InferenceProperties &props, Ax::InferenceReadyCallback callback)
+  MultiThreadedInference(Ax::Logger &logger, ModelSetup setup, Ax::InferenceReadyCallback callback)
       : logger_(logger)
   {
-    auto setup = setup_model(logger, props);
     context_ = std::move(setup.context);
     model_ = std::move(setup.model);
     input_shapes_ = std::move(setup.input_shapes);
     output_shapes_ = std::move(setup.output_shapes);
     subprops_ = std::move(setup.subprops);
 
-    is_low_latency_ = callback && !props.double_buffer
-                      && input_shapes_.front().sizes.front() == 1;
-    if (is_low_latency_) {
-      executor_ = std::make_unique<LowLatencyExecutor>(callback);
-    } else {
-      executor_ = std::make_unique<RoundRobinExecutor>(subprops_.size());
-    }
+    executor_ = std::make_unique<RoundRobinExecutor>(subprops_.size());
     first_thread_ = std::jthread([this]() { init_instances(); });
   }
 
@@ -511,7 +464,7 @@ class MultiThreadedInference : public Ax::Inference
 
   bool is_low_latency() const override
   {
-    return is_low_latency_;
+    return false;
   }
 
   int batch_size() const override
@@ -558,7 +511,6 @@ class MultiThreadedInference : public Ax::Inference
   AxTensorsInterface input_shapes_;
   AxTensorsInterface output_shapes_;
   std::unique_ptr<Executor> executor_;
-  bool is_low_latency_ = false;
 };
 
 // Fully-pipelined async_mode implementation. Unlike MultiThreadedInference,
@@ -571,12 +523,10 @@ class MultiThreadedInference : public Ax::Inference
 class AsyncPipelinedInference : public Ax::Inference
 {
   public:
-  AsyncPipelinedInference(Ax::Logger &logger,
-      const Ax::InferenceProperties &props, Ax::InferenceReadyCallback callback)
+  AsyncPipelinedInference(Ax::Logger &logger, ModelSetup setup, Ax::InferenceReadyCallback callback)
       : logger_(logger),
         callback_(std::move(callback))
   {
-    auto setup = setup_model(logger, props);
     context_ = std::move(setup.context);
     model_ = std::move(setup.model);
     input_shapes_ = std::move(setup.input_shapes);
@@ -595,7 +545,13 @@ class AsyncPipelinedInference : public Ax::Inference
           + std::to_string(input_shapes_.front().sizes.front()) + ")");
     }
 
-    for (const auto &subprop : setup.subprops) {
+    for (auto &subprop : setup.subprops) {
+      // This class always behaves as low-latency (see is_low_latency() above),
+      // so double buffering is never needed here; force it off regardless of
+      // what the caller passed, so the async pipeline's behavior doesn't
+      // depend on whether --low-latency happened to also be given (batch
+      // size 1 alone is enough to select this class).
+      subprop.double_buffer = false;
       instances_.push_back(create_async_axruntime_inference(logger_, context_.get(),
           model_.get(), subprop, [this](Ax::InferenceParams p, bool ok) {
             on_complete(std::move(p), ok);
@@ -665,12 +621,20 @@ class AsyncPipelinedInference : public Ax::Inference
 };
 } // namespace
 
+bool
+Ax::should_use_async_pipeline(const InferenceReadyCallback &callback,
+    const AxTensorsInterface &input_shapes)
+{
+  return callback && input_shapes.front().sizes.front() == 1;
+}
+
 std::unique_ptr<Ax::Inference>
 Ax::create_inference(Ax::Logger &logger, const InferenceProperties &props,
     InferenceReadyCallback callback)
 {
-  if (props.async_mode) {
-    return std::make_unique<AsyncPipelinedInference>(logger, props, callback);
+  auto setup = setup_model(logger, props);
+  if (should_use_async_pipeline(callback, setup.input_shapes)) {
+    return std::make_unique<AsyncPipelinedInference>(logger, std::move(setup), callback);
   }
-  return std::make_unique<MultiThreadedInference>(logger, props, callback);
+  return std::make_unique<MultiThreadedInference>(logger, std::move(setup), callback);
 }

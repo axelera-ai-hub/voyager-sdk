@@ -1,4 +1,5 @@
 #! /usr/bin/env python3
+# Copyright Axelera AI, 2024
 # List all image files in a directory and save to a text file
 # Usage:
 #   tools/list_relative_image_paths.py ./data/dataset/val.txt ./data/dataset/valid/images/

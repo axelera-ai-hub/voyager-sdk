@@ -1,3 +1,4 @@
+// Copyright Axelera AI, 2024
 #include "GstAxFunnel.hpp"
 #include <gmodule.h>
 #include <gst/gst.h>

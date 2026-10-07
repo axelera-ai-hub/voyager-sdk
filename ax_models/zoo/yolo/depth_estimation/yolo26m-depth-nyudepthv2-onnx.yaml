@@ -1,0 +1,59 @@
+axelera-model-format: 1.0.0
+
+name: yolo26m-depth-nyudepthv2-onnx
+
+description: YOLO26m monocular depth estimation (log head), evaluated on NYU Depth
+  V2
+
+pipeline:
+  - depthestimation:
+      model_name: yolo26m-depth-nyudepthv2-onnx
+      input:
+        type: image
+      preprocess:
+        - resize:
+            height: 768
+            width: 768
+        - torch-totensor:
+      postprocess:
+        - image_decoder:
+            output_datatype: float32
+            scale: false
+
+operators:
+  image_decoder:
+    class: ImageDecoder
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/image.py
+
+models:
+  yolo26m-depth-nyudepthv2-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/yolo26m-depth.onnx
+    weight_url: https://media.axelera.ai/artifacts/model_cards/weights/yolo/depth_estimation/yolo26m-depth.onnx
+    weight_md5: f633f43784ca2fdb0d4b957e760317d6
+    task_category: DepthEstimation
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 768, 768]
+    input_color_format: RGB
+    dataset: NYUDepthV2
+    extra_kwargs:
+      compiler_config_file: yolo26.toml
+      compilation_config:
+        enable_buffer_promotion: false
+
+datasets:
+  NYUDepthV2:
+    class: DepthEstimationDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/depth_estimation.py
+    data_dir_name: depthestimation
+    val_data: val/official
+    cal_data: train_subset
+    repr_imgs_dir_path: $AXELERA_FRAMEWORK/data/nyudepthv2_repr400
+    repr_imgs_url: https://media.axelera.ai/artifacts/model_cards/datasets/depthestimation/nyudepthv2_repr400.zip
+    repr_imgs_md5: 4578837b581288b7e2419b908642185d
+    eval_align: median
+    eval_max_depth: 10.0
+
+model-env:
+  dependencies: [h5py]

@@ -28,9 +28,11 @@ method -- all planned or available features.
 | [AxClassification](#axclassification) | Decode classification results into list[Classification]. |
 | [AxDepthMap](#axdepthmap) | Convert model output tensor to a DepthMap instance. |
 | [AxDetection](#axdetection) | Convert detection array to list of DetectedObject instances. |
+| [AxEmbedding](#axembedding) | Convert a feature-vector model output tensor to an Embedding instance. |
 | [AxObb](#axobb) | Convert OBB detection array to list of OrientedObject instances. |
 | [AxPose](#axpose) | Convert pose detection array to list of PoseObject instances. |
 | [AxSegmentation](#axsegmentation) | Convert segmentation data to list of SegmentedObject instances. |
+| [AxSemanticSegmentation](#axsemanticsegmentation) | Convert a model output tensor to a SemanticSegmentation instance. |
 
 ---
 
@@ -40,8 +42,9 @@ method -- all planned or available features.
 
 Decode classification results into list[Classification].
 
-Takes either a raw np.ndarray of class scores or a (values, indices) tuple
-from top_k and returns a list[Classification].
+Takes raw class scores (np.ndarray), or top-k `(values, indices)` spread
+into two args via `op.unpack()` (Pattern 2), and returns a
+list[Classification].
 
 **Args:**
 
@@ -53,10 +56,11 @@ from top_k and returns a list[Classification].
 # Pattern 1: All classes (less common)
 op.seq(op.load('model'), op.ax_classification(...))
 
-# Pattern 2: Top-k classes (recommended, matches detection pattern)
+# Pattern 2: Top-k classes -- op.unpack spreads top_k's (values, indices)
 op.seq(
     op.load('model'),
     op.top_k(k=5),              # -> (values, indices)
+    op.unpack(),                # -> spread into two positional args
     op.ax_classification(...),  # -> list[Classification] for top 5
 )
 ```
@@ -136,6 +140,42 @@ __init__(class_id_type: type = int)
 
 ---
 
+### AxEmbedding
+
+**Alias:** `ax_embedding`
+
+Convert a feature-vector model output tensor to an Embedding instance.
+
+Squeezes the tensor to 1D, optionally L2-normalizes (cosine similarity
+then reduces to a dot product), and wraps in `Embedding`.
+
+**Args:**
+
+- **normalize**: If True (default), L2-normalize the vector. Matches the convention used by both FaceNet and OSNet-style embedding models.
+
+**Examples:**
+
+```python
+op.seq(
+    op.crop_roi(property='bbox'),
+    op.resize(width=192, height=192),
+    op.toimage(),
+    op.todtype(np.float32),
+    op.normalize(mean=[127.5]*3, std=[127.5]*3),
+    op.load('facenet-lfw-onnx.axm'),
+    op.ax_embedding(),
+)
+# Input: np.ndarray (1, 128) -> Output: Embedding
+```
+
+**Constructor:**
+
+```python
+__init__(normalize: bool = True)
+```
+
+---
+
 ### AxObb
 
 **Alias:** `ax_obb`
@@ -155,7 +195,7 @@ in NORMALIZED [0,1] space and returns a list[OrientedObject].
 op.seq(
     op.load('yolo11n-obb.axm'),
     op.decode_obb(num_classes=15),
-    op.nms(box_format='xywhr'),
+    op.nms(box_format='xywhr', iou_metric='probiou'),
     op.to_image_space(box_format='xywhr'),
     op.ax_obb(class_id_type=op.DotaClasses),
 )
@@ -183,6 +223,7 @@ returns a list[PoseObject] with index, bbox, keypoints, score, and class_id.
 - **num_keypoints**: Number of keypoints (e.g., 17 for COCO, 5 for face).
 - **keypoint_names**: Optional list of keypoint names (e.g., COCO_KEYPOINT_NAMES).
 - **class_id_type**: Type to cast class IDs to (default: int).
+- **keypoint_stride**: Columns each keypoint occupies (default: 3, for `x, y, confidence`). Pass 2 for a model whose keypoints carry no visibility channel, such as RetinaFace's five face landmarks; every confidence is then reported as 1.0, because a `Keypoint` carries one and the model does not predict it.
 
 **Examples:**
 
@@ -207,7 +248,7 @@ with keypoint_cols parameter before ax_pose() to convert from MODEL_PIXEL.
 **Constructor:**
 
 ```python
-__init__(num_keypoints: int = 17, keypoint_names: list[str] | None = None, class_id_type: type = int)
+__init__(num_keypoints: int = 17, keypoint_names: list[str] | None = None, class_id_type: type = int, keypoint_stride: int = 3)
 ```
 
 ---
@@ -253,3 +294,37 @@ Note: Accepts (array, masks) as two separate args or single tuple.
 ```python
 __init__(class_id_type: type = int)
 ```
+
+---
+
+### AxSemanticSegmentation
+
+**Alias:** `ax_semantic_segmentation`
+
+Convert a model output tensor to a SemanticSegmentation instance.
+
+Squeezes all size-1 dimensions from the model output and validates the
+result is a 2D (H, W) class map. Casts to uint8 (class ids must be < 256);
+the class_map_mask renderer modulo-indexes into its palette so every uint8
+value maps to a colour. Raises ValueError if the squeezed result is not 2D
+(e.g. a raw logits tensor before ArgMax) or if a class id is >= 256.
+
+Only single-image inference (batch N == 1) is supported: a batched
+(N>1, ...) output squeezes to a 3D (N, H, W) and fails the 2D check.
+
+**Examples:**
+
+```python
+op.seq(
+    op.color_convert('RGB'),
+    op.resize(width=1024, height=1024),
+    op.to_tensor(),
+    op.load('yolo26n-sem-cityscapes-logits.axm'),     # -> (1, num_classes, H, W) logits
+    op.decode_semantic_segmentation(num_classes=19),  # -> (1, H, W) class map
+    op.ax_semantic_segmentation(),            # -> SemanticSegmentation
+)
+```
+
+An export that reduces the class axis in its own graph loads as
+`(1, H, W)` uint8 instead, and this op squeezes that to `(H, W)` rather
+than argmaxing it. `yolo26n-sem.axm` is such a build.

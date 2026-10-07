@@ -36,6 +36,8 @@ models:
     num_classes: 1000
     extra_kwargs:
       resize_size: 256
+      compilation_config:
+        quantization_scheme: hybrid_per_tensor_per_channel
       timm_model_args:
         name: mobilenetv4_conv_small.e2400_r224_in1k
 

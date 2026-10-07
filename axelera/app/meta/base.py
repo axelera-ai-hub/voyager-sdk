@@ -19,7 +19,6 @@ if TYPE_CHECKING:
 
 LOG = logging_utils.getLogger(__name__)
 _VALID_LABEL_FORMATS = {'label': 'label', 'score': 0.56, 'scorep': 56.7, 'scoreunit': '%'}
-_DEFAULT_LABEL_FORMAT = display.Options().bbox_label_format
 
 
 class NoMasterDetectionsError(Exception):
@@ -65,7 +64,7 @@ def safe_label_format(fmt: str) -> str:
         LOG.error(
             "Unknown name %s in bbox_label_format '%s', valid names are %s", str(e), fmt, valid
         )
-    return _DEFAULT_LABEL_FORMAT
+    return display.Options().bbox_label_format
 
 
 RGBAColor = tuple[int, int, int, int]
@@ -629,6 +628,12 @@ class AxTaskMeta(AxBaseTaskMeta):
 AxTaskMeta._subclasses = {}
 
 
+def _try_draw(obj, draw) -> None:
+    """Draw obj onto the given Draw context if it knows how to, otherwise skip it."""
+    if callable(draw_method := getattr(obj, 'draw', None)):
+        draw_method(draw)
+
+
 @dataclasses.dataclass
 class AxMeta(collections.abc.Mapping):
     image_id: str
@@ -659,6 +664,20 @@ class AxMeta(collections.abc.Mapping):
     def set_render_config(self, render_config: config.RenderConfig):
         """Set render configuration for the meta"""
         self.render_config = render_config
+
+    def draw(self, draw) -> None:
+        """Render every task meta, and each of its secondaries, onto a Draw context.
+
+        This makes an AxMeta a drawable in its own right, so a renderer draws it through
+        the same duck-typed traversal it uses for any other object and needs to know
+        nothing about the metadata model. Members that cannot draw themselves are skipped.
+        """
+        for meta in self.values():
+            visit = getattr(meta, 'visit', None)
+            if callable(visit):
+                visit(_try_draw, draw)
+            else:
+                _try_draw(meta, draw)
 
     def _add_secondary_meta(
         self,

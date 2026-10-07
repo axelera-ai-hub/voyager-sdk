@@ -177,11 +177,16 @@ create_shared_library(transform_resizeratiocropexcess src/AxTransformResizeRatio
 create_shared_library(inplace_tracker src/AxInPlaceTracker.cpp)
 create_shared_library(decode_yolov5 src/AxDecodeYolo5.cpp)
 create_shared_library(decode_yolov8 src/AxDecodeYolo8.cpp)
+create_shared_library(decode_yolact src/AxDecodeYolact.cpp)
 create_shared_library(decode_yolox src/AxDecodeYoloX.cpp)
 
 
 
 
+
+# Enable CTest before customer components are added so their add_customer_tests
+# targets are registered as ctest tests (add_test needs testing enabled first).
+include(CTest)
 
 if(ENABLE_CUSTOMER_COMPONENTS)
     include(${CMAKE_SOURCE_DIR}/CustomerUtils.cmake)
@@ -245,8 +250,6 @@ set(path_ax_plugin_prefix ${CMAKE_BINARY_DIR})
 
 add_definitions(-DAX_SUBPLUGIN_PATH=${path_ax_plugin_prefix})
 
-include(CTest)
-
 # Set unittest install dir
 set(unittest_install_dir "${CMAKE_SOURCE_DIR}/tests")
 
@@ -301,6 +304,7 @@ if (GMODULE_FOUND AND GLIB_FOUND AND GST_FOUND AND GST_VIDEO_FOUND AND GTEST_FOU
         tests/ax/unittest_decode_yolo10simple.cc
         tests/ax/unittest_decode_yolox.cc
         tests/ax/unittest_decode_yolov8seg.cc
+        tests/ax/unittest_decode_yolact.cc
         tests/ax/unittest_decode_image.cc
         tests/ax/unittest_decode_to_raw_tensor.cc
         tests/ax/unittest_decode_ctc.cc
@@ -378,11 +382,16 @@ if (GMODULE_FOUND AND GLIB_FOUND AND GST_FOUND AND GST_VIDEO_FOUND AND GTEST_FOU
     add_custom_target(run_unit_tests ALL
         DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/RunUnitTests.touch
     )
+    # Customer components are configured in a sub-scope, so their libraries are
+    # not in ${shared_libs} and their test executables are separate targets.
+    # Depend on them explicitly so ctest never runs before they are built (the
+    # tests dlopen the customer .so files by path).
+    get_property(_customer_test_deps GLOBAL PROPERTY AX_CUSTOMER_TEST_DEPS)
     add_custom_command(
         OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/RunUnitTests.touch
         COMMAND ${CMAKE_COMMAND} -E env ${_ctest_env} ${CMAKE_CTEST_COMMAND} --output-on-failure
         COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/RunUnitTests.touch
-        DEPENDS unittest_ax ${shared_libs}
+        DEPENDS unittest_ax ${shared_libs} ${_customer_test_deps}
     )
 
     # Create assets directory in build directory

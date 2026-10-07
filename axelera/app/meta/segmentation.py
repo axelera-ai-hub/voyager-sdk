@@ -23,6 +23,10 @@ if TYPE_CHECKING:
 LOG = logging_utils.getLogger(__name__)
 
 XyXy = tuple[int, int, int, int]
+# A mask, the mask-space rect it was cropped to, and the image-space rect it is
+# drawn into. The second rect is the detection's own box: the crop is that box
+# mapped into mask space, so reversing the model's resize a second time here can
+# only disagree with the box the pipeline already produced.
 SegmentationMask = tuple[int, int, int, int, int, int, int, int, np.ndarray]
 
 
@@ -127,8 +131,6 @@ class InstanceSegmentationMeta(AxTaskMeta):
     _scores: list = field(default_factory=list, init=False)
     seg_shape: Optional[Wh] = None
     labels: Optional[tuple] = None
-    # offsets (x, y) for the masks
-    _masks_base_box: list = field(default_factory=list, init=False)
     extra_info: Dict[str, Any] = field(default_factory=dict)
 
     def add_result(
@@ -179,7 +181,6 @@ class InstanceSegmentationMeta(AxTaskMeta):
         self._boxes.extend(other._boxes)
         self._class_ids.extend(other._class_ids)
         self._scores.extend(other._scores)
-        self._masks_base_box.extend(other._masks_base_box)
 
     def add_results(
         self,
@@ -307,18 +308,12 @@ class InstanceSegmentationMeta(AxTaskMeta):
         else:
             classes = np.zeros(boxes.shape[0], dtype=np.int32)
 
-        if 'segment_maps' in data and 'segment_bboxs' in data and 'base_boxes' in data:
+        if 'segment_maps' in data and 'segment_bboxs' in data:
             segment_maps = data.get('segment_maps')
             segment_bboxs = data.get('segment_bboxs')
-            segment_base_boxes = data.get('base_boxes')
             offset = 0
             segments = []
-            for idx, (bbox, base_box) in enumerate(
-                zip(
-                    struct.iter_unpack('4i', segment_bboxs),
-                    struct.iter_unpack('4i', segment_base_boxes),
-                )
-            ):
+            for idx, bbox in enumerate(struct.iter_unpack('4i', segment_bboxs)):
                 if idx == segment_count:
                     break
 
@@ -326,12 +321,10 @@ class InstanceSegmentationMeta(AxTaskMeta):
                 width = x1 - x0
                 height = y1 - y0
                 size = width * height
-                image_coords = _translate_image_space_rect(bbox, base_box, segment_shape)
-
                 segments.append(
                     (
                         *bbox,
-                        *image_coords,
+                        *boxes[idx],
                         np.frombuffer(
                             segment_maps, dtype=np.uint8, count=size, offset=offset
                         ).reshape(height, width),

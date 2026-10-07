@@ -17,7 +17,7 @@ target_include_directories(oc_sort
 )
 
 target_link_libraries(oc_sort PUBLIC Eigen3::Eigen ${OpenCV_LIBS})
-target_link_options(oc_sort PRIVATE -Wl,--exclude-libs,ALL)
+target_link_options(oc_sort PRIVATE ${AX_TRACKER_LINK_OPTIONS})
 
 set_target_properties(oc_sort PROPERTIES
   INSTALL_RPATH "$ORIGIN"

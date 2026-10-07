@@ -1,6 +1,6 @@
 # Voyager SDK Release Compatibility Matrix
 
-This page describes the recommended and supported versions of firmware and driver per Voyager SDK release for Axelera Metis AI Accelerator Cards. Consult it before installing or upgrading a card or a Voyager SDK release.
+This page describes the recommended and supported versions of firmware and driver per Voyager SDK release for Axelera AI accelerator boards — Axelera Embedded (110m, 113m, 111c), Axelera Edge (130p), and Axelera Server (150p), formerly the Metis card family. Consult it before installing or upgrading a card or a Voyager SDK release.
 
 It is maintained cumulatively across releases and is updated with each new Voyager SDK version. It is not specific to any single release.
 
@@ -21,8 +21,18 @@ Other versions may work but are not actively tested. An upgrade of the card's fl
 | v1.6.1 | 7.4 | 7.0 | 1.6.0 | 1.5.0, 1.4.0 | 1.4.17 | 1.4.16, 1.4.10, 1.4.4 | 1.3.11 | 1.3.4, 1.3.1, 1.3.0 |
 | v1.7.0 | 7.4 | 7.0 | 1.7.0 | 1.6.0, 1.5.0, 1.4.0 | 1.5.5 | 1.5.5 | 1.3.11 | 1.3.5, 1.3.4, 1.3.1, 1.3.0 |
 | v1.8.0 | 7.4 | 7.0 | 1.8.0 | 1.7.0, 1.6.0, 1.5.0, 1.4.0 | 1.6.2 | 1.6.2 | 1.3.14 | 1.3.14 |
+| v1.9.0 | 7.5 | 7.0 | 1.9.0 | 1.8.0, 1.7.0, 1.6.0, 1.5.0, 1.4.0 | 1.7.16 | 1.7.0 | 1.4.5 | 1.4.0 |
 
 ## Release-specific notes
+
+### v1.9.0
+
+The minimum *supported* driver versions move to a new minor line, so **drivers from earlier releases are not accepted**:
+
+- Linux: install `metis-dkms` **1.7.16** (minimum supported 1.7.0)
+- Windows: install **MetisDriver-1.4.5** (minimum supported 1.4.0)
+
+The recommended board controller firmware version is now **7.5**; 7.0 remains the minimum supported version.
 
 ### v1.8.0
 
@@ -35,7 +45,7 @@ Board controller firmware requires **no** update in this release; the recommende
 
 ### v1.7.0
 
-Metis M.2 Max is required to be updated to the recommended board controller and firmware versions. The `axdevice interactive_flash_update` script handles board variant selection automatically.
+Axelera Embedded 113m (formerly Metis M.2 Max) is required to be updated to the recommended board controller and firmware versions. The `axdevice interactive_flash_update` script handles board variant selection automatically.
 
 ## Further Support
 

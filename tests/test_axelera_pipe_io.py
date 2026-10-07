@@ -12,9 +12,14 @@ import numpy as np
 import pytest
 
 from axelera import types
-from axelera.app import config, display_cv, gst_builder, inf_tracers, meta, pipe, utils
+from axelera.app import config, display, gst_builder, inf_tracers, meta, pipe, utils
 from axelera.app.config import HardwareCaps
 from axelera.app.pipe import io
+
+# the fake video source draws the Axelera logo, which ships with axelera.runtime2
+requires_runtime2 = pytest.mark.skipif(
+    not display.HAVE_RUNTIME2, reason='axelera.runtime2 is not installed'
+)
 
 bgr_img = types.Image.fromarray(
     np.full((4, 6, 3), (1, 2, 3), dtype=np.uint8), color_format=types.ColorFormat.BGR
@@ -167,6 +172,7 @@ def test_input_torch_video_usb_capture(source, cap_source):
         ('fakevideo:800x480', 800, 480),
     ],
 )
+@requires_runtime2
 def test_input_torch_fakevideo_sources(source, width, height):
     pipein = io.SinglePipeInput('torch', config.Source(source))
     assert pipein.sources[0].type == config.SourceType.FAKE_VIDEO
@@ -744,6 +750,7 @@ def test_output_save_video_valid_input():
     ],
 )
 def test_output_save_video_speedometer_behavior(
+    display_cv,
     speedometers_enabled,
     env_var_value,
     expected_registered_calls,

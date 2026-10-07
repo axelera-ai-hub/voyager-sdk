@@ -288,6 +288,10 @@ build_cl_details(Ax::Logger &logger, const char *cl_choice, void *display)
       logger.throw_error("OpenCL not functional: Failed to get device! Error: "
                          + cl_error_to_string(error));
     }
+    if (!details.extensions.hasKhrDmaBufImport
+        && device_supports_dmabuf_import(selected_platform, details.device_id)) {
+      details.extensions.hasKhrDmaBufImport = true;
+    }
     details.context
         = create_context(selected_platform, details.device_id, details.extensions);
     cl_command_queue_properties cq_props{};
@@ -645,111 +649,28 @@ typedef struct image_description {
     int4 image_dims;
     int4 strides;
     int4 offsets;
-    int4 letterbox;
-    int4 crop;
+    int2 crop;
 } image_description;
 
 
 #define NV12_READ(x, y, p, stride) CONVERT_REAL2(p[y * stride + x])
 
-uchar4 nv_semiplanar_sampler_two_plane(__global const uchar *y_image, __global const uchar *uv_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, int uv_div_y) {
-  if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
+uchar4 nv_semiplanar_sampler_two_plane(__global const uchar *y_image, __global const uchar *uv_image, float fx, float fy, const image_description *img, uchar fill, int uv_div_x, int uv_div_y) {
+  if (fx < img->crop.x || fx >= img->image_dims.x || fy < img->crop.y || fy >= img->image_dims.y) {
     return (uchar4)(16, 128, 128, 255);
   }
   float xpixel_left = fx - 0.5f;
   float ypixel_top = fy - 0.5f;
-
-  int adj_x = out_x - img->letterbox.x;
-  int adj_y = out_y - img->letterbox.y;
-  if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
-    return (uchar4)(fill, 128, 128, 255);
-  }
 
   int xi = (int)floor(xpixel_left);
   int yi = (int)floor(ypixel_top);
   float xfrac = xpixel_left - xi;
   float yfrac = ypixel_top - yi;
 
-  int x1 = max(xi,     0) + img->crop.x;
-  int x2 = min(xi + 1, img->image_dims.x - 1) + img->crop.x;
-  int y1 = max(yi,     0) + img->crop.y;
-  int y2 = min(yi + 1, img->image_dims.y - 1) + img->crop.y;
-
-  int ystride = img->strides.x;
-  REAL y00 = CONVERT_REAL(y_image[y1 * ystride + x1]);
-  REAL y01 = CONVERT_REAL(y_image[y1 * ystride + x2]);
-  REAL y10 = CONVERT_REAL(y_image[y2 * ystride + x1]);
-  REAL y11 = CONVERT_REAL(y_image[y2 * ystride + x2]);
-  REAL y_val = bilinear1(y00, y01, y10, y11, xfrac, yfrac);
-
-  float uv_xsrc = xpixel_left / 2;
-  float uv_ysrc = ypixel_top / uv_div_y;
-  int uxi = (int)floor(uv_xsrc);
-  int uyi = (int)floor(uv_ysrc);
-  float uv_xfrac = uv_xsrc - uxi;
-  float uv_yfrac = uv_ysrc - uyi;
-  int uv_crop_x = img->crop.x / 2;
-  int uv_crop_y = img->crop.y / uv_div_y;
-  int ux1 = max(uxi, 0) + uv_crop_x;
-  int uy1 = max(uyi, 0) + uv_crop_y;
-  int ux2 = min(uxi + 1, img->image_dims.x / 2 - 1) + uv_crop_x;
-  int uy2 = min(uyi + 1, img->image_dims.y / uv_div_y - 1) + uv_crop_y;
-
-  __global uchar2 *in_uv2 = (__global uchar2 *)uv_image;
-  int uvstride = img->strides.y / 2;
-  REAL2 uv00 = NV12_READ(ux1, uy1, in_uv2, uvstride);
-  REAL2 uv01 = NV12_READ(ux2, uy1, in_uv2, uvstride);
-  REAL2 uv10 = NV12_READ(ux1, uy2, in_uv2, uvstride);
-  REAL2 uv11 = NV12_READ(ux2, uy2, in_uv2, uvstride);
-  REAL2 uv_val = bilinear2(uv00, uv01, uv10, uv11, uv_xfrac, uv_yfrac);
-
-  return convert_uchar4_sat((float4)((float)y_val, (float)uv_val.x, (float)uv_val.y, 255.0f));
-}
-
-uchar4 nv12_sampler_two_plane(__global const uchar *y_image, __global const uchar *uv_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
-  return nv_semiplanar_sampler_two_plane(y_image, uv_image, out_x, out_y, fx, fy, img, fill, 2);
-}
-
-uchar4 nv12_sampler(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
-  return nv12_sampler_two_plane(y_image, y_image + img->offsets.y, out_x, out_y, fx, fy, img, fill);
-}
-
-uchar4 nv16_sampler_two_plane(__global const uchar *y_image, __global const uchar *uv_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
-  return nv_semiplanar_sampler_two_plane(y_image, uv_image, out_x, out_y, fx, fy, img, fill, 1);
-}
-
-uchar4 nv16_sampler(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
-  return nv16_sampler_two_plane(y_image, y_image + img->offsets.y, out_x, out_y, fx, fy, img, fill);
-}
-
-
-#define I420_READ(x, y, pu, pv, ustride, vstride) CONVERT_REAL2((uchar2)(pu[y * ustride + x], pv[y * vstride + x]))
-
-uchar4 yuv_planar_bilinear_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, int uv_div_x, int uv_div_y) {
-  if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
-    return (uchar4)(16, 128, 128, 255);
-  }
-  float xpixel_left = fx - 0.5f;
-  float ypixel_top = fy - 0.5f;
-
-  int adj_x = out_x - img->letterbox.x;
-  int adj_y = out_y - img->letterbox.y;
-  if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
-    return (uchar4)(fill, 128, 128, 255);
-  }
-  int xi = (int)floor(xpixel_left);
-  int yi = (int)floor(ypixel_top);
-  float xfrac = xpixel_left - xi;
-  float yfrac = ypixel_top - yi;
-
-  int x1 = max(xi,     0);
+  int x1 = max(xi,     img->crop.x);
   int x2 = min(xi + 1, img->image_dims.x - 1);
-  int y1 = max(yi,     0);
+  int y1 = max(yi,     img->crop.y);
   int y2 = min(yi + 1, img->image_dims.y - 1);
-  x1 += img->crop.x;
-  y1 += img->crop.y;
-  x2 += img->crop.x;
-  y2 += img->crop.y;
 
   int ystride = img->strides.x;
   REAL y00 = CONVERT_REAL(y_image[y1 * ystride + x1]);
@@ -764,12 +685,75 @@ uchar4 yuv_planar_bilinear_three_plane(__global const uchar *y_image, __global c
   int uyi = (int)floor(uv_ysrc);
   float uv_xfrac = uv_xsrc - uxi;
   float uv_yfrac = uv_ysrc - uyi;
-  int uv_crop_x = img->crop.x / uv_div_x;
-  int uv_crop_y = img->crop.y / uv_div_y;
-  int ux1 = max(uxi, 0) + uv_crop_x;
-  int uy1 = max(uyi, 0) + uv_crop_y;
-  int ux2 = min(uxi + 1, img->image_dims.x / uv_div_x - 1) + uv_crop_x;
-  int uy2 = min(uyi + 1, img->image_dims.y / uv_div_y - 1) + uv_crop_y;
+  int ux1 = max(uxi, img->crop.x / uv_div_x);
+  int uy1 = max(uyi, img->crop.y / uv_div_y);
+  int ux2 = min(uxi + 1, img->image_dims.x / uv_div_x - 1);
+  int uy2 = min(uyi + 1, img->image_dims.y / uv_div_y - 1);
+
+  __global uchar2 *in_uv2 = (__global uchar2 *)uv_image;
+  int uvstride = img->strides.y / 2;
+  REAL2 uv00 = NV12_READ(ux1, uy1, in_uv2, uvstride);
+  REAL2 uv01 = NV12_READ(ux2, uy1, in_uv2, uvstride);
+  REAL2 uv10 = NV12_READ(ux1, uy2, in_uv2, uvstride);
+  REAL2 uv11 = NV12_READ(ux2, uy2, in_uv2, uvstride);
+  REAL2 uv_val = bilinear2(uv00, uv01, uv10, uv11, uv_xfrac, uv_yfrac);
+
+  return convert_uchar4_sat((float4)((float)y_val, (float)uv_val.x, (float)uv_val.y, 255.0f));
+}
+
+uchar4 nv12_sampler_two_plane(__global const uchar *y_image, __global const uchar *uv_image, float fx, float fy, const image_description *img, uchar fill) {
+  return nv_semiplanar_sampler_two_plane(y_image, uv_image, fx, fy, img, fill, 2, 2);
+}
+
+uchar4 nv12_sampler(__global const uchar *y_image, float fx, float fy, const image_description *img, uchar fill) {
+  return nv12_sampler_two_plane(y_image, y_image + img->offsets.y, fx, fy, img, fill);
+}
+
+uchar4 nv16_sampler_two_plane(__global const uchar *y_image, __global const uchar *uv_image, float fx, float fy, const image_description *img, uchar fill) {
+  return nv_semiplanar_sampler_two_plane(y_image, uv_image, fx, fy, img, fill, 2, 1);
+}
+
+uchar4 nv16_sampler(__global const uchar *y_image, float fx, float fy, const image_description *img, uchar fill) {
+  return nv16_sampler_two_plane(y_image, y_image + img->offsets.y, fx, fy, img, fill);
+}
+
+
+#define I420_READ(x, y, pu, pv, ustride, vstride) CONVERT_REAL2((uchar2)(pu[y * ustride + x], pv[y * vstride + x]))
+
+uchar4 yuv_planar_bilinear_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, float fx, float fy, const image_description *img, uchar fill, int uv_div_x, int uv_div_y) {
+  if (fx < img->crop.x || fx >= img->image_dims.x || fy < img->crop.y || fy >= img->image_dims.y) {
+    return (uchar4)(16, 128, 128, 255);
+  }
+  float xpixel_left = fx - 0.5f;
+  float ypixel_top = fy - 0.5f;
+
+  int xi = (int)floor(xpixel_left);
+  int yi = (int)floor(ypixel_top);
+  float xfrac = xpixel_left - xi;
+  float yfrac = ypixel_top - yi;
+
+  int x1 = max(xi,     img->crop.x);
+  int x2 = min(xi + 1, img->image_dims.x - 1);
+  int y1 = max(yi,     img->crop.y);
+  int y2 = min(yi + 1, img->image_dims.y - 1);
+
+  int ystride = img->strides.x;
+  REAL y00 = CONVERT_REAL(y_image[y1 * ystride + x1]);
+  REAL y01 = CONVERT_REAL(y_image[y1 * ystride + x2]);
+  REAL y10 = CONVERT_REAL(y_image[y2 * ystride + x1]);
+  REAL y11 = CONVERT_REAL(y_image[y2 * ystride + x2]);
+  REAL y_val = bilinear1(y00, y01, y10, y11, xfrac, yfrac);
+
+  float uv_xsrc = xpixel_left / uv_div_x;
+  float uv_ysrc = ypixel_top / uv_div_y;
+  int uxi = (int)floor(uv_xsrc);
+  int uyi = (int)floor(uv_ysrc);
+  float uv_xfrac = uv_xsrc - uxi;
+  float uv_yfrac = uv_ysrc - uyi;
+  int ux1 = max(uxi, img->crop.x / uv_div_x);
+  int uy1 = max(uyi, img->crop.y / uv_div_y);
+  int ux2 = min(uxi + 1, img->image_dims.x / uv_div_x - 1);
+  int uy2 = min(uyi + 1, img->image_dims.y / uv_div_y - 1);
 
   REAL2 uv00 = I420_READ(ux1, uy1, u_image, v_image, img->strides.y, img->strides.z);
   REAL2 uv01 = I420_READ(ux2, uy1, u_image, v_image, img->strides.y, img->strides.z);
@@ -781,71 +765,62 @@ uchar4 yuv_planar_bilinear_three_plane(__global const uchar *y_image, __global c
 }
 
 // I420 three-plane: Y in y_image, U in u_image, V in v_image (all offsets = 0).
-uchar4 i420_sampler_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
-  return yuv_planar_bilinear_three_plane(y_image, u_image, v_image, out_x, out_y, fx, fy, img, fill, 2, 2);
+uchar4 i420_sampler_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, float fx, float fy, const image_description *img, uchar fill) {
+  return yuv_planar_bilinear_three_plane(y_image, u_image, v_image, fx, fy, img, fill, 2, 2);
 }
 
 // I420 two-plane: Y in y_image, U+V back-to-back in uv_image.
 // U starts at offset 0; V starts at offsets.z within uv_image.
-uchar4 i420_sampler_two_plane(__global const uchar *y_image, __global const uchar *uv_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
-  return i420_sampler_three_plane(y_image, uv_image, uv_image + img->offsets.z, out_x, out_y, fx, fy, img, fill);
+uchar4 i420_sampler_two_plane(__global const uchar *y_image, __global const uchar *uv_image, float fx, float fy, const image_description *img, uchar fill) {
+  return i420_sampler_three_plane(y_image, uv_image, uv_image + img->offsets.z, fx, fy, img, fill);
 }
 
-uchar4 i420_sampler(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
-  return i420_sampler_three_plane(y_image, y_image + img->offsets.y, y_image + img->offsets.z, out_x, out_y, fx, fy, img, fill);
+uchar4 i420_sampler(__global const uchar *y_image, float fx, float fy, const image_description *img, uchar fill) {
+  return i420_sampler_three_plane(y_image, y_image + img->offsets.y, y_image + img->offsets.z, fx, fy, img, fill);
 }
 
-uchar4 y444_sampler_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
-  return yuv_planar_bilinear_three_plane(y_image, u_image, v_image, out_x, out_y, fx, fy, img, fill, 1, 1);
+uchar4 y444_sampler_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, float fx, float fy, const image_description *img, uchar fill) {
+  return yuv_planar_bilinear_three_plane(y_image, u_image, v_image, fx, fy, img, fill, 1, 1);
 }
 
-uchar4 y444_sampler_two_plane(__global const uchar *y_image, __global const uchar *uv_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
-  return y444_sampler_three_plane(y_image, uv_image, uv_image + img->offsets.z, out_x, out_y, fx, fy, img, fill);
+uchar4 y444_sampler_two_plane(__global const uchar *y_image, __global const uchar *uv_image, float fx, float fy, const image_description *img, uchar fill) {
+  return y444_sampler_three_plane(y_image, uv_image, uv_image + img->offsets.z, fx, fy, img, fill);
 }
 
-uchar4 y444_sampler(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
-  return y444_sampler_three_plane(y_image, y_image + img->offsets.y, y_image + img->offsets.z, out_x, out_y, fx, fy, img, fill);
+uchar4 y444_sampler(__global const uchar *y_image, float fx, float fy, const image_description *img, uchar fill) {
+  return y444_sampler_three_plane(y_image, y_image + img->offsets.y, y_image + img->offsets.z, fx, fy, img, fill);
 }
 
-uchar4 y42b_sampler_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
-  return yuv_planar_bilinear_three_plane(y_image, u_image, v_image, out_x, out_y, fx, fy, img, fill, 2, 1);
+uchar4 y42b_sampler_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, float fx, float fy, const image_description *img, uchar fill) {
+  return yuv_planar_bilinear_three_plane(y_image, u_image, v_image, fx, fy, img, fill, 2, 1);
 }
 
-uchar4 y42b_sampler_two_plane(__global const uchar *y_image, __global const uchar *uv_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
-  return y42b_sampler_three_plane(y_image, uv_image, uv_image + img->offsets.z, out_x, out_y, fx, fy, img, fill);
+uchar4 y42b_sampler_two_plane(__global const uchar *y_image, __global const uchar *uv_image, float fx, float fy, const image_description *img, uchar fill) {
+  return y42b_sampler_three_plane(y_image, uv_image, uv_image + img->offsets.z, fx, fy, img, fill);
 }
 
-uchar4 y42b_sampler(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
-  return y42b_sampler_three_plane(y_image, y_image + img->offsets.y, y_image + img->offsets.z, out_x, out_y, fx, fy, img, fill);
+uchar4 y42b_sampler(__global const uchar *y_image, float fx, float fy, const image_description *img, uchar fill) {
+  return y42b_sampler_three_plane(y_image, y_image + img->offsets.y, y_image + img->offsets.z, fx, fy, img, fill);
 }
 
-uchar4 yuyv_sampler(__global const uchar *in, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+uchar4 yuyv_sampler(__global const uchar *in, float fx, float fy, const image_description *img, uchar fill) {
   __global const uchar4 *in4 = (__global const uchar4 *)in;
-  if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
+  if (fx < img->crop.x || fx >= img->image_dims.x || fy < img->crop.y || fy >= img->image_dims.y) {
     return (uchar4)(16, 128, 128, 255);
   }
   float xpixel_left = fx - 0.5f;
   float ypixel_top = fy - 0.5f;
 
-  int adj_x = out_x - img->letterbox.x;
-  int adj_y = out_y - img->letterbox.y;
-  if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
-    return (uchar4)(fill, 128, 128, 255);
-  }
   int xi = (int)floor(xpixel_left);
   int yi = (int)floor(ypixel_top);
   float xfrac = xpixel_left - xi;
   float yfrac = ypixel_top - yi;
 
-  int x1 = max(xi,     0);
+  int x1 = max(xi,     img->crop.x);
   int x2 = min(xi + 1, img->image_dims.x - 1);
-  int y1 = max(yi,     0);
+  int y1 = max(yi,     img->crop.y);
   int y2 = min(yi + 1, img->image_dims.y - 1);
 
-  x1 += img->crop.x;
-  y1 += img->crop.y;
-  x2 += img->crop.x;
-  y2 += img->crop.y;
   int stride = img->strides.x / sizeof(uchar4);
   // Each YUYV pixel pair is stored as Y1 U Y2 V
   int idx1 = y1 * stride + (x1 >> 1);
@@ -868,22 +843,15 @@ uchar4 yuyv_sampler(__global const uchar *in, int out_x, int out_y, float fx, fl
   return convert_uchar4_sat(yuv);
 }
 
-uchar gray8_sampler_bl(__global const uchar *image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
-    //  Here we add in the offsets to the pixel from the crop meta
-    if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
+uchar gray8_sampler_bl(__global const uchar *image, float fx, float fy, const image_description *img, uchar fill) {
+    if (fx < img->crop.x || fx >= img->image_dims.x || fy < img->crop.y || fy >= img->image_dims.y) {
       return fill;
     }
-    float xpixel_left = clamp(fx - 0.5f, 0.0f, (float)(img->image_dims.x - 1));
-    float ypixel_top = clamp(fy - 0.5f, 0.0f, (float)(img->image_dims.y - 1));
+    float xpixel_left = clamp(fx - 0.5f, (float)img->crop.x, (float)(img->image_dims.x - 1));
+    float ypixel_top = clamp(fy - 0.5f, (float)img->crop.y, (float)(img->image_dims.y - 1));
 
     int x1 = (int)floor(xpixel_left);
     int y1 = (int)floor(ypixel_top);
-
-    int adj_x = out_x - img->letterbox.x;
-    int adj_y = out_y - img->letterbox.y;
-    if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
-      return fill;
-    }
 
     float xfrac = xpixel_left - x1;
     float yfrac = ypixel_top - y1;
@@ -891,10 +859,6 @@ uchar gray8_sampler_bl(__global const uchar *image, int out_x, int out_y, float 
     int x2 = min(x1 + 1, img->image_dims.x - 1);
     int y2 = min(y1 + 1, img->image_dims.y - 1);
 
-    x1 += img->crop.x;
-    y1 += img->crop.y;
-    x2 += img->crop.x;
-    y2 += img->crop.y;
 
     REAL p00 = (REAL)image[y1 * img->strides.x + x1];
     REAL p01 = (REAL)image[y1 * img->strides.x + x2];
@@ -908,35 +872,24 @@ uchar gray8_sampler_bl(__global const uchar *image, int out_x, int out_y, float 
     return convert_uchar_sat(value);
 }
 
-uchar4 rgba_sampler_bl(__global const uchar *image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
+uchar4 rgba_sampler_bl(__global const uchar *image, float fx, float fy, const image_description *img, uchar fill) {
     __global const uchar4 *image4 = (__global const uchar4 *)image;
-    //  Here we add in the offsets to the pixel from the crop meta
-    if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
+    if (fx < img->crop.x || fx >= img->image_dims.x || fy < img->crop.y || fy >= img->image_dims.y) {
       return (uchar4)(fill, fill, fill, 255);
     }
     float xpixel_left = fx - 0.5f;
     float ypixel_top = fy - 0.5f;
-
-    int adj_x = out_x - img->letterbox.x;
-    int adj_y = out_y - img->letterbox.y;
-    if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
-      return (uchar4)(fill, fill, fill, 255);
-    }
 
     int xi = (int)floor(xpixel_left);
     int yi = (int)floor(ypixel_top);
     float xfrac = xpixel_left - xi;
     float yfrac = ypixel_top - yi;
 
-    int x1 = max(xi,     0);
+    int x1 = max(xi,     img->crop.x);
     int x2 = min(xi + 1, img->image_dims.x - 1);
-    int y1 = max(yi,     0);
+    int y1 = max(yi,     img->crop.y);
     int y2 = min(yi + 1, img->image_dims.y - 1);
 
-    x1 += img->crop.x;
-    y1 += img->crop.y;
-    x2 += img->crop.x;
-    y2 += img->crop.y;
     int stride = img->strides.x / sizeof(uchar4);
     REAL4 p00 = CONVERT_REAL4(image4[y1 * stride + x1]);
     REAL4 p01 = CONVERT_REAL4(image4[y1 * stride + x2]);
@@ -949,34 +902,23 @@ uchar4 rgba_sampler_bl(__global const uchar *image, int out_x, int out_y, float 
     return result;
 }
 
-uchar4 rgb_sampler_bl(__global const uchar *image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill) {
-    //  Here we add in the offsets to the pixel from the crop meta
-    if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
+uchar4 rgb_sampler_bl(__global const uchar *image, float fx, float fy, const image_description *img, uchar fill) {
+    if (fx < img->crop.x || fx >= img->image_dims.x || fy < img->crop.y || fy >= img->image_dims.y) {
       return (uchar4)(fill, fill, fill, 255);
     }
     float xpixel_left = fx - 0.5f;
     float ypixel_top = fy - 0.5f;
-
-    int adj_x = out_x - img->letterbox.x;
-    int adj_y = out_y - img->letterbox.y;
-    if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
-      return (uchar4)(fill, fill, fill, 255);
-    }
 
     int xi = (int)floor(xpixel_left);
     int yi = (int)floor(ypixel_top);
     float xfrac = xpixel_left - xi;
     float yfrac = ypixel_top - yi;
 
-    int x1 = max(xi,     0);
+    int x1 = max(xi,     img->crop.x);
     int x2 = min(xi + 1, img->image_dims.x - 1);
-    int y1 = max(yi,     0);
+    int y1 = max(yi,     img->crop.y);
     int y2 = min(yi + 1, img->image_dims.y - 1);
 
-    x1 += img->crop.x;
-    y1 += img->crop.y;
-    x2 += img->crop.x;
-    y2 += img->crop.y;
     int stride = img->strides.x;
     __global const uchar * p_in = advance_uchar_ptr(image, y1 * stride);
     REAL4 p00 = CONVERT_REAL4((uchar4)(vload3(x1, p_in), 255));
@@ -1002,13 +944,8 @@ float pillow_bilinear_weight(float x) {
     return max(0.0f, 1.0f - fabs(x));
 }
 
-uchar4 rgba_sampler_pb(__global const uchar *image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-    if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
-        return (uchar4)(fill, fill, fill, 255);
-    }
-    int adj_x = out_x - img->letterbox.x;
-    int adj_y = out_y - img->letterbox.y;
-    if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
+uchar4 rgba_sampler_pb(__global const uchar *image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+    if (fx < img->crop.x || fx >= img->image_dims.x || fy < img->crop.y || fy >= img->image_dims.y) {
         return (uchar4)(fill, fill, fill, 255);
     }
     float src_x = fx - 0.5f;
@@ -1025,10 +962,10 @@ uchar4 rgba_sampler_pb(__global const uchar *image, int out_x, int out_y, float 
     float wsum = 0.0f;
     for (int j = -(half_y - 1); j <= half_y; j++) {
         float wy = pillow_bilinear_weight((src_y - (float)(cy + j)) / fs_y);
-        int sy = clamp(cy + j, 0, img->image_dims.y - 1) + img->crop.y;
+        int sy = clamp(cy + j, img->crop.y, img->image_dims.y - 1);
         for (int i = -(half_x - 1); i <= half_x; i++) {
             float w = wy * pillow_bilinear_weight((src_x - (float)(cx + i)) / fs_x);
-            int sx = clamp(cx + i, 0, img->image_dims.x - 1) + img->crop.x;
+            int sx = clamp(cx + i, img->crop.x, img->image_dims.x - 1);
             sum += w * convert_float4(image4[sy * stride + sx]);
             wsum += w;
         }
@@ -1037,13 +974,8 @@ uchar4 rgba_sampler_pb(__global const uchar *image, int out_x, int out_y, float 
     return convert_uchar4_sat(sum);
 }
 
-uchar4 rgb_sampler_pb(__global const uchar *image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-    if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
-        return (uchar4)(fill, fill, fill, 255);
-    }
-    int adj_x = out_x - img->letterbox.x;
-    int adj_y = out_y - img->letterbox.y;
-    if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
+uchar4 rgb_sampler_pb(__global const uchar *image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+    if (fx < img->crop.x || fx >= img->image_dims.x || fy < img->crop.y || fy >= img->image_dims.y) {
         return (uchar4)(fill, fill, fill, 255);
     }
     float src_x = fx - 0.5f;
@@ -1059,11 +991,11 @@ uchar4 rgb_sampler_pb(__global const uchar *image, int out_x, int out_y, float f
     float wsum = 0.0f;
     for (int j = -(half_y - 1); j <= half_y; j++) {
         float wy = pillow_bilinear_weight((src_y - (float)(cy + j)) / fs_y);
-        int sy = clamp(cy + j, 0, img->image_dims.y - 1) + img->crop.y;
+        int sy = clamp(cy + j, img->crop.y, img->image_dims.y - 1);
         __global const uchar *p_in = advance_uchar_ptr(image, sy * stride);
         for (int i = -(half_x - 1); i <= half_x; i++) {
             float w = wy * pillow_bilinear_weight((src_x - (float)(cx + i)) / fs_x);
-            int sx = clamp(cx + i, 0, img->image_dims.x - 1) + img->crop.x;
+            int sx = clamp(cx + i, img->crop.x, img->image_dims.x - 1);
             float4 px = convert_float4((uchar4)(vload3(sx, p_in), 255));
             sum += w * px;
             wsum += w;
@@ -1073,13 +1005,8 @@ uchar4 rgb_sampler_pb(__global const uchar *image, int out_x, int out_y, float f
     return convert_uchar4_sat(sum);
 }
 
-uchar gray8_sampler_pb(__global const uchar *image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-    if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
-        return fill;
-    }
-    int adj_x = out_x - img->letterbox.x;
-    int adj_y = out_y - img->letterbox.y;
-    if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
+uchar gray8_sampler_pb(__global const uchar *image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+    if (fx < img->crop.x || fx >= img->image_dims.x || fy < img->crop.y || fy >= img->image_dims.y) {
         return fill;
     }
     float src_x = fx - 0.5f;
@@ -1093,10 +1020,10 @@ uchar gray8_sampler_pb(__global const uchar *image, int out_x, int out_y, float 
     float sum = 0.0f, wsum = 0.0f;
     for (int j = -(half_y - 1); j <= half_y; j++) {
         float wy = pillow_bilinear_weight((src_y - (float)(cy + j)) / fs_y);
-        int sy = clamp(cy + j, 0, img->image_dims.y - 1) + img->crop.y;
+        int sy = clamp(cy + j, img->crop.y, img->image_dims.y - 1);
         for (int i = -(half_x - 1); i <= half_x; i++) {
             float w = wy * pillow_bilinear_weight((src_x - (float)(cx + i)) / fs_x);
-            int sx = clamp(cx + i, 0, img->image_dims.x - 1) + img->crop.x;
+            int sx = clamp(cx + i, img->crop.x, img->image_dims.x - 1);
             sum += w * convert_float(image[sy * img->strides.x + sx]);
             wsum += w;
         }
@@ -1105,14 +1032,9 @@ uchar gray8_sampler_pb(__global const uchar *image, int out_x, int out_y, float 
     return convert_uchar_sat(sum);
 }
 
-uchar4 nv_semiplanar_sampler_pb_two_plane(__global const uchar *y_image, __global const uchar *uv_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y, int uv_div_y) {
-  if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
+uchar4 nv_semiplanar_sampler_pb_two_plane(__global const uchar *y_image, __global const uchar *uv_image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y, int uv_div_x, int uv_div_y) {
+  if (fx < img->crop.x || fx >= img->image_dims.x || fy < img->crop.y || fy >= img->image_dims.y) {
     return (uchar4)(16, 128, 128, 255);
-  }
-  int adj_x = out_x - img->letterbox.x;
-  int adj_y = out_y - img->letterbox.y;
-  if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
-    return (uchar4)(fill, 128, 128, 255);
   }
   float src_x = fx - 0.5f;
   float src_y = fy - 0.5f;
@@ -1126,74 +1048,10 @@ uchar4 nv_semiplanar_sampler_pb_two_plane(__global const uchar *y_image, __globa
   float y_sum = 0.0f, y_wsum = 0.0f;
   for (int j = -(half_y - 1); j <= half_y; j++) {
     float wy = pillow_bilinear_weight((src_y - (float)(cy + j)) / fs_y);
-    int sy = clamp(cy + j, 0, img->image_dims.y - 1) + img->crop.y;
+    int sy = clamp(cy + j, img->crop.y, img->image_dims.y - 1);
     for (int i = -(half_x - 1); i <= half_x; i++) {
       float w = wy * pillow_bilinear_weight((src_x - (float)(cx + i)) / fs_x);
-      int sx = clamp(cx + i, 0, img->image_dims.x - 1) + img->crop.x;
-      y_sum += w * convert_float(y_image[sy * ystride + sx]);
-      y_wsum += w;
-    }
-  }
-  float y_val = (y_wsum != 0.0f) ? (y_sum / y_wsum) : 16.0f;
-  float xfrac = src_x - cx;
-  float yfrac = src_y - cy;
-  int x1 = max(cx, 0) + img->crop.x;
-  int y1 = max(cy, 0) + img->crop.y;
-  int x2 = min(cx + 1, img->image_dims.x - 1) + img->crop.x;
-  int y2 = min(cy + 1, img->image_dims.y - 1) + img->crop.y;
-  int ux1 = x1 / 2, uy1 = y1 / uv_div_y;
-  int ux2 = x2 / 2, uy2 = y2 / uv_div_y;
-  __global uchar2 *in_uv2 = (__global uchar2 *)uv_image;
-  int uvstride = img->strides.y / 2;
-  REAL2 uv00 = NV12_READ(ux1, uy1, in_uv2, uvstride);
-  REAL2 uv01 = NV12_READ(ux2, uy1, in_uv2, uvstride);
-  REAL2 uv10 = NV12_READ(ux1, uy2, in_uv2, uvstride);
-  REAL2 uv11 = NV12_READ(ux2, uy2, in_uv2, uvstride);
-  REAL2 uv_val = mix(mix(uv00, uv01, xfrac), mix(uv10, uv11, xfrac), yfrac);
-  return convert_uchar4_sat((float4)(y_val, (float)uv_val.x, (float)uv_val.y, 255.0f));
-}
-
-uchar4 nv12_sampler_pb_two_plane(__global const uchar *y_image, __global const uchar *uv_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-  return nv_semiplanar_sampler_pb_two_plane(y_image, uv_image, out_x, out_y, fx, fy, img, fill, filter_scale_x, filter_scale_y, 2);
-}
-
-uchar4 nv12_sampler_pb(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-  return nv12_sampler_pb_two_plane(y_image, y_image + img->offsets.y, out_x, out_y, fx, fy, img, fill, filter_scale_x, filter_scale_y);
-}
-
-uchar4 nv16_sampler_pb_two_plane(__global const uchar *y_image, __global const uchar *uv_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-  return nv_semiplanar_sampler_pb_two_plane(y_image, uv_image, out_x, out_y, fx, fy, img, fill, filter_scale_x, filter_scale_y, 1);
-}
-
-uchar4 nv16_sampler_pb(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-  return nv16_sampler_pb_two_plane(y_image, y_image + img->offsets.y, out_x, out_y, fx, fy, img, fill, filter_scale_x, filter_scale_y);
-}
-
-uchar4 yuv_planar_sampler_pb_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y, int uv_div_x, int uv_div_y) {
-  if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
-    return (uchar4)(16, 128, 128, 255);
-  }
-  int adj_x = out_x - img->letterbox.x;
-  int adj_y = out_y - img->letterbox.y;
-  if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
-    return (uchar4)(fill, 128, 128, 255);
-  }
-  float src_x = fx - 0.5f;
-  float src_y = fy - 0.5f;
-  int cx = (int)floor(src_x);
-  int cy = (int)floor(src_y);
-  float fs_x = max(1.0f, filter_scale_x);
-  float fs_y = max(1.0f, filter_scale_y);
-  int half_x = (int)ceil(fs_x);
-  int half_y = (int)ceil(fs_y);
-  int ystride = img->strides.x;
-  float y_sum = 0.0f, y_wsum = 0.0f;
-  for (int j = -(half_y - 1); j <= half_y; j++) {
-    float wy = pillow_bilinear_weight((src_y - (float)(cy + j)) / fs_y);
-    int sy = clamp(cy + j, 0, img->image_dims.y - 1) + img->crop.y;
-    for (int i = -(half_x - 1); i <= half_x; i++) {
-      float w = wy * pillow_bilinear_weight((src_x - (float)(cx + i)) / fs_x);
-      int sx = clamp(cx + i, 0, img->image_dims.x - 1) + img->crop.x;
+      int sx = clamp(cx + i, img->crop.x, img->image_dims.x - 1);
       y_sum += w * convert_float(y_image[sy * ystride + sx]);
       y_wsum += w;
     }
@@ -1205,12 +1063,71 @@ uchar4 yuv_planar_sampler_pb_three_plane(__global const uchar *y_image, __global
   int uyi = (int)floor(uv_ysrc);
   float uv_xfrac = uv_xsrc - uxi;
   float uv_yfrac = uv_ysrc - uyi;
-  int uv_crop_x = img->crop.x / uv_div_x;
-  int uv_crop_y = img->crop.y / uv_div_y;
-  int ux1 = max(uxi, 0) + uv_crop_x;
-  int uy1 = max(uyi, 0) + uv_crop_y;
-  int ux2 = min(uxi + 1, img->image_dims.x / uv_div_x - 1) + uv_crop_x;
-  int uy2 = min(uyi + 1, img->image_dims.y / uv_div_y - 1) + uv_crop_y;
+  int ux1 = max(uxi, img->crop.x / uv_div_x);
+  int uy1 = max(uyi, img->crop.y / uv_div_y);
+  int ux2 = min(uxi + 1, img->image_dims.x / uv_div_x - 1);
+  int uy2 = min(uyi + 1, img->image_dims.y / uv_div_y - 1);
+  __global uchar2 *in_uv2 = (__global uchar2 *)uv_image;
+  int uvstride = img->strides.y / 2;
+  REAL2 uv00 = NV12_READ(ux1, uy1, in_uv2, uvstride);
+  REAL2 uv01 = NV12_READ(ux2, uy1, in_uv2, uvstride);
+  REAL2 uv10 = NV12_READ(ux1, uy2, in_uv2, uvstride);
+  REAL2 uv11 = NV12_READ(ux2, uy2, in_uv2, uvstride);
+  REAL2 uv_val = mix(mix(uv00, uv01, uv_xfrac), mix(uv10, uv11, uv_xfrac), uv_yfrac);
+  return convert_uchar4_sat((float4)(y_val, (float)uv_val.x, (float)uv_val.y, 255.0f));
+}
+
+uchar4 nv12_sampler_pb_two_plane(__global const uchar *y_image, __global const uchar *uv_image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+  return nv_semiplanar_sampler_pb_two_plane(y_image, uv_image, fx, fy, img, fill, filter_scale_x, filter_scale_y, 2, 2);
+}
+
+uchar4 nv12_sampler_pb(__global const uchar *y_image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+  return nv12_sampler_pb_two_plane(y_image, y_image + img->offsets.y, fx, fy, img, fill, filter_scale_x, filter_scale_y);
+}
+
+uchar4 nv16_sampler_pb_two_plane(__global const uchar *y_image, __global const uchar *uv_image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+  return nv_semiplanar_sampler_pb_two_plane(y_image, uv_image, fx, fy, img, fill, filter_scale_x, filter_scale_y, 2, 1);
+}
+
+uchar4 nv16_sampler_pb(__global const uchar *y_image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+  return nv16_sampler_pb_two_plane(y_image, y_image + img->offsets.y, fx, fy, img, fill, filter_scale_x, filter_scale_y);
+}
+
+uchar4 yuv_planar_sampler_pb_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y, int uv_div_x, int uv_div_y) {
+  if (fx < img->crop.x || fx >= img->image_dims.x || fy < img->crop.y || fy >= img->image_dims.y) {
+    return (uchar4)(16, 128, 128, 255);
+  }
+  float src_x = fx - 0.5f;
+  float src_y = fy - 0.5f;
+  int cx = (int)floor(src_x);
+  int cy = (int)floor(src_y);
+  float fs_x = max(1.0f, filter_scale_x);
+  float fs_y = max(1.0f, filter_scale_y);
+  int half_x = (int)ceil(fs_x);
+  int half_y = (int)ceil(fs_y);
+  int ystride = img->strides.x;
+  float y_sum = 0.0f, y_wsum = 0.0f;
+  for (int j = -(half_y - 1); j <= half_y; j++) {
+    float wy = pillow_bilinear_weight((src_y - (float)(cy + j)) / fs_y);
+    int sy = clamp(cy + j, img->crop.y, img->image_dims.y - 1);
+    for (int i = -(half_x - 1); i <= half_x; i++) {
+      float w = wy * pillow_bilinear_weight((src_x - (float)(cx + i)) / fs_x);
+      int sx = clamp(cx + i, img->crop.x, img->image_dims.x - 1);
+      y_sum += w * convert_float(y_image[sy * ystride + sx]);
+      y_wsum += w;
+    }
+  }
+  float y_val = (y_wsum != 0.0f) ? (y_sum / y_wsum) : 16.0f;
+  float uv_xsrc = src_x / uv_div_x;
+  float uv_ysrc = src_y / uv_div_y;
+  int uxi = (int)floor(uv_xsrc);
+  int uyi = (int)floor(uv_ysrc);
+  float uv_xfrac = uv_xsrc - uxi;
+  float uv_yfrac = uv_ysrc - uyi;
+  int ux1 = max(uxi, img->crop.x / uv_div_x);
+  int uy1 = max(uyi, img->crop.y / uv_div_y);
+  int ux2 = min(uxi + 1, img->image_dims.x / uv_div_x - 1);
+  int uy2 = min(uyi + 1, img->image_dims.y / uv_div_y - 1);
   REAL2 uv00 = I420_READ(ux1, uy1, u_image, v_image, img->strides.y, img->strides.z);
   REAL2 uv01 = I420_READ(ux2, uy1, u_image, v_image, img->strides.y, img->strides.z);
   REAL2 uv10 = I420_READ(ux1, uy2, u_image, v_image, img->strides.y, img->strides.z);
@@ -1219,26 +1136,21 @@ uchar4 yuv_planar_sampler_pb_three_plane(__global const uchar *y_image, __global
   return convert_uchar4_sat((float4)(y_val, (float)uv_val.x, (float)uv_val.y, 255.0f));
 }
 
-uchar4 i420_sampler_pb_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-  return yuv_planar_sampler_pb_three_plane(y_image, u_image, v_image, out_x, out_y, fx, fy, img, fill, filter_scale_x, filter_scale_y, 2, 2);
+uchar4 i420_sampler_pb_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+  return yuv_planar_sampler_pb_three_plane(y_image, u_image, v_image, fx, fy, img, fill, filter_scale_x, filter_scale_y, 2, 2);
 }
 
-uchar4 i420_sampler_pb_two_plane(__global const uchar *y_image, __global const uchar *uv_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-  return i420_sampler_pb_three_plane(y_image, uv_image, uv_image + img->offsets.z, out_x, out_y, fx, fy, img, fill, filter_scale_x, filter_scale_y);
+uchar4 i420_sampler_pb_two_plane(__global const uchar *y_image, __global const uchar *uv_image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+  return i420_sampler_pb_three_plane(y_image, uv_image, uv_image + img->offsets.z, fx, fy, img, fill, filter_scale_x, filter_scale_y);
 }
 
-uchar4 i420_sampler_pb(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-  return i420_sampler_pb_three_plane(y_image, y_image + img->offsets.y, y_image + img->offsets.z, out_x, out_y, fx, fy, img, fill, filter_scale_x, filter_scale_y);
+uchar4 i420_sampler_pb(__global const uchar *y_image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+  return i420_sampler_pb_three_plane(y_image, y_image + img->offsets.y, y_image + img->offsets.z, fx, fy, img, fill, filter_scale_x, filter_scale_y);
 }
 
-uchar4 yuyv_sampler_pb(__global const uchar *in, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-  if (fx < 0 || fx >= img->image_dims.x || fy < 0 || fy >= img->image_dims.y) {
+uchar4 yuyv_sampler_pb(__global const uchar *in, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+  if (fx < img->crop.x || fx >= img->image_dims.x || fy < img->crop.y || fy >= img->image_dims.y) {
     return (uchar4)(16, 128, 128, 255);
-  }
-  int adj_x = out_x - img->letterbox.x;
-  int adj_y = out_y - img->letterbox.y;
-  if (adj_x < 0 || adj_y < 0 || adj_x >= img->letterbox.z || adj_y >= img->letterbox.w) {
-    return (uchar4)(fill, 128, 128, 255);
   }
   float src_x = fx - 0.5f;
   float src_y = fy - 0.5f;
@@ -1254,10 +1166,10 @@ uchar4 yuyv_sampler_pb(__global const uchar *in, int out_x, int out_y, float fx,
   float wsum = 0.0f;
   for (int j = -(half_y - 1); j <= half_y; j++) {
     float wy = pillow_bilinear_weight((src_y - (float)(cy + j)) / fs_y);
-    int sy = clamp(cy + j, 0, img->image_dims.y - 1) + img->crop.y;
+    int sy = clamp(cy + j, img->crop.y, img->image_dims.y - 1);
     for (int i = -(half_x - 1); i <= half_x; i++) {
       float w = wy * pillow_bilinear_weight((src_x - (float)(cx + i)) / fs_x);
-      int sx = clamp(cx + i, 0, img->image_dims.x - 1) + img->crop.x;
+      int sx = clamp(cx + i, img->crop.x, img->image_dims.x - 1);
       float4 p = convert_float4(in4[sy * stride + (sx >> 1)]);
       float4 px = (sx & 1) ? (float4)(p.z, p.y, p.w, 255) : (float4)(p.x, p.y, p.w, 255);
       sum += w * px;
@@ -1268,94 +1180,59 @@ uchar4 yuyv_sampler_pb(__global const uchar *in, int out_x, int out_y, float fx,
   return convert_uchar4_sat(sum);
 }
 
-uchar4 y444_sampler_pb_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-  return yuv_planar_sampler_pb_three_plane(y_image, u_image, v_image, out_x, out_y, fx, fy, img, fill, filter_scale_x, filter_scale_y, 1, 1);
+uchar4 y444_sampler_pb_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+  return yuv_planar_sampler_pb_three_plane(y_image, u_image, v_image, fx, fy, img, fill, filter_scale_x, filter_scale_y, 1, 1);
 }
 
-uchar4 y444_sampler_pb_two_plane(__global const uchar *y_image, __global const uchar *uv_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-  return y444_sampler_pb_three_plane(y_image, uv_image, uv_image + img->offsets.z, out_x, out_y, fx, fy, img, fill, filter_scale_x, filter_scale_y);
+uchar4 y444_sampler_pb_two_plane(__global const uchar *y_image, __global const uchar *uv_image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+  return y444_sampler_pb_three_plane(y_image, uv_image, uv_image + img->offsets.z, fx, fy, img, fill, filter_scale_x, filter_scale_y);
 }
 
-uchar4 y444_sampler_pb(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-  return y444_sampler_pb_three_plane(y_image, y_image + img->offsets.y, y_image + img->offsets.z, out_x, out_y, fx, fy, img, fill, filter_scale_x, filter_scale_y);
+uchar4 y444_sampler_pb(__global const uchar *y_image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+  return y444_sampler_pb_three_plane(y_image, y_image + img->offsets.y, y_image + img->offsets.z, fx, fy, img, fill, filter_scale_x, filter_scale_y);
 }
 
-uchar4 y42b_sampler_pb_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-  return yuv_planar_sampler_pb_three_plane(y_image, u_image, v_image, out_x, out_y, fx, fy, img, fill, filter_scale_x, filter_scale_y, 2, 1);
+uchar4 y42b_sampler_pb_three_plane(__global const uchar *y_image, __global const uchar *u_image, __global const uchar *v_image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+  return yuv_planar_sampler_pb_three_plane(y_image, u_image, v_image, fx, fy, img, fill, filter_scale_x, filter_scale_y, 2, 1);
 }
 
-uchar4 y42b_sampler_pb_two_plane(__global const uchar *y_image, __global const uchar *uv_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-  return y42b_sampler_pb_three_plane(y_image, uv_image, uv_image + img->offsets.z, out_x, out_y, fx, fy, img, fill, filter_scale_x, filter_scale_y);
+uchar4 y42b_sampler_pb_two_plane(__global const uchar *y_image, __global const uchar *uv_image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+  return y42b_sampler_pb_three_plane(y_image, uv_image, uv_image + img->offsets.z, fx, fy, img, fill, filter_scale_x, filter_scale_y);
 }
 
-uchar4 y42b_sampler_pb(__global const uchar *y_image, int out_x, int out_y, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
-  return y42b_sampler_pb_three_plane(y_image, y_image + img->offsets.y, y_image + img->offsets.z, out_x, out_y, fx, fy, img, fill, filter_scale_x, filter_scale_y);
+uchar4 y42b_sampler_pb(__global const uchar *y_image, float fx, float fy, const image_description *img, uchar fill, float filter_scale_x, float filter_scale_y) {
+  return y42b_sampler_pb_three_plane(y_image, y_image + img->offsets.y, y_image + img->offsets.z, fx, fy, img, fill, filter_scale_x, filter_scale_y);
 }
 
 )##";
   return utils;
 }
 
-std::string
-get_rotation(int rotate_type)
+// Returns a float16 encoding a 3x4 matrix for coordinate transformation.
+// Follows the same convention as perspective_transform(): pixel centres are at
+// (col+0.5, row+0.5), so the matrix is applied to (col+0.5, row+0.5, 1, 0).
+//   s[0..3]  = row0: corrected.x = s0*(col+0.5) + s1*(row+0.5) + s2
+//   s[4..7]  = row1: corrected.y = s4*(col+0.5) + s5*(row+0.5) + s6
+//   s[8..11] = row2: denom       = s8*(col+0.5) + s9*(row+0.5) + sa (1.0 for
+//   affine) s[12..15] = unused zeros
+// Translation terms use full width/height so that pixel (W-1-col)'s centre
+// maps correctly: -1*(col+0.5) + W = W-col-0.5 = (W-1-col)+0.5.
+cl_float16
+get_transform_matrix(int rotate_type, int width, int height)
 {
-  const char *urd = R"##(
-  int new_x = (height - row) - 1;
-  int new_y = (width - col) - 1;
-  int2 corrected = (int2)(new_x, new_y);
-)##";
-
-  const char *uld = R"##(
-  int new_x = row;
-  int new_y = col;
-  int2 corrected = (int2)(new_x, new_y);
-)##";
-
-  const char *clockwise = R"##(
-  int new_x = row;
-  int new_y = (width - col) - 1;
-  int2 corrected = (int2)(new_x, new_y);
-)##";
-
-  const char *counter_clockwise = R"##(
-  int new_x = (height - row) - 1;
-  int new_y = col;
-  int2 corrected = (int2)(new_x, new_y);
-)##";
-
-  const char *rotate180 = R"##(
-  int new_x = (width - col) - 1;
-  int new_y = (height - row) - 1;
-  int2 corrected = (int2)(new_x, new_y);
-)##";
-
-  const char *vertical = R"##(
-  int new_x = col;
-  int new_y = (height - row) - 1;
-  int2 corrected = (int2)(new_x, new_y);
-)##";
-
-  const char *horizontal = R"##(
-  int new_x = (width - col) - 1;
-  int new_y = row;
-  int2 corrected = (int2)(new_x, new_y);
-)##";
-
-  const char *none = R"##(
-  int2 corrected = (int2)(col, row);
-)##";
-
-  std::array flips = {
-    none,
-    clockwise,
-    rotate180,
-    counter_clockwise,
-    horizontal,
-    vertical,
-    uld,
-    urd,
-  };
-  return 0 <= rotate_type && rotate_type < flips.size() ? flips[rotate_type] : none;
+  const float w = (float) width, h = (float) height;
+  // clang-format off
+  switch (rotate_type) {
+    case 1: return (cl_float16){ 0,  1, 0, 0, -1,  0, w, 0,  0, 0, 1, 0,  0, 0, 0, 0 }; // clockwise
+    case 2: return (cl_float16){-1,  0, w, 0,  0, -1, h, 0,  0, 0, 1, 0,  0, 0, 0, 0 }; // rotate180
+    case 3: return (cl_float16){ 0, -1, h, 0,  1,  0, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0 }; // counter_clockwise
+    case 4: return (cl_float16){-1,  0, w, 0,  0,  1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0 }; // horizontal
+    case 5: return (cl_float16){ 1,  0, 0, 0,  0, -1, h, 0,  0, 0, 1, 0,  0, 0, 0, 0 }; // vertical
+    case 6: return (cl_float16){ 0,  1, 0, 0,  1,  0, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0 }; // uld
+    case 7: return (cl_float16){ 0, -1, h, 0, -1,  0, w, 0,  0, 0, 1, 0,  0, 0, 0, 0 }; // urd
+    default: return (cl_float16){ 1,  0, 0, 0,  0,  1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0 }; // none
+  }
+  // clang-format on
 }
 
 CLProgram::flush_details
@@ -1615,7 +1492,7 @@ get_color_conversion_matrix(AxVideoFormat in_format, AxVideoFormat out_format)
 
 cl_float16
 get_color_conversion_matrix_with_norm(AxVideoFormat in_format, AxVideoFormat out_format,
-    const std::vector<cl_float> &mul, const std::vector<cl_float> &add)
+    const std::vector<float> &mul, const std::vector<float> &add)
 {
   auto M = get_color_conversion_matrix(in_format, out_format);
   // Fuse per-channel affine norm (out_i = color_i * mul_i + add_i) into the
@@ -1631,7 +1508,7 @@ get_color_conversion_matrix_with_norm(AxVideoFormat in_format, AxVideoFormat out
   return M;
 }
 
-std::array<cl_int, 4>
+cl_int4
 build_strides(const buffer_details &in, const buffer_details &out)
 {
   if (in.format == AxVideoFormat::NV12 || in.format == AxVideoFormat::NV16) {
@@ -1659,7 +1536,7 @@ build_strides(const buffer_details &in, const buffer_details &out)
   };
 }
 
-std::array<cl_int, 4>
+cl_int4
 build_offsets(const buffer_details &in, const buffer_details &out, int num_planes)
 {
   if (in.format == AxVideoFormat::NV12 || in.format == AxVideoFormat::NV16) {
@@ -1687,225 +1564,265 @@ build_offsets(const buffer_details &in, const buffer_details &out, int num_plane
   return { 0, 0, 0, 0 };
 }
 
+run_inputs
+prepare_run_inputs(CLProgram &program, const buffer_details &in,
+    const buffer_details &out, int num_planes)
+{
+  return {
+    build_strides(in, out),
+    build_offsets(in, out, num_planes),
+    program.create_buffers(1, determine_buffer_size(in),
+        CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, in.data, in.offsets.size()),
+    get_color_conversion_matrix(in.format, out.format),
+  };
+}
+
+run_inputs
+prepare_run_inputs(CLProgram &program, const buffer_details &in, const buffer_details &out,
+    int num_planes, const std::vector<float> &mul, const std::vector<float> &add)
+{
+  return {
+    build_strides(in, out),
+    build_offsets(in, out, num_planes),
+    program.create_buffers(1, determine_buffer_size(in),
+        CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, in.data, in.offsets.size()),
+    get_color_conversion_matrix_with_norm(in.format, out.format, mul, add),
+  };
+}
+
 const char *rgb_sampler = R"##(
-    uchar4 pixel = rgb_sampler_bl(in, col, row, corrected.x, corrected.y, &img, fill);
+    uchar4 pixel = rgb_sampler_bl(in, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *rgba_sampler = R"##(
-    uchar4 pixel = rgba_sampler_bl(in, col, row, corrected.x, corrected.y, &img, fill);
+    uchar4 pixel = rgba_sampler_bl(in, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *nv12_sampler = R"##(
-    uchar4 pixel = nv12_sampler(in, col, row, corrected.x, corrected.y, &img, fill);
+    uchar4 pixel = nv12_sampler(in, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *nv12_sampler_two_plane = R"##(
-    uchar4 pixel = nv12_sampler_two_plane(in, in_uv, col, row, corrected.x, corrected.y, &img, fill);
+    uchar4 pixel = nv12_sampler_two_plane(in, in_uv, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *nv16_sampler = R"##(
-    uchar4 pixel = nv16_sampler(in, col, row, corrected.x, corrected.y, &img, fill);
+    uchar4 pixel = nv16_sampler(in, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *nv16_sampler_two_plane = R"##(
-    uchar4 pixel = nv16_sampler_two_plane(in, in_uv, col, row, corrected.x, corrected.y, &img, fill);
+    uchar4 pixel = nv16_sampler_two_plane(in, in_uv, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *i420_sampler = R"##(
-    uchar4 pixel = i420_sampler(in, col, row, corrected.x, corrected.y, &img, fill);
+    uchar4 pixel = i420_sampler(in, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *i420_sampler_two_plane = R"##(
-    uchar4 pixel = i420_sampler_two_plane(in, in_uv, col, row, corrected.x, corrected.y, &img, fill);
+    uchar4 pixel = i420_sampler_two_plane(in, in_uv, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *i420_sampler_three_plane = R"##(
-    uchar4 pixel = i420_sampler_three_plane(in, in_u, in_v, col, row, corrected.x, corrected.y, &img, fill);
+    uchar4 pixel = i420_sampler_three_plane(in, in_u, in_v, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *y444_sampler = R"##(
-    uchar4 pixel = y444_sampler(in, col, row, corrected.x, corrected.y, &img, fill);
+    uchar4 pixel = y444_sampler(in, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *y444_sampler_two_plane = R"##(
-    uchar4 pixel = y444_sampler_two_plane(in, in_uv, col, row, corrected.x, corrected.y, &img, fill);
+    uchar4 pixel = y444_sampler_two_plane(in, in_uv, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *y444_sampler_three_plane = R"##(
-    uchar4 pixel = y444_sampler_three_plane(in, in_u, in_v, col, row, corrected.x, corrected.y, &img, fill);
+    uchar4 pixel = y444_sampler_three_plane(in, in_u, in_v, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *y42b_sampler = R"##(
-    uchar4 pixel = y42b_sampler(in, col, row, corrected.x, corrected.y, &img, fill);
+    uchar4 pixel = y42b_sampler(in, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *y42b_sampler_two_plane = R"##(
-    uchar4 pixel = y42b_sampler_two_plane(in, in_uv, col, row, corrected.x, corrected.y, &img, fill);
+    uchar4 pixel = y42b_sampler_two_plane(in, in_uv, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *y42b_sampler_three_plane = R"##(
-    uchar4 pixel = y42b_sampler_three_plane(in, in_u, in_v, col, row, corrected.x, corrected.y, &img, fill);
+    uchar4 pixel = y42b_sampler_three_plane(in, in_u, in_v, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *yuyv_sampler = R"##(
-    uchar4 pixel = yuyv_sampler(in, col, row, corrected.x, corrected.y, &img, fill);
+    uchar4 pixel = yuyv_sampler(in, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *gray8_sampler = R"##(
-    uchar pixel = gray8_sampler_bl(in, col, row, corrected.x, corrected.y, &img, fill);
+    uchar pixel = gray8_sampler_bl(in, corrected.x, corrected.y, &img, fill);
 )##";
 
 const char *nv12_nn_sampler = R"##(
-    uchar y = in[corrected.y * strides.x + corrected.x];
+    int2 icorrected = convert_int2(corrected);
+    uchar y = in[icorrected.y * strides.x + icorrected.x];
     __global const uchar *inuv = advance_uchar_ptr(in, offsets.y);
-    int uv_idx = corrected.y / 2 * strides.y + (corrected.x & ~1);
+    int uv_idx = icorrected.y / 2 * strides.y + (icorrected.x & ~1);
     uchar4 pixel = (uchar4)(y, inuv[uv_idx], inuv[uv_idx + 1], 255);
 )##";
 
 const char *nv16_nn_sampler = R"##(
-    uchar y = in[corrected.y * strides.x + corrected.x];
+    int2 icorrected = convert_int2(corrected);
+    uchar y = in[icorrected.y * strides.x + icorrected.x];
     __global const uchar *inuv = advance_uchar_ptr(in, offsets.y);
-    int uv_idx = corrected.y * strides.y + (corrected.x & ~1);
+    int uv_idx = icorrected.y * strides.y + (icorrected.x & ~1);
     uchar4 pixel = (uchar4)(y, inuv[uv_idx], inuv[uv_idx + 1], 255);
 )##";
 
 const char *i420_nn_sampler = R"##(
-    uchar y = in[corrected.y * strides.x + corrected.x];
+    int2 icorrected = convert_int2(corrected);
+    uchar y = in[icorrected.y * strides.x + icorrected.x];
     __global const uchar *u = advance_uchar_ptr(in, offsets.y);
     __global const uchar *v = advance_uchar_ptr(in, offsets.z);
-    uchar4 pixel = (uchar4)(y, u[corrected.y / 2 * strides.y + corrected.x / 2], v[corrected.y / 2 * strides.z + corrected.x / 2], 255);
+    uchar4 pixel = (uchar4)(y, u[icorrected.y / 2 * strides.y + icorrected.x / 2], v[icorrected.y / 2 * strides.z + icorrected.x / 2], 255);
 )##";
 
 const char *yuyv_nn_sampler = R"##(
-    __global uchar4 *in4 = advance_uchar4_ptr(in, corrected.y * strides.x);
-    uchar4 i = in4[corrected.x / 2];
-    uchar y = corrected.x % 2 == 0 ? i.x : i.z;
+    int2 icorrected = convert_int2(corrected);
+    __global uchar4 *in4 = advance_uchar4_ptr(in, icorrected.y * strides.x);
+    uchar4 i = in4[icorrected.x / 2];
+    uchar y = icorrected.x % 2 == 0 ? i.x : i.z;
     uchar4 pixel = (uchar4)(y, i.y, i.w, 255);
 )##";
 
 const char *rgba_nn_sampler = R"##(
-    __global const uchar4 *row_ptr = advance_uchar4_ptr(in, corrected.y * strides.x);
-    uchar4 pixel = row_ptr[corrected.x];
+    int2 icorrected = convert_int2(corrected);
+    __global const uchar4 *row_ptr = advance_uchar4_ptr(in, icorrected.y * strides.x);
+    uchar4 pixel = row_ptr[icorrected.x];
 )##";
 
 const char *rgb_nn_sampler = R"##(
-    __global const uchar *p = advance_uchar_ptr(in, corrected.y * strides.x);
-    uchar4 pixel = (uchar4)(vload3(corrected.x, p), 255);
+    int2 icorrected = convert_int2(corrected);
+    __global const uchar *p = advance_uchar_ptr(in, icorrected.y * strides.x);
+    uchar4 pixel = (uchar4)(vload3(icorrected.x, p), 255);
 )##";
 
 const char *gray8_nn_sampler = R"##(
-    uchar pixel = in[corrected.y * strides.x + corrected.x];
+    int2 icorrected = convert_int2(corrected);
+    uchar pixel = in[icorrected.y * strides.x + icorrected.x];
 )##";
 
 const char *nv12_nn_sampler_two_plane = R"##(
-    uchar y = in[corrected.y * strides.x + corrected.x];
-    int uv_idx = corrected.y / 2 * strides.y + (corrected.x & ~1);
+    int2 icorrected = convert_int2(corrected);
+    uchar y = in[icorrected.y * strides.x + icorrected.x];
+    int uv_idx = icorrected.y / 2 * strides.y + (icorrected.x & ~1);
     uchar4 pixel = (uchar4)(y, in_uv[uv_idx], in_uv[uv_idx + 1], 255);
 )##";
 
 const char *nv16_nn_sampler_two_plane = R"##(
-    uchar y = in[corrected.y * strides.x + corrected.x];
-    int uv_idx = corrected.y * strides.y + (corrected.x & ~1);
+    int2 icorrected = convert_int2(corrected);
+    uchar y = in[icorrected.y * strides.x + icorrected.x];
+    int uv_idx = icorrected.y * strides.y + (icorrected.x & ~1);
     uchar4 pixel = (uchar4)(y, in_uv[uv_idx], in_uv[uv_idx + 1], 255);
 )##";
 
 const char *i420_nn_sampler_two_plane = R"##(
-    uchar y = in[corrected.y * strides.x + corrected.x];
+    int2 icorrected = convert_int2(corrected);
+    uchar y = in[icorrected.y * strides.x + icorrected.x];
     __global const uchar *inu = in_uv;
     __global const uchar *inv = advance_uchar_ptr(in_uv, offsets.z);
-    uchar4 pixel = (uchar4)(y, inu[corrected.y / 2 * strides.y + corrected.x / 2], inv[corrected.y / 2 * strides.z + corrected.x / 2], 255);
+    uchar4 pixel = (uchar4)(y, inu[icorrected.y / 2 * strides.y + icorrected.x / 2], inv[icorrected.y / 2 * strides.z + icorrected.x / 2], 255);
 )##";
 
 const char *i420_nn_sampler_three_plane = R"##(
-    uchar y = in[corrected.y * strides.x + corrected.x];
-    uchar4 pixel = (uchar4)(y, in_u[corrected.y / 2 * strides.y + corrected.x / 2], in_v[corrected.y / 2 * strides.z + corrected.x / 2], 255);
+    int2 icorrected = convert_int2(corrected);
+    uchar y = in[icorrected.y * strides.x + icorrected.x];
+    uchar4 pixel = (uchar4)(y, in_u[icorrected.y / 2 * strides.y + icorrected.x / 2], in_v[icorrected.y / 2 * strides.z + icorrected.x / 2], 255);
 )##";
 
 const char *y444_nn_sampler = R"##(
-    uchar y = in[corrected.y * strides.x + corrected.x];
+    int2 icorrected = convert_int2(corrected);
+    uchar y = in[icorrected.y * strides.x + icorrected.x];
     __global const uchar *u = advance_uchar_ptr(in, offsets.y);
     __global const uchar *v = advance_uchar_ptr(in, offsets.z);
-    uchar4 pixel = (uchar4)(y, u[corrected.y * strides.y + corrected.x], v[corrected.y * strides.z + corrected.x], 255);
+    uchar4 pixel = (uchar4)(y, u[icorrected.y * strides.y + icorrected.x], v[icorrected.y * strides.z + icorrected.x], 255);
 )##";
 
 const char *y444_nn_sampler_two_plane = R"##(
-    uchar y = in[corrected.y * strides.x + corrected.x];
+    int2 icorrected = convert_int2(corrected);
+    uchar y = in[icorrected.y * strides.x + icorrected.x];
     __global const uchar *inu = in_uv;
     __global const uchar *inv = advance_uchar_ptr(in_uv, offsets.z);
-    uchar4 pixel = (uchar4)(y, inu[corrected.y * strides.y + corrected.x], inv[corrected.y * strides.z + corrected.x], 255);
+    uchar4 pixel = (uchar4)(y, inu[icorrected.y * strides.y + icorrected.x], inv[icorrected.y * strides.z + icorrected.x], 255);
 )##";
 
 const char *y444_nn_sampler_three_plane = R"##(
-    uchar y = in[corrected.y * strides.x + corrected.x];
-    uchar4 pixel = (uchar4)(y, in_u[corrected.y * strides.y + corrected.x], in_v[corrected.y * strides.z + corrected.x], 255);
+    int2 icorrected = convert_int2(corrected);
+    uchar y = in[icorrected.y * strides.x + icorrected.x];
+    uchar4 pixel = (uchar4)(y, in_u[icorrected.y * strides.y + icorrected.x], in_v[icorrected.y * strides.z + icorrected.x], 255);
 )##";
 
 const char *nv12_pb_sampler = R"##(
-    uchar4 pixel = nv12_sampler_pb(in, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar4 pixel = nv12_sampler_pb(in, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 const char *nv12_pb_sampler_two_plane = R"##(
-    uchar4 pixel = nv12_sampler_pb_two_plane(in, in_uv, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar4 pixel = nv12_sampler_pb_two_plane(in, in_uv, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 const char *nv16_pb_sampler = R"##(
-    uchar4 pixel = nv16_sampler_pb(in, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar4 pixel = nv16_sampler_pb(in, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 const char *nv16_pb_sampler_two_plane = R"##(
-    uchar4 pixel = nv16_sampler_pb_two_plane(in, in_uv, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar4 pixel = nv16_sampler_pb_two_plane(in, in_uv, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 const char *i420_pb_sampler = R"##(
-    uchar4 pixel = i420_sampler_pb(in, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar4 pixel = i420_sampler_pb(in, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 const char *i420_pb_sampler_two_plane = R"##(
-    uchar4 pixel = i420_sampler_pb_two_plane(in, in_uv, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar4 pixel = i420_sampler_pb_two_plane(in, in_uv, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 const char *i420_pb_sampler_three_plane = R"##(
-    uchar4 pixel = i420_sampler_pb_three_plane(in, in_u, in_v, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar4 pixel = i420_sampler_pb_three_plane(in, in_u, in_v, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 const char *yuyv_pb_sampler = R"##(
-    uchar4 pixel = yuyv_sampler_pb(in, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar4 pixel = yuyv_sampler_pb(in, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 const char *gray8_pb_sampler = R"##(
-    uchar pixel = gray8_sampler_pb(in, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar pixel = gray8_sampler_pb(in, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 const char *rgb_pb_sampler = R"##(
-    uchar4 pixel = rgb_sampler_pb(in, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar4 pixel = rgb_sampler_pb(in, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 const char *rgba_pb_sampler = R"##(
-    uchar4 pixel = rgba_sampler_pb(in, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar4 pixel = rgba_sampler_pb(in, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 const char *y444_pb_sampler = R"##(
-    uchar4 pixel = y444_sampler_pb(in, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar4 pixel = y444_sampler_pb(in, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 const char *y444_pb_sampler_two_plane = R"##(
-    uchar4 pixel = y444_sampler_pb_two_plane(in, in_uv, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar4 pixel = y444_sampler_pb_two_plane(in, in_uv, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 const char *y444_pb_sampler_three_plane = R"##(
-    uchar4 pixel = y444_sampler_pb_three_plane(in, in_u, in_v, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar4 pixel = y444_sampler_pb_three_plane(in, in_u, in_v, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 const char *y42b_pb_sampler = R"##(
-    uchar4 pixel = y42b_sampler_pb(in, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar4 pixel = y42b_sampler_pb(in, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 const char *y42b_pb_sampler_two_plane = R"##(
-    uchar4 pixel = y42b_sampler_pb_two_plane(in, in_uv, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar4 pixel = y42b_sampler_pb_two_plane(in, in_uv, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 const char *y42b_pb_sampler_three_plane = R"##(
-    uchar4 pixel = y42b_sampler_pb_three_plane(in, in_u, in_v, col, row, corrected.x, corrected.y, &img, fill, xscale, yscale);
+    uchar4 pixel = y42b_sampler_pb_three_plane(in, in_u, in_v, corrected.x, corrected.y, &img, fill, xscale, yscale);
 )##";
 
 // Y42B (planar 4:2:2): chroma full vertical resolution, half horizontal (corrected.x / 2).

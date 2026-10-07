@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2023
+// Copyright Axelera AI, 2025
 #pragma once
 
 #include <opencv2/opencv.hpp>

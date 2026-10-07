@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Operators that convert model-specific tensor output to
 # generalized metadata representation
 from __future__ import annotations
@@ -11,6 +11,7 @@ import numpy as np
 from axelera import types
 from axelera.app import gst_builder, logging_utils
 from axelera.app.meta import BBoxState, ObjectDetectionMeta
+from axelera.app.model_utils.box import faster_rcnn_box_decode
 from axelera.app.operators import AxOperator, PipelineContext, utils
 from axelera.app.torch_utils import torch
 
@@ -240,30 +241,6 @@ def _organize_ssd_outputs(predict, num_classes):
     ]  # Assuming location and confidence maps match
 
     return ordered_confidences, ordered_locations, feature_map_info
-
-
-def faster_rcnn_box_decode(locations, priors, center_variance, size_variance):
-    """
-    Decode predicted offsets to bounding box using Faster R-CNN box coder.
-
-    Args:
-    locations (ndarray): Predicted offsets for each prior box.
-    priors (ndarray): Prior boxes in [cx, cy, w, h] format.
-    center_variance, size_variance: Scaling factors.
-
-    Returns:
-    Decoded bounding boxes in [xmin, ymin, xmax, ymax] format.
-    """
-    boxes = np.concatenate(
-        [
-            locations[:, :2] * center_variance * priors[:, 2:] + priors[:, :2],
-            np.exp(locations[:, 2:] * size_variance) * priors[:, 2:],
-        ],
-        axis=1,
-    )
-    boxes[:, :2] -= boxes[:, 2:] / 2
-    boxes[:, 2:] += boxes[:, :2]
-    return boxes
 
 
 def _generate_anchors(

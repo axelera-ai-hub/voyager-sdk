@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 from dataclasses import FrozenInstanceError
 import itertools
 from unittest.mock import ANY, Mock, call, patch
@@ -7,8 +7,7 @@ from PIL import ImageDraw, ImageFont
 import numpy as np
 import pytest
 
-from axelera import types
-from axelera.app import display_cv, utils
+from axelera.app import utils
 from axelera.app.eval_interfaces import ObjDetEvalSample, ObjDetGroundTruthSample
 from axelera.app.meta import DetectedObject, ObjectDetectionMeta
 
@@ -26,10 +25,10 @@ class MockTaskRenderConfig:
         self.show_annotations = show_annotations
 
 
-def mock_draw(width, height, monkeypatch):
+def mock_draw(rt2_img, width, height, monkeypatch):
     mock = Mock(ImageDraw.ImageDraw)
     monkeypatch.setattr(ImageFont.FreeTypeFont, "getbbox", lambda *args, **kwargs: (0, 0, 40, 8))
-    image = types.Image.fromarray(np.zeros((height, width, 3), np.uint8))
+    image = rt2_img.Image.from_array(np.zeros((height, width, 3), np.uint8), 'RGB')
     return mock, image
 
 
@@ -83,19 +82,27 @@ def mock_image_draw(draw):
     ],
 )
 def test_box_with_no_labels(
-    boxes, scores, classes, expected_rectangles, expected_text, message, monkeypatch
+    display_cv,
+    rt2_img,
+    boxes,
+    scores,
+    classes,
+    expected_rectangles,
+    expected_text,
+    message,
+    monkeypatch,
 ):
     output_width = 1280
     output_height = 1280
-    draw, image = mock_draw(output_width, output_height, monkeypatch)
+    draw, image = mock_draw(rt2_img, output_width, output_height, monkeypatch)
     meta = ObjectDetectionMeta(boxes, scores, classes)
     container_meta = create_container_with_render_config("detection_meta")
     meta.set_container_meta(container_meta)
     object.__setattr__(meta, 'meta_name', "detection_meta")
 
     with patch("PIL.ImageDraw.Draw", mock_image_draw(draw)):
-        composite = types.Image.fromarray(
-            np.zeros((output_height, output_width, 3), dtype=np.uint8)
+        composite = rt2_img.Image.from_array(
+            np.zeros((output_height, output_width, 3), dtype=np.uint8), 'RGB'
         )
         display_draw = display_cv.CVDraw(0, 1, composite, image, [])
         meta.draw(display_draw)
@@ -156,11 +163,20 @@ def test_box_with_no_labels(
     ],
 )
 def test_box_with_labels(
-    boxes, scores, classes, expected_rectangles, expected_text, message, labels, monkeypatch
+    display_cv,
+    rt2_img,
+    boxes,
+    scores,
+    classes,
+    expected_rectangles,
+    expected_text,
+    message,
+    labels,
+    monkeypatch,
 ):
     output_width = 1280
     output_height = 1280
-    draw, image = mock_draw(output_width, output_height, monkeypatch)
+    draw, image = mock_draw(rt2_img, output_width, output_height, monkeypatch)
     meta = ObjectDetectionMeta(boxes, scores, classes, labels=labels)
 
     container_meta = create_container_with_render_config("detection_meta")
@@ -168,8 +184,8 @@ def test_box_with_labels(
     object.__setattr__(meta, 'meta_name', "detection_meta")
 
     with patch("PIL.ImageDraw.Draw", mock_image_draw(draw)):
-        composite = types.Image.fromarray(
-            np.zeros((output_height, output_width, 3), dtype=np.uint8)
+        composite = rt2_img.Image.from_array(
+            np.zeros((output_height, output_width, 3), dtype=np.uint8), 'RGB'
         )
         display_draw = display_cv.CVDraw(0, 1, composite, image, [])
         meta.draw(display_draw)

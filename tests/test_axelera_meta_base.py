@@ -40,6 +40,8 @@ _add_meta(BIRDS, (50, 60, 70, 80), 0.8, GOOST)
 
 
 def _make_draw_with_options(**kwargs):
+    if not display.HAVE_RUNTIME2:
+        pytest.skip('axelera.runtime2 is not installed')
     draw = Mock()
     draw.options = display.Options(**kwargs)
     return draw

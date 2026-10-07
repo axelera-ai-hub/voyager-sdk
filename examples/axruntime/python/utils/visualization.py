@@ -1,3 +1,4 @@
+# Copyright Axelera AI, 2025
 """
 Visualization utilities for axelera.runtime examples.
 

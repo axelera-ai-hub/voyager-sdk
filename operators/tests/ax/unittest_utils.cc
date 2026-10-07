@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2023
 #include <gtest/gtest.h>
 #include <algorithm>
 #include "AxMetaObjectDetection.hpp"

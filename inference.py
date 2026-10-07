@@ -106,8 +106,7 @@ def inference_loop(args, log_file_path, stream, app, wnd, tracers=None):
         if wnd.is_closed:
             break
     if stream.is_single_image() and args.display:
-        LOG.debug("stream has a single frame, close the window or press Q to exit...")
-        wnd.wait_for_close()
+        wnd.wait_for_close()  # tells the user how to exit
 
     if log_file_path:
         print(statistics.format_table(log_file_path, tracers))

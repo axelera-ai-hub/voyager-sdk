@@ -1,3 +1,4 @@
+// Copyright Axelera AI, 2025
 #include <string>
 #include "AxDataInterface.h"
 #include "AxInferenceNet.hpp"

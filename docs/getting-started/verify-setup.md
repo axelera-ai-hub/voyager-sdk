@@ -36,10 +36,10 @@ axdevice
 Expected output (format varies by SDK version):
 
 ```
-Device 0: metis-0:1:0 4GiB pcie flver=1.3.0 bcver=1.4 clock=800MHz(0-3:800MHz) mvm=0-3:100%
+Device 0: metis-0:1:0 130p 4GiB flver=1.3.0 bcver=1.4 clock=800MHz(0-3:800MHz) mvm=0-3:100%
 ```
 
-The key information: device index, name (PCIe bus address), memory, connection type, firmware version (`flver`), and clock speed. If multiple devices are installed, each appears on its own line.
+The key information: device index, name (PCIe bus address), board model, memory, firmware version (`flver`), and clock speed. If multiple devices are installed, each appears on its own line.
 
 > [!TIP]
 > If `axdevice` is not found, your environment is not activated. Run `source venv/bin/activate` and try again.
@@ -82,9 +82,9 @@ If this completes without errors, your setup is fully working.
 |---------|-------------|-----|
 | `lspci` shows nothing | Card not seated or powered | Reseat card, check power, reboot |
 | `axdevice` not found | Environment not activated | `source venv/bin/activate` |
-| `axdevice` finds 0 devices | Driver not loaded | Re-run `./install.sh --all` |
+| `axdevice` finds 0 devices | Driver not loaded | Run `axdevice driver --install` or reload the driver |
 | Inference fails at compilation | SDK/firmware mismatch | Check versions match with `axdevice` |
-| Permission denied errors | Need sudo for driver access | Check group membership or run installer again |
+| Permission denied errors | Need sudo for driver access | Check group membership or re-run `axdevice driver --install` |
 
 ---
 

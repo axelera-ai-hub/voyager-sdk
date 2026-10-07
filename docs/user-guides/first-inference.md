@@ -83,7 +83,7 @@ Browse the full list in the [Model Zoo](../reference/models/model-zoo.md).
 | `command not found: inference.py` | Activate environment: `source venv/bin/activate` |
 | No display window appears | Add `--no-display` to run headless, or check your display server |
 | `No Axelera device found` | Run `axdevice` to check detection. See [Verify Setup](../getting-started/verify-setup.md) |
-| Missing media files | Run `./install.sh --media` to download sample videos |
+| Missing media files | Download the sample videos with `axdownloadmedia` (`install.sh --media` was removed) |
 
 ---
 

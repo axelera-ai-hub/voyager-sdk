@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #include "AxLog.hpp"
 #include <algorithm>
 #include <mutex>

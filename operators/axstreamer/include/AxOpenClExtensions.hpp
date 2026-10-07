@@ -211,6 +211,12 @@ cl_context create_context(cl_platform_id platform, cl_device_id device,
 
 bool can_import_dmabuf(const cl_extensions &extensions);
 
+// True when the device advertises the dma_buf import handle type via
+// CL_DEVICE_EXTERNAL_MEMORY_IMPORT_HANDLE_TYPES_KHR. Some drivers report this without
+// advertising the cl_khr_external_memory_dma_buf platform string, so it is an extra
+// accept-path for the dmabuf-import capability alongside the string check.
+bool device_supports_dmabuf_import(cl_platform_id platform, cl_device_id device);
+
 bool can_import_va(const cl_extensions &extensions);
 
 int get_device_id(cl_platform_id platform, cl_device_id *device_id, cl_uint *num_devices,

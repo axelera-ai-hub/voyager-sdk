@@ -39,6 +39,8 @@ models:
     num_classes: 1000
     extra_kwargs:
       resize_size: 256
+      compilation_config:
+        quantization_scheme: hybrid_per_tensor_per_channel
 
 datasets:
   ImageNet-1K:

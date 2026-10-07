@@ -106,9 +106,17 @@ void update_tensor_dimensions(GstCaps *caps, GstCaps *peer_caps);
   GST_AX_VIDEO_FORMAT_REGISTER(Y444)                       \
   GST_AX_VIDEO_FORMAT_REGISTER(Y42B)
 
-#define AX_GST_GENERATE_VIDEO_CAPS(x) GST_VIDEO_CAPS_MAKE(#x) ";"
+// A single caps structure with a list-valued format field (width/height/
+// framerate left unconstrained), rather than one GST_VIDEO_CAPS_MAKE
+// structure per format. The two forms parse to equivalent per-format caps,
+// but a many-structure template makes negotiation on a
+// GST_PAD_FLAG_PROXY_CAPS request pad (e.g. axinferencenet's sink_%u) get
+// stuck in an unbounded accept_caps/setcaps retry loop. This string already
+// includes the "video/x-raw,format=" prefix -- do not prepend another one at
+// the call site (see GstAxTransform.cpp for the expected usage).
+#define AX_GST_GENERATE_VIDEO_FORMAT_NAME(x) #x ","
 #define AX_GST_VIDEO_FORMATS_CAPS \
-  GST_AX_VIDEO_FORMATS(AX_GST_GENERATE_VIDEO_CAPS)
+  "video/x-raw,format={" GST_AX_VIDEO_FORMATS(AX_GST_GENERATE_VIDEO_FORMAT_NAME) "}"
 
 AxDataInterface interface_from_caps_and_meta(GstCaps *caps, GstBuffer *buffer);
 size_t size_from_interface(const AxDataInterface &interface);

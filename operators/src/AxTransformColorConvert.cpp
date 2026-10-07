@@ -124,6 +124,42 @@ pack_y42b_to_yuyv(const AxVideoInterface &in_video)
   return yuyv;
 }
 
+// Y444 has no chroma subsampling, so (unlike pack_y42b_to_yuyv) the planes can
+// be merged directly into a 3-channel YUV Mat with no resampling. OpenCV only
+// has a direct conversion code for YUV(3ch)->BGR (no RGBA/GRAY8 variants), so
+// this always produces BGR; transform() reuses the existing BGR->* lut entries
+// for whatever output format was actually requested.
+static cv::Mat
+merge_y444_to_bgr(const AxVideoInterface &in_video)
+{
+  const int w = in_video.info.width;
+  const int h = in_video.info.height;
+  const int ystride = in_video.strides.size() > 0 ? in_video.strides[0] : w;
+  const int ustride = in_video.strides.size() > 1 ? in_video.strides[1] : w;
+  const int vstride = in_video.strides.size() > 2 ? in_video.strides[2] : w;
+  const auto *base = static_cast<const uint8_t *>(in_video.data);
+  const auto *y_plane = base + (in_video.offsets.size() > 0 ? in_video.offsets[0] : 0);
+  const auto *u_plane
+      = base + (in_video.offsets.size() > 1 ? in_video.offsets[1] : ystride * h);
+  const auto *v_plane
+      = base + (in_video.offsets.size() > 2 ? in_video.offsets[2] : ystride * h + ustride * h);
+  cv::Mat y(h, w, CV_8UC1, const_cast<uint8_t *>(y_plane), ystride);
+  cv::Mat u(h, w, CV_8UC1, const_cast<uint8_t *>(u_plane), ustride);
+  cv::Mat v(h, w, CV_8UC1, const_cast<uint8_t *>(v_plane), vstride);
+  cv::Mat yuv;
+  cv::merge(std::vector<cv::Mat>{ y, u, v }, yuv);
+  cv::Mat bgr;
+  // TODO: cv::COLOR_YUV2BGR is OpenCV's generic full-range YUV formula, not
+  // the video-range (BT.601 limited-range) formula used by the
+  // _NV12/_I420/_YUY2-suffixed codes below for every other format in this
+  // file. That makes this CPU fallback path colour-inexact vs colorconvert_cl
+  // for Y444 specifically. Replace with a hand-rolled video-range conversion
+  // (or an equivalent OpenCV call) if exact CPU/OpenCL colour parity for Y444
+  // is ever needed.
+  cv::cvtColor(yuv, bgr, cv::COLOR_YUV2BGR);
+  return bgr;
+}
+
 cv::Mat
 make_contiguous_if_needed(const AxVideoInterface &in_video, Ax::Logger &logger)
 {
@@ -220,6 +256,10 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
     if (in_video.offsets.size() != 3 || in_video.strides.size() != 3) {
       throw std::runtime_error("Y42B input has unrecognised number of offsets or strides (not 3)");
     }
+  } else if (in_video.info.format == AxVideoFormat::Y444) {
+    if (in_video.offsets.size() != 3 || in_video.strides.size() != 3) {
+      throw std::runtime_error("Y444 input has unrecognised number of offsets or strides (not 3)");
+    }
   } else {
     if (in_video.strides.size() != 1) {
       throw std::runtime_error("OpenCV color conversion does not support multiple strides");
@@ -252,6 +292,9 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
     input_mat = make_contiguous_if_needed(in_video, logger);
   } else if (in_video.info.format == AxVideoFormat::Y42B) {
     input_mat = pack_y42b_to_yuyv(in_video);
+  } else if (in_video.info.format == AxVideoFormat::Y444) {
+    input_mat = merge_y444_to_bgr(in_video);
+    in_format = AxVideoFormat::BGR;
   } else {
     input_mat = cv::Mat(cv::Size(in_video.info.width, height),
         input_opencv_type, in_video.data, stride);
@@ -261,7 +304,14 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
   cv::Mat output_mat(cv::Size(out_video.info.width, out_video.info.height),
       Ax::opencv_type_u8(out_format), out_video.data, out_video.info.stride);
 
-  cv::cvtColor(input_mat, output_mat, Ax::Internal::format2format(in_format, out_format));
+  if (in_format == out_format) {
+    // Only reachable via the Y444->BGR override above when BGR was also the
+    // requested output; for every other format can_passthrough() already
+    // short-circuits the identical-format case upstream.
+    input_mat.copyTo(output_mat);
+  } else {
+    cv::cvtColor(input_mat, output_mat, Ax::Internal::format2format(in_format, out_format));
+  }
 }
 
 extern "C" bool

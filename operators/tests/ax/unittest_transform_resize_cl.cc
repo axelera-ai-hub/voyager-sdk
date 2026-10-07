@@ -1030,6 +1030,76 @@ TEST(resize_cl, norm_gray_negative)
   ASSERT_EQ(out_buf, expected);
 }
 
+TEST(resize_cl, aipu_padding_output_shape)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "width", "256" }, { "height", "128" }, { "to_tensor", "1" },
+    { "aipu_padding", "1,2,3,4" }, // top,bottom,left,right
+  };
+  auto xform = Ax::LoadTransform("resize_cl", input);
+  AxVideoInterface video_info{ { 640, 480, 640 * 4, 0, AxVideoFormat::RGBA }, nullptr };
+  auto out_interface = xform->set_output_interface(video_info);
+  auto info = std::get<AxTensorsInterface>(out_interface);
+  ASSERT_EQ(info.size(), 1);
+  ASSERT_EQ(info[0].sizes.size(), 4);
+  EXPECT_EQ(info[0].sizes[1], 128 + 1 + 2); // height + top + bottom
+  EXPECT_EQ(info[0].sizes[2], 256 + 3 + 4); // width + left + right
+}
+
+TEST(resize_cl, aipu_padding_rgba)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  // No scaling (input size == target size), so the AIPU border is the only
+  // thing under test: the interior must be an exact, un-blended copy of the
+  // input, shifted by (pad_left, pad_top), with aipu_fill (alpha forced to
+  // 255) everywhere else.
+  std::unordered_map<std::string, std::string> input = {
+    { "width", "2" },
+    { "height", "2" },
+    { "aipu_padding", "1,2,3,4" }, // top,bottom,left,right
+    { "aipu_fill", "99" },
+  };
+  auto xform = Ax::LoadTransform("resize_cl", input);
+  std::vector<uint8_t> in_buf = {
+    // clang-format off
+    10, 20, 30, 255,    40, 50, 60, 255,
+    70, 80, 90, 255,    100, 110, 120, 255,
+    // clang-format on
+  };
+  const int out_w = 2 + 3 + 4;
+  const int out_h = 2 + 1 + 2;
+  std::vector<uint8_t> out_buf(out_w * out_h * 4, 0xAA);
+  std::vector<uint8_t> expected(out_w * out_h * 4);
+  for (int r = 0; r < out_h; ++r) {
+    for (int c = 0; c < out_w; ++c) {
+      int idx = (r * out_w + c) * 4;
+      bool inside = r >= 1 && r < 1 + 2 && c >= 3 && c < 3 + 2;
+      if (inside) {
+        int src_idx = ((r - 1) * 2 + (c - 3)) * 4;
+        for (int ch = 0; ch < 4; ++ch) {
+          expected[idx + ch] = in_buf[src_idx + ch];
+        }
+      } else {
+        expected[idx + 0] = expected[idx + 1] = expected[idx + 2] = 99;
+        expected[idx + 3] = 255;
+      }
+    }
+  }
+
+  auto in = AxVideoInterface{ { 2, 2, 2 * 4, 0, AxVideoFormat::RGBA },
+    in_buf.data(), { 2 * 4 }, { 0 }, -1 };
+  auto out = AxVideoInterface{ { out_w, out_h, out_w * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { out_w * 4 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
 TEST(resize_cl, y42b2rgb)
 {
   if (!has_opencl_platform()) {
@@ -1127,6 +1197,335 @@ TEST(resize_cl, y42b2rgb_pillow_bilinear_chroma)
     in_buf.data(), strides, offsets, -1 };
   auto out = AxVideoInterface{ { 8, 1, 8 * 4, 0, AxVideoFormat::RGBA },
     out_buf.data(), { 8 * 4 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
+// Regression test for the same chroma-interpolation bug (see
+// y42b2rgb_pillow_bilinear_chroma above) in nv_semiplanar_sampler_pb_two_plane,
+// which serves the NV12/NV16 pillow_bilinear samplers. Same setup: Y and V
+// held constant, U varies between two samples chosen so the expected blend
+// weights land on exact integers. Chroma height is 1 (single UV row), so this
+// isolates the horizontal weight; NV12's horizontal chroma divisor is the same
+// (2) as Y42B's, so the underlying math -- and therefore the expected output
+// -- is identical to y42b2rgb_pillow_bilinear_chroma.
+TEST(resize_cl, nv12torgb_pillow_bilinear_chroma)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "width", "8" },
+    { "height", "2" },
+    { "interpolation", "2" },
+  };
+
+  auto xform = Ax::LoadTransform("resize_cl", input);
+  auto in_buf = std::vector<uint8_t>{
+    // clang-format off
+    // Y plane: 4x2 = 8 bytes, constant
+    0x98, 0x98, 0x98, 0x98,
+    0x98, 0x98, 0x98, 0x98,
+    // UV plane: 2x1 = 4 bytes (interleaved U,V pairs), one chroma row
+    0x00, 0x80, 0x80, 0x80,
+    // clang-format on
+  };
+
+  auto out_buf = std::vector<uint8_t>(8 * 2 * 4, 0xAA);
+  auto expected = std::vector<uint8_t>{
+    // clang-format off
+    0x9E, 0xD0, 0x00, 0xFF,   0x9E, 0xCA, 0x00, 0xFF,
+    0x9E, 0xBD, 0x00, 0xFF,   0x9E, 0xB1, 0x3D, 0xFF,
+    0x9E, 0xA4, 0x7E, 0xFF,   0x9E, 0x9E, 0x9E, 0xFF,
+    0x9E, 0x9E, 0x9E, 0xFF,   0x9E, 0x9E, 0x9E, 0xFF,
+
+    0x9E, 0xD0, 0x00, 0xFF,   0x9E, 0xCA, 0x00, 0xFF,
+    0x9E, 0xBD, 0x00, 0xFF,   0x9E, 0xB1, 0x3D, 0xFF,
+    0x9E, 0xA4, 0x7E, 0xFF,   0x9E, 0x9E, 0x9E, 0xFF,
+    0x9E, 0x9E, 0x9E, 0xFF,   0x9E, 0x9E, 0x9E, 0xFF,
+    // clang-format on
+  };
+
+  std::vector<size_t> strides{ 4, 4 };
+  std::vector<size_t> offsets{ 0, 8 };
+
+  auto in = AxVideoInterface{ { 4, 2, int(strides[0]), 0, AxVideoFormat::NV12 },
+    in_buf.data(), strides, offsets, -1 };
+  auto out = AxVideoInterface{ { 8, 2, 8 * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { 8 * 4 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
+// Regression test: resizing a zero-copy cropped sub-frame (AxVideoInfo::cropped
+// + x_offset/y_offset, as produced by roicrop) used to return a solid
+// fill-colour image because `image_dims` (the sampler's source-bounds check)
+// wasn't widened to account for the crop offset folded into `corrected`. The
+// underlying buffer is 8x6; the "real" content lives in a 4x3 window at
+// (x_offset=4, y_offset=2), the rest is a sentinel that must never appear in
+// the output. Input/output are both 4x3 (1:1 scale) so bilinear sampling
+// degenerates to an exact identity mapping of the cropped window.
+TEST(resize_cl, gray_cropped_subframe)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "width", "4" },
+    { "height", "3" },
+  };
+  auto xform = Ax::LoadTransform("resize_cl", input);
+
+  constexpr uint8_t kSentinel = 0xAA;
+  auto in_buf = std::vector<uint8_t>{
+    // clang-format off
+    kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel,
+    kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel,
+    kSentinel, kSentinel, kSentinel, kSentinel,         10,         20,         30,         40,
+    kSentinel, kSentinel, kSentinel, kSentinel,         50,         60,         70,         80,
+    kSentinel, kSentinel, kSentinel, kSentinel,         90,        100,        110,        120,
+    kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel,
+    // clang-format on
+  };
+  auto expected = std::vector<uint8_t>{
+    // clang-format off
+    10,  20,  30,  40,
+    50,  60,  70,  80,
+    90, 100, 110, 120,
+    // clang-format on
+  };
+  auto out_buf = std::vector<uint8_t>(expected.size(), 0);
+
+  auto in = AxVideoInterface{ { 4, 3, 8, 0, AxVideoFormat::GRAY8, true, 4, 2, 6 },
+    in_buf.data(), { 8 }, { 0 }, -1 };
+  auto out = AxVideoInterface{ { 4, 3, 4, 0, AxVideoFormat::GRAY8 },
+    out_buf.data(), { 4 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
+// Regression test: upsampling (2x) a zero-copy cropped sub-frame used to bleed
+// sentinel data from outside the crop into the left/top edge of the output.
+// Once crop is folded into the source coordinate (see fold_crop_into_transform),
+// a bilinear sample near the crop's left/top edge can compute a source x/y
+// that is slightly below the crop origin (e.g. xi = crop_x - 1) while still
+// being >= 0 in the physical buffer -- the neighbour clamp then has to clamp
+// to crop_x/crop_y (the crop's own edge), not to 0 (the buffer's edge), or it
+// reads the sentinel region just outside the crop instead of replicating the
+// crop's edge pixel. Same 8x6 buffer/4x3 crop-at-(4,2) as gray_cropped_subframe,
+// but resized up to 8x6 (2x) so the left/top edge samples actually extrapolate
+// past the crop origin and would pull in sentinel data if the clamp regressed.
+TEST(resize_cl, gray_cropped_subframe_upscale)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "width", "8" },
+    { "height", "6" },
+  };
+  auto xform = Ax::LoadTransform("resize_cl", input);
+
+  constexpr uint8_t kSentinel = 0xAA;
+  auto in_buf = std::vector<uint8_t>{
+    // clang-format off
+    kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel,
+    kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel,
+    kSentinel, kSentinel, kSentinel, kSentinel,         10,         20,         30,         40,
+    kSentinel, kSentinel, kSentinel, kSentinel,         50,         60,         70,         80,
+    kSentinel, kSentinel, kSentinel, kSentinel,         90,        100,        110,        120,
+    kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel, kSentinel,
+    // clang-format on
+  };
+  // clang-format off
+  auto expected = std::vector<uint8_t>{
+     10,  13,  18,  23,  28,  33,  38,  40,
+     20,  23,  28,  33,  38,  43,  48,  50,
+     40,  43,  48,  53,  58,  63,  68,  70,
+     60,  63,  68,  73,  78,  83,  88,  90,
+     80,  83,  88,  93,  98, 103, 108, 110,
+     90,  93,  98, 103, 108, 113, 118, 120,
+  };
+  // clang-format on
+  auto out_buf = std::vector<uint8_t>(expected.size(), 0);
+
+  auto in = AxVideoInterface{ { 4, 3, 8, 0, AxVideoFormat::GRAY8, true, 4, 2, 6 },
+    in_buf.data(), { 8 }, { 0 }, -1 };
+  auto out = AxVideoInterface{ { 8, 6, 8, 0, AxVideoFormat::GRAY8 },
+    out_buf.data(), { 8 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+  ASSERT_EQ(out_buf, expected);
+}
+
+// Regression test: letterbox padding must be quantized identically to real
+// content pixels when normalization (to_tensor + mean/std/quant_scale/
+// quant_zeropoint) is baked into the resize_cl kernel -- this is the fused
+// path used for on-device quantized model preprocessing (e.g.
+// OpenCLetterBoxColorConvertToTensorAndNormalize), where the letterbox pad
+// value represents a "neutral" colour that must go through the *same*
+// quantization affine transform as the image content, exactly as it would if
+// letterbox and normalize were still two separate CPU/GPU passes.
+//
+// The move to a destination-space early-exit for the letterbox border (see
+// gray_cropped_subframe_upscale's sibling optimization) wrote the raw uint8
+// `fill` byte directly to the output buffer, bypassing color_matrix entirely.
+// With a real int8 zero-point (quant_zeropoint=-128, matching a typical
+// quantized detection model's manifest), that made the padding come out as
+// literal 114 instead of the correctly quantized value (114 - 128 = -14,
+// stored as the uchar bit pattern 242) -- i.e. the padding silently stopped
+// matching what the model saw during training/calibration.
+TEST(resize_cl, letterbox_padding_matches_quantization)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "width", "8" },
+    { "height", "8" },
+    { "letterbox", "1" },
+    { "padding", "114" },
+    { "to_tensor", "1" },
+    { "mean", "0" },
+    { "std", "1" },
+    { "quant_scale", "0.0039215689" }, // 1/255
+    { "quant_zeropoint", "-128" },
+  };
+  auto xform = Ax::LoadTransform("resize_cl", input);
+
+  // 8x4 solid mid-gray (128) RGBA input, letterboxed into an 8x8 canvas:
+  // scale = min(8/8, 8/4) = 1, so content occupies the middle 4 rows
+  // (rows 2..5), with a 2-row pad band above and below.
+  auto in_buf = std::vector<uint8_t>(8 * 4 * 4, 128);
+  for (size_t i = 3; i < in_buf.size(); i += 4)
+    in_buf[i] = 255; // alpha
+  auto out_buf = std::vector<uint8_t>(8 * 8 * 4, 0xFF);
+
+  auto in = AxVideoInterface{ { 8, 4, 8 * 4, 0, AxVideoFormat::RGBA },
+    in_buf.data(), { 8 * 4 }, { 0 }, -1 };
+  auto out = AxVideoInterface{ { 8, 8, 8 * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { 8 * 4 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+
+  // mul = 1/(255*quant_scale*std) ~= 1, add = (255*quant_zeropoint*std*
+  // quant_scale - 255*mean)*mul ~= -128 for these parameters, so a raw pixel
+  // value v quantizes to round(v - 128) (saturated to int8, stored as the
+  // uchar bit pattern). content(128) -> 0; padding(114) -> 242 (== -14).
+  constexpr uint8_t expected_content = 0;
+  constexpr uint8_t expected_padding = 242;
+  constexpr uint8_t unquantized_padding = 114; // the pre-fix (buggy) value
+
+  int content_row = 3, padding_row = 0, col = 3;
+  uint8_t content_r = out_buf[(content_row * 8 + col) * 4 + 0];
+  uint8_t padding_r = out_buf[(padding_row * 8 + col) * 4 + 0];
+
+  ASSERT_EQ(content_r, expected_content);
+  ASSERT_EQ(padding_r, expected_padding);
+  ASSERT_NE(padding_r, unquantized_padding);
+}
+
+// Regression test: letterbox padding for a YUV-family input used to be
+// colour-converted as if it were (fill, fill, fill) -- i.e. as if `fill` were
+// also the chroma value -- instead of the chroma-neutral (fill, 128, 128)
+// every YUV sampler returns at its own out-of-bounds/letterbox border. That
+// produced a visibly tinted padding border instead of a neutral gray one.
+// With U=V=128 exactly cancelling the matrix's chroma bias terms, R, G and B
+// must come out numerically identical for the padding pixels.
+TEST(resize_cl, letterbox_padding_neutral_for_yuv_input)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "width", "4" },
+    { "height", "8" },
+    { "letterbox", "1" },
+    { "padding", "114" },
+  };
+  auto xform = Ax::LoadTransform("resize_cl", input);
+
+  // 4x4 NV12 input, letterboxed into a 4x8 canvas: scale = 1, content
+  // occupies the middle 4 rows (rows 2..5), with a 2-row pad band above
+  // and below.
+  auto in_buf = std::vector<uint8_t>{
+    // clang-format off
+    200, 200, 200, 200,
+    200, 200, 200, 200,
+    200, 200, 200, 200,
+    200, 200, 200, 200,
+     90, 200,  90, 200, // U, V pairs
+     90, 200,  90, 200,
+    // clang-format on
+  };
+  auto out_buf = std::vector<uint8_t>(4 * 8 * 4, 0xFF);
+
+  std::vector<size_t> strides{ 4, 4 };
+  std::vector<size_t> offsets{ 0, 16 };
+  auto in = AxVideoInterface{ { 4, 4, int(strides[0]), 0, AxVideoFormat::NV12 },
+    in_buf.data(), strides, offsets, -1 };
+  auto out = AxVideoInterface{ { 4, 8, 4 * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { 4 * 4 }, { 0 }, -1 };
+  Ax::MetaMap metadata;
+  xform->transform(in, out, 0, 1, metadata);
+
+  for (int row : { 0, 1, 6, 7 }) {
+    for (int col = 0; col < 4; ++col) {
+      auto base = (row * 4 + col) * 4;
+      EXPECT_EQ(out_buf[base + 0], out_buf[base + 1]) << "row " << row << " col " << col;
+      EXPECT_EQ(out_buf[base + 1], out_buf[base + 2]) << "row " << row << " col " << col;
+    }
+  }
+}
+
+// Verifies the two borders nest correctly: the letterbox fill (200) sits
+// around the scaled content within the requested width/height, and the
+// AIPU border (fill 50) sits around that as an outer layer, independent of
+// the letterbox logic.
+TEST(resize_cl, aipu_padding_with_letterbox)
+{
+  if (!has_opencl_platform()) {
+    GTEST_SKIP();
+  }
+  std::unordered_map<std::string, std::string> input = {
+    { "width", "4" },
+    { "height", "4" },
+    { "letterbox", "1" },
+    { "padding", "200" }, // letterbox fill
+    { "aipu_padding", "1,1,0,0" }, // top,bottom,left,right
+    { "aipu_fill", "50" },
+  };
+  auto xform = Ax::LoadTransform("resize_cl", input);
+  // 2 wide x 4 high, each row a distinct constant colour so no interpolation
+  // ambiguity: scale factor is exactly 1 (2x4 -> letterboxed content is 2x4
+  // within the 4x4 request), so every pixel is an exact copy.
+  std::vector<uint8_t> in_buf = {
+    // clang-format off
+    1, 1, 1, 255,   1, 1, 1, 255,
+    2, 2, 2, 255,   2, 2, 2, 255,
+    3, 3, 3, 255,   3, 3, 3, 255,
+    4, 4, 4, 255,   4, 4, 4, 255,
+    // clang-format on
+  };
+  std::vector<uint8_t> out_buf(4 * 6 * 4, 0xAA);
+  auto expected = std::vector<uint8_t>{
+    // clang-format off
+    50, 50, 50, 255,    50, 50, 50, 255,    50, 50, 50, 255,    50, 50, 50, 255,
+    200, 200, 200, 255, 1, 1, 1, 255,       1, 1, 1, 255,        200, 200, 200, 255,
+    200, 200, 200, 255, 2, 2, 2, 255,       2, 2, 2, 255,        200, 200, 200, 255,
+    200, 200, 200, 255, 3, 3, 3, 255,       3, 3, 3, 255,        200, 200, 200, 255,
+    200, 200, 200, 255, 4, 4, 4, 255,       4, 4, 4, 255,        200, 200, 200, 255,
+    50, 50, 50, 255,    50, 50, 50, 255,    50, 50, 50, 255,    50, 50, 50, 255,
+    // clang-format on
+  };
+
+  auto in = AxVideoInterface{ { 2, 4, 2 * 4, 0, AxVideoFormat::RGBA },
+    in_buf.data(), { 2 * 4 }, { 0 }, -1 };
+  auto out = AxVideoInterface{ { 4, 6, 4 * 4, 0, AxVideoFormat::RGBA },
+    out_buf.data(), { 4 * 4 }, { 0 }, -1 };
   Ax::MetaMap metadata;
   xform->transform(in, out, 0, 1, metadata);
   ASSERT_EQ(out_buf, expected);

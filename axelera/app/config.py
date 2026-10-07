@@ -53,7 +53,7 @@ class HWGeneration(enum.Enum):
     europa = enum.auto()
 
 
-class Metis(enum.Enum):
+class Board(enum.Enum):
     none = enum.auto()
     pcie = enum.auto()
     m2 = enum.auto()
@@ -61,11 +61,14 @@ class Metis(enum.Enum):
 
     @property
     def hw_generation(self) -> HWGeneration:
-        if self == Metis.europa:
+        if self == Board.europa:
             return HWGeneration.europa
-        if self == Metis.none:
+        if self == Board.none:
             return HWGeneration.none
         return HWGeneration.metis
+
+
+Metis = Board  # backward-compat name for any external importer
 
 
 class HardwareEnable(enum.Enum):
@@ -392,7 +395,11 @@ def load_toml_config(toml_path: Path) -> Dict[str, Any]:
 
 
 def gen_compilation_config(
-    deploy_cores, user_cfg, deploy_mode, yaml_dir: Optional[Path] = None
+    deploy_cores,
+    user_cfg,
+    deploy_mode,
+    yaml_dir: Optional[Path] = None,
+    board: Optional["Board"] = None,
 ) -> Tuple["CompilerConfig", Dict[str, Any]]:
     """Generate the compilation configuration based on the user configuration.
 
@@ -414,7 +421,13 @@ def gen_compilation_config(
     """
 
     try:
-        from axelera.compiler.config import CompilerConfig, HostArch, HostOS, MulticoreMode
+        from axelera.compiler.config import (
+            CompilerConfig,
+            HardwareGeneration,
+            HostArch,
+            HostOS,
+            MulticoreMode,
+        )
     except ImportError as e:
         raise RuntimeError(
             "axelera.compiler is required for model compilation. "
@@ -431,14 +444,16 @@ def gen_compilation_config(
     metadata = {'toml_info': None, 'yaml_overrides': [], 'toml_fields': []}
 
     # 1. Start with default CompilerConfig
+    is_europa = board is not None and board.hw_generation == HWGeneration.europa
     compiler_config = CompilerConfig(
         multicore_mode=MulticoreMode.BATCH,  # Default to batch mode
         aipu_cores_used=deploy_cores,
-        resources_used=0.25 * deploy_cores,
+        resources_used=(0.125 if is_europa else 0.25) * deploy_cores,
         host_processes_used=1,  # Will disable compiler-internal resource validation
         host_arch=HostArch.auto_detect(),
         host_os=HostOS.auto_detect(),
         model_name="model",
+        generation=HardwareGeneration.EUROPA if is_europa else HardwareGeneration.OMEGA,
     )
 
     # 2. Load TOML config if specified (middle priority)
@@ -537,6 +552,20 @@ def _window_size(value: str) -> Tuple[int, int]:
     return max(100, w), max(100, h)
 
 
+class _FullScreenAction(argparse.Action):
+    '''Resolve the fullscreen window size when --fullscreen is given.
+
+    ``action='store_const'`` would resolve it while the parser is being built, which would
+    make every command line - deploy included - depend on the display stack.
+    '''
+
+    def __init__(self, option_strings, dest, help=None):
+        super().__init__(option_strings, dest, nargs=0, help=help)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, _window_size('fullscreen'))
+
+
 def default_build_root() -> Path:
     return env.build_root
 
@@ -591,15 +620,15 @@ def add_device_arguments_vision(parser):
         "--devices",
         type=str,
         default='',
-        help="comma separated list of devices to run on. e.g. -d0,1,2. Default is all devices",
+        help="comma separated list of devices to run on. e.g. -d 0,1,2. Default is all devices",
         extended_help="""Identifiers can be zero-based
-index, e.g. -d0,1 or by name, e.g. -dmetis-0:1:0.  Use the tool axdevice to enumerate available devices.
+index, e.g. -d 0,1 or by name, e.g. -d metis-0:1:0.  Use the tool axdevice to enumerate available devices.
 
 $ axdevice
-Device 0: metis-0:1:0 board_type=pcie fwver=v1.0.0-a6-15-g9d681b7bcfe9 clock=800MHz
-Device 1: metis-0:3:0 board_type=pcie fwver=v1.0.0-a6-15-g9d681b7bcfe9 clock=800MHz
-$ %(prog)s yolov5s-v7-coco media/traffic3_480p.mp4 -d0,1
-$ %(prog)s yolov5s-v7-coco media/traffic3_480p.mp4 -dmetis-0:3:0
+Device 0: metis-0:1:0 130p 4GiB flver=1.4.0 bcver=7.0 clock=800MHz(0-3:800MHz) mvm=0-3:100%
+Device 1: metis-0:3:0 130p 4GiB flver=1.4.0 bcver=7.0 clock=800MHz(0-3:800MHz) mvm=0-3:100%
+$ %(prog)s yolov5s-v7-coco media/traffic3_480p.mp4 -d 0,1
+$ %(prog)s yolov5s-v7-coco media/traffic3_480p.mp4 -d metis-0:3:0
 
 By default all devices available will be used.""",
     )
@@ -612,42 +641,67 @@ def add_device_arguments_llm(parser):
         "--devices",
         type=str,
         default='',
-        help="device to run on. e.g. -d0 or -d1. Default is first available device",
+        help="device to run on. e.g. -d 0 or -d 1. Default is first available device",
         extended_help="""Identifiers can be zero-based
-index, e.g. -d0 or by name, e.g. -dmetis-0:1:0.  Use the tool axdevice to enumerate available devices.
+index, e.g. -d 0 or by name, e.g. -d metis-0:1:0.  Use the tool axdevice to enumerate available devices.
 
 $ axdevice
-Device 0: metis-0:1:0 board_type=pcie fwver=v1.0.0-a6-15-g9d681b7bcfe9 clock=800MHz
-Device 1: metis-0:3:0 board_type=pcie fwver=v1.0.0-a6-15-g9d681b7bcfe9 clock=800MHz
-$ %(prog)s llama-3-2-1b-1024-4core-static -d0
-$ %(prog)s llama-3-2-1b-1024-4core-static -dmetis-0:3:0
+Device 0: metis-0:1:0 130p 4GiB flver=1.4.0 bcver=7.0 clock=800MHz(0-3:800MHz) mvm=0-3:100%
+Device 1: metis-0:3:0 130p 4GiB flver=1.4.0 bcver=7.0 clock=800MHz(0-3:800MHz) mvm=0-3:100%
+$ %(prog)s llama-3-2-1b-1024-4core-static -d 0
+$ %(prog)s llama-3-2-1b-1024-4core-static -d metis-0:3:0
 
 Each LLM process uses all 4 cores of a single device. For multi-process usage,
 process 1 gets device 0, process 2 gets device 1, etc.""",
     )
 
 
-class _MetisAction(argparse.Action):
+class _BoardAction(argparse.Action):
     AUTO = 'auto'
+    # Board short names as they are shown to customers, translated here to the
+    # internal Board tokens. The internal values are unchanged and the old
+    # tokens keep working, so nothing downstream of the parse is affected.
+    ALIASES = {
+        alias: internal
+        for alias, internal in (
+            ('110m', 'm2'),
+            ('113m', 'm2'),
+            ('130p', 'pcie'),
+            ('150p', 'pcie'),
+            ('232p', 'europa'),
+            ('250p', 'europa'),
+        )
+        if internal in Board.__members__
+    }
     CHOICES = (
-        [AUTO]
-        + [m.name for m in Metis]
-        + [m.name.replace('_', '-') for m in Metis if '_' in m.name]
+        list(ALIASES)
+        + [AUTO]
+        + [m.name for m in Board]
+        + [m.name.replace('_', '-') for m in Board if '_' in m.name]
     )
 
     def __call__(self, parser, namespace, value, option_string=None):
-        v = Metis.none if value == self.AUTO else Metis[value.lower().replace('-', '_')]
+        if option_string == '--metis':
+            LOG.warning("--metis is deprecated; use --board instead")
+        value = self.ALIASES.get(value.lower(), value)
+        v = Board.none if value == self.AUTO else Board[value.lower().replace('-', '_')]
         setattr(namespace, self.dest, v)
 
 
-def add_metis_arg(parser: argparse.ArgumentParser) -> None:
+def add_board_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
+        '--board',
         '--metis',
-        default=Metis.none,
-        action=_MetisAction,
-        choices=_MetisAction.CHOICES,
-        help='specify metis target for deployment (default: detect)',
+        dest='board',
+        default=Board.none,
+        action=_BoardAction,
+        choices=_BoardAction.CHOICES,
+        help='specify target board for deployment: 110m/113m (M.2), 130p/150p (PCIe), '
+        '232p/250p, or auto/none/pcie/m2/europa (default: detect)',
     )
+
+
+add_metis_arg = add_board_arg  # backward-compat name for any external importer
 
 
 class _ExtendedHelpParser(argparse.ArgumentParser):
@@ -714,7 +768,7 @@ class _LlmArgumentParser(_ExtendedHelpParser):
         return ns
 
 
-GENAI_SYSTEM_PROMPT = "Be concise. You are a chatbot for Axelera AI, a start-up building a state-of-the-art AI accelerator chip, called Metis. Answer user questions accurately and to the best of your ability. You run on the Metis chip."
+GENAI_SYSTEM_PROMPT = "Be concise. You are a chatbot for Axelera AI, a start-up building a state-of-the-art AI accelerator chip. Answer user questions accurately and to the best of your ability. You run on the Axelera AIPU chip."
 
 
 def create_llm_argparser(
@@ -841,8 +895,7 @@ def add_display_arguments(
     )
     wsize.add_argument(
         '--fullscreen',
-        action='store_const',
-        const=_window_size('fullscreen'),
+        action=_FullScreenAction,
         dest='window_size',
         help='Alias for --window-size=fullscreen.',
     )
@@ -1081,20 +1134,11 @@ real-time metric responses. (default {on_off(default_speedometer_smoothing)})
         Enabling this option causes the application framework and inference to favor low latency
         over throughput.
 
-         * disables double buffering in Metis.
-         * disables batch mode in Metis.
+         * disables double buffering.
+         * disables batch mode.
          * reduces the size of all queues in the pipeline to 1.
          * disables all render buffering.
         ''',
-    )
-    # Internal, unstable: dispatch inference via axruntime's async (non-blocking)
-    # executor instead of the default blocking one. Hidden from --help
-    # (argparse.SUPPRESS); not a customer-facing flag.
-    parser.add_argument(
-        '--enable-async-executor',
-        default=False,
-        action=argparse.BooleanOptionalAction,
-        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         '--frame-rate',
@@ -1152,7 +1196,7 @@ is set to 0, the pipeline will use the frame rate of each individual input sourc
         default='auto',
         help="specify OpenCL platform to use (default: auto)",
     )
-    add_metis_arg(parser)
+    add_board_arg(parser)
 
     if port is not None:
         parser.add_argument(
@@ -1288,6 +1332,10 @@ class _InferenceArgumentParser(_ExtendedHelpParser):
             LOG.debug('DISPLAY not set, disabling OpenGL detection')
             ns.enable_opengl = HardwareEnable.disable
 
+        if ns.cl_platform != 'auto' and ns.enable_opencl == HardwareEnable.detect:
+            LOG.debug(f'--cl-platform={ns.cl_platform} specified, forcing --enable-opencl')
+            ns.enable_opencl = HardwareEnable.enable
+
         _ignore_calibration_batch(ns)
         ns.show_latency = ns.show_latency or ns.show_stream_timing
         delattr(ns, 'show_stream_timing')
@@ -1349,7 +1397,7 @@ def create_deploy_argparser(
         " - QUANTCOMPILE: Quantize and compile the model.\n"
         " - PREQUANTIZED: Compile from a pre-quantized model (default).\n",
     )
-    add_metis_arg(parser)
+    add_board_arg(parser)
     parser.add_argument(
         '--pipe',
         type=str.lower,
@@ -1626,7 +1674,7 @@ class SystemConfig(BaseConfig):
         )
     )
     allow_hardware_codec: bool = False
-    metis: Metis = Metis.none
+    board: Board = Board.none
 
     def __post_init__(self):
         self.data_root = (self.data_root or default_data_root()).resolve()
@@ -2351,8 +2399,6 @@ class PipelineConfig(BaseConfig):
     specified_frame_rate: int = 0
     low_latency: bool = False
     """If True then use low latency settings for the pipeline."""
-    async_mode: bool = False
-    """If True then dispatch inference via axruntime's async (non-blocking) executor."""
     rtsp_latency: int = 500
     save_output: str = ''
     tiling: TilingConfig = dataclasses.field(default_factory=TilingConfig)
@@ -2407,7 +2453,6 @@ class PipelineConfig(BaseConfig):
             specified_frame_rate=args.frame_rate,
             rtsp_latency=args.rtsp_latency,
             low_latency=args.low_latency,
-            async_mode=args.enable_async_executor,
             save_output=args.save_output,
             tiling=TilingConfig.from_parsed_args(args),
             which_cl=args.cl_platform,

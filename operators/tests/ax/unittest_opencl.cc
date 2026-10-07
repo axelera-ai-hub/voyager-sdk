@@ -3,6 +3,8 @@
 
 #include "AxOpenCl.hpp"
 
+#include <vector>
+
 static Ax::Logger defaultLogger(Ax::Severity::warning);
 
 bool
@@ -58,5 +60,27 @@ TEST(cl_details, cl_program_fails_with_incorrect_version)
   ctx->version = 999; // Set to incorrect version
 
   EXPECT_THROW(ax_utils::CLProgram("", ctx.get(), defaultLogger), std::runtime_error);
+}
+
+TEST(cl_details, device_supports_dmabuf_import_false_without_extension)
+{
+  cl_platform_id platformId;
+  cl_uint numPlatforms;
+  if (clGetPlatformIDs(1, &platformId, &numPlatforms) != CL_SUCCESS) {
+    GTEST_SKIP();
+  }
+
+  size_t extSize = 0;
+  clGetPlatformInfo(platformId, CL_PLATFORM_EXTENSIONS, 0, nullptr, &extSize);
+  std::vector<char> extensions(extSize);
+  clGetPlatformInfo(platformId, CL_PLATFORM_EXTENSIONS, extSize, extensions.data(), nullptr);
+  std::string platform_extensions(extensions.begin(), extensions.end());
+  if (platform_extensions.find("cl_khr_external_memory") != std::string::npos) {
+    GTEST_SKIP(); // Platform supports it; can't exercise the "absent" guard here.
+  }
+
+  // Without cl_khr_external_memory, the function must return false without ever
+  // querying `device`, so an invalid device_id here must not be dereferenced.
+  EXPECT_FALSE(device_supports_dmabuf_import(platformId, nullptr));
 }
 } // namespace opencl_tests

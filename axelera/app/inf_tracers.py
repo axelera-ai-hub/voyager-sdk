@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 from __future__ import annotations
 
 import abc
@@ -182,7 +182,7 @@ class Tracer(abc.ABC):
     def initialize_models(
         self,
         model_infos: network.ModelInfos,
-        metis: config.Metis,
+        board: config.Board,
         core_clocks: dict[int, int],
         devices: list[str],
     ) -> None:
@@ -191,7 +191,7 @@ class Tracer(abc.ABC):
         This might be useful to determine what sort of metrics to collect.
         '''
         del model_infos
-        del metis
+        del board
         del core_clocks
 
 
@@ -206,11 +206,11 @@ def _first_and_only_model_info(model_infos, tracer):
     return model_infos.singular_model(f"Only one model is supported with {tracer} tracer")
 
 
-def _determine_fps_multiplier(requested_cores, num_devices, model_infos, metis):
+def _determine_fps_multiplier(requested_cores, num_devices, model_infos, board):
     # If the model batch is > 1 then it must support batching, and we will ignore the
     # user requested cores.
     model_info = _first_and_only_model_info(model_infos, 'aipu')
-    ncores = model_infos.determine_execution_cores(model_info.name, requested_cores, metis)
+    ncores = model_infos.determine_execution_cores(model_info.name, requested_cores, board)
     return ncores * num_devices
 
 
@@ -239,11 +239,11 @@ class _ThreadedTracerAdapter(Tracer):
     def initialize_models(
         self,
         model_infos: network.ModelInfos,
-        metis: config.Metis,
+        board: config.Board,
         core_clocks: dict[int, int],
         devices: list[str],
     ) -> None:
-        self._tracer.initialize_models(model_infos, metis, core_clocks, devices)
+        self._tracer.initialize_models(model_infos, board, core_clocks, devices)
 
     def start_monitoring(self):
         if not self._running:
@@ -329,7 +329,7 @@ class AipuTracer(Tracer):
     '''A class to monitor AIPU inference server using axtrace.'''
 
     key = '__device_fps__'
-    title = 'Metis'
+    title = 'Board'
 
     _PATTERN = re.compile(r"Megakernel  ?took (\d+) cycles")
 
@@ -349,14 +349,14 @@ class AipuTracer(Tracer):
     def initialize_models(
         self,
         model_infos: network.ModelInfos,
-        metis: config.Metis,
+        board: config.Board,
         core_clocks: dict[int, int],
         devices: list[str],
     ) -> None:
         self._devices = devices
         self._clock_durations_in_us = {n: 1.0 / c for n, c in core_clocks.items()}
         self._fps_multiplier = _determine_fps_multiplier(
-            len(self._requested_cores), len(self._devices), model_infos, metis
+            len(self._requested_cores), len(self._devices), model_infos, board
         )
         LOG.debug(f"Device FPS multiplier: {self._fps_multiplier}")
 
@@ -391,7 +391,7 @@ class AipuTracer(Tracer):
         return TraceMetric(key_s, f'{self.title}{title_s}', fps, max(self._max * 1.05, 1.0), 'fps')
 
     def get_metrics(self):
-        '''Return FPS of metis.'''
+        '''Return FPS of the board.'''
         if self._tritons:
             self._process_trace_output(self._read_trace_output())
         metrics = []
@@ -447,12 +447,12 @@ class CoreTempTracer(Tracer):
     def initialize_models(
         self,
         model_infos: network.ModelInfos,
-        metis: config.Metis,
+        board: config.Board,
         core_clocks: dict[int, int],
         devices: list[str],
     ) -> None:
         del model_infos
-        del metis
+        del board
         del core_clocks
         self._devices = devices
 
@@ -473,7 +473,7 @@ class CoreTempTracer(Tracer):
             self._last[devicen] = [int(x) for x in matches[-1].split(',')]
 
     def get_metrics(self):
-        '''Return FPS of metis.'''
+        '''Return FPS of the board.'''
         for n, t in enumerate(self._tritons):
             self._process_trace_output(n, t.read())
         if not self._last:
@@ -543,7 +543,7 @@ class HostTracer(Tracer):
     def initialize_models(
         self,
         model_infos: network.ModelInfos,
-        metis: config.Metis,
+        board: config.Board,
         core_clocks: dict[int, int],
         devices: list[str],
     ) -> None:
@@ -551,7 +551,7 @@ class HostTracer(Tracer):
         os.environ['AXE_LZ_PERF_LOG_PATH'] = str(self._file_path)
         _add_to_environ(os.environ, 'AXE_PROFILING_CONFIG', 'HOST_TEMPLATE')
         self._fps_multiplier = _determine_fps_multiplier(
-            self._requested_cores, len(devices), model_infos, metis
+            self._requested_cores, len(devices), model_infos, board
         )
         LOG.debug(f"Host FPS multiplier: {self._fps_multiplier}")
 
@@ -811,7 +811,7 @@ def create_tracers(
     `tracers` argument in the function `create_inference_stream`.  The available tracers are:
 
     * `end_to_end_fps` - collects end-to-end fps metric
-    * `core_temp` - collects the temperature of the metis core
+    * `core_temp` - collects the temperature of the board core
     * `cpu_usage` - collects information about the host CPU usage
     * `latency`  - collects metrics about stream latency
 
@@ -842,7 +842,7 @@ def create_tracers(
         try:
             saved = utils.LOG.level
             utils.LOG.setLevel(logging_utils.logging.ERROR)
-            has_aipu = device_manager.detect_metis_type() != config.Metis.none
+            has_aipu = device_manager.detect_board_type() != config.Board.none
         finally:
             utils.LOG.setLevel(saved)
 

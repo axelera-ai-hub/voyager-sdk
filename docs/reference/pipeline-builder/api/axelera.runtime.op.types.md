@@ -11,16 +11,17 @@ Data types for the op package: BBox, DetectedObject, TrackedObject, Classificati
 | Name | Description |
 |------|-------------|
 | [BBox](#bbox) | Bounding box in XYXY format (x0, y0, x1, y1). |
+| [Classification](#classification) | A classification result with class ID and confidence score. |
+| [CoordFormat](#coordformat) | Coordinate format for bounding boxes. |
+| [CoordSpace](#coordspace) | Coordinate space for bounding box values. |
 | [DepthMap](#depthmap) | A depth estimation result holding a 2D depth array. |
 | [DetectedObject](#detectedobject) | A detected object with bounding box and classification. |
+| [Keypoint](#keypoint) | A single keypoint with position and confidence. |
 | [OrientedObject](#orientedobject) | An oriented (rotated) detected object with XYWHR bounding box. |
 | [PoseObject](#poseobject) | A detected pose with keypoints. |
 | [SegmentedObject](#segmentedobject) | An instance segmentation with mask. |
+| [SemanticSegmentation](#semanticsegmentation) | A semantic segmentation result holding a 2D class-id map. |
 | [TrackedObject](#trackedobject) | A tracked object with persistent track ID and lifecycle state. |
-| [Classification](#classification) | A classification result with class ID and confidence score. |
-| [Keypoint](#keypoint) | A single keypoint with position and confidence. |
-| [CoordFormat](#coordformat) | Coordinate format for bounding boxes. |
-| [CoordSpace](#coordspace) | Coordinate space for bounding box values. |
 | [TrackedObjectState](#trackedobjectstate) | Lifecycle state of a tracked object across video frames. |
 
 ---
@@ -46,6 +47,8 @@ __init__(x0: float, y0: float, x1: float, y1: float)
 
 - **`width`** (`float`)
 - **`height`** (`float`)
+- **`area`** (`float`)
+- **`center_distance`** (`float`) — Euclidean distance from the bbox centre to the image centre (0.5, 0.5).
 
 **Methods:**
 
@@ -58,7 +61,7 @@ in_frame_of(parent: BBox) -> BBox
 Map local normalized coordinates into the parent's coordinate space.
 
 Pure arithmetic composition: `parent.x0 + self.x0 * parent.width`.
-The returned BBox has no `_frame` set (caller decides what to attach).
+The returned BBox carries no frame-space box (caller decides what to attach).
 
 #### to_pixels
 
@@ -74,7 +77,10 @@ Convert normalized [0,1] coordinates to clamped pixel values.
 frame_pixels(w: int, h: int) -> tuple[int, int, int, int]
 ```
 
-Return frame-space pixel coordinates, using `_frame` if populated.
+Return frame-space pixel coordinates.
+
+Uses the frame-space box recorded when the object came from a crop (inside
+`op.for_each`), otherwise this box's own coordinates.
 
 #### xyxy
 
@@ -118,6 +124,59 @@ Create BBox from left-top-width-height format.
 
 ---
 
+### Classification
+
+A classification result with class ID and confidence score.
+
+**Attributes:**
+
+- **class_id** (`int`): Class identifier (int or enum like ImagenetClasses).
+- **score** (`float`): Classification confidence score [0-1].
+
+**Constructor:**
+
+```python
+__init__(class_id: int, score: float)
+```
+
+---
+
+### CoordFormat
+
+Coordinate format for bounding boxes.
+
+XYXY: (x0, y0, x1, y1) - top-left and bottom-right corners (exclusive)
+XYWH: (x_center, y_center, width, height) - center point with dimensions
+LTWH: (left, top, width, height) - top-left corner with dimensions
+
+**Constructor:**
+
+```python
+__init__(XYXY='xyxy', XYWH='xywh', LTWH='ltwh')
+```
+
+---
+
+### CoordSpace
+
+Coordinate space for bounding box values.
+
+**Normalized:** This is the standard storage format for all DetectedObject.bbox values.
+
+MODEL_PIXEL: Pixel coordinates in model input space (e.g., 0-640 for 640x640 model).
+    This is typically what decoders output before normalization.
+IMAGE_PIXEL: Pixel coordinates in original image space.
+    Produced by fc.map_bbox() for power-user raw-tensor workflows;
+    pipeline operators output NORMALIZED instead.
+
+**Constructor:**
+
+```python
+__init__(NORMALIZED='normalized', MODEL_PIXEL='model_pixel', IMAGE_PIXEL='image_pixel')
+```
+
+---
+
 ### DepthMap
 
 A depth estimation result holding a 2D depth array.
@@ -134,7 +193,7 @@ using the INFERNO colormap.
 **Constructor:**
 
 ```python
-__init__(depth: np.ndarray = field(default_factory=(lambda: np.empty(0))))
+__init__(depth: np.ndarray = field(default_factory=lambda: np.empty(0)))
 ```
 
 ---
@@ -155,6 +214,47 @@ A detected object with bounding box and classification.
 ```python
 __init__(index: int = 0, class_id: int | enum.Enum | None = None, bbox: BBox | None = None, score: float | None = None)
 ```
+
+---
+
+### Keypoint
+
+A single keypoint with position and confidence.
+
+Coordinates are normalized [0,1] relative to the image region.
+Use `frame_x(w)` and `frame_y(h)` for frame-level pixel coordinates
+when nested inside a ForEach cascade.
+
+**Attributes:**
+
+- **x** (`float`): X coordinate, normalized [0,1]
+- **y** (`float`): Y coordinate, normalized [0,1]
+- **confidence** (`float`): Detection confidence [0,1]
+- **name** (`str | None`): Optional keypoint name (e.g., 'nose', 'left_eye')
+
+**Constructor:**
+
+```python
+__init__(x: float, y: float, confidence: float)
+```
+
+**Methods:**
+
+#### frame_x
+
+```python
+frame_x(w: int) -> int
+```
+
+Return frame-level pixel x, using the frame-space position from a crop if recorded.
+
+#### frame_y
+
+```python
+frame_y(h: int) -> int
+```
+
+Return frame-level pixel y, using the frame-space position from a crop if recorded.
 
 ---
 
@@ -214,7 +314,7 @@ the box into a parallelogram.
 frame_corners(w: int, h: int) -> list[tuple[int, int]]
 ```
 
-Return frame-level pixel corners, using _frame_bbox if populated.
+Return frame-level pixel corners.
 
 When nested inside a ForEach, the OBB's normalized coords are relative
 to the crop region. This method maps them to the original frame by
@@ -266,6 +366,27 @@ __init__(index: int = 0, class_id: int | enum.Enum | None = None, mask: np.ndarr
 
 ---
 
+### SemanticSegmentation
+
+A semantic segmentation result holding a 2D class-id map.
+
+The class map is stored at model output resolution (e.g., 768x1024).
+Measurement/evaluation accesses the raw array directly via `class_map`.
+Rendering (via `draw()`) delegates to the renderer's `class_map_mask`
+primitive with the shared `plot_utils.colormap` palette.
+
+**Attributes:**
+
+- **class_map** (`np.ndarray`): 2D integer array (H, W) where each pixel is a class id.
+
+**Constructor:**
+
+```python
+__init__(class_map: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.uint8)))
+```
+
+---
+
 ### TrackedObject
 
 A tracked object with persistent track ID and lifecycle state.
@@ -306,100 +427,6 @@ Visualization Strategy (see display.draw_tracked_box for full details):
 - ALPHA = state: Opacity indicates lifecycle (tracked=100%, lost=40%, etc.)
 
 This dual-property approach shows both identity and state simultaneously.
-
----
-
-### Classification
-
-A classification result with class ID and confidence score.
-
-**Attributes:**
-
-- **class_id** (`int`): Class identifier (int or enum like ImagenetClasses).
-- **score** (`float`): Classification confidence score [0-1].
-
-**Constructor:**
-
-```python
-__init__(class_id: int, score: float)
-```
-
----
-
-### Keypoint
-
-A single keypoint with position and confidence.
-
-Coordinates are normalized [0,1] relative to the image region.
-Use `frame_x(w)` and `frame_y(h)` for frame-level pixel coordinates
-when nested inside a ForEach cascade.
-
-**Attributes:**
-
-- **x** (`float`): X coordinate, normalized [0,1]
-- **y** (`float`): Y coordinate, normalized [0,1]
-- **confidence** (`float`): Detection confidence [0,1]
-- **name** (`str | None`): Optional keypoint name (e.g., 'nose', 'left_eye')
-
-**Constructor:**
-
-```python
-__init__(x: float, y: float, confidence: float)
-```
-
-**Methods:**
-
-#### frame_x
-
-```python
-frame_x(w: int) -> int
-```
-
-Return frame-level pixel x, using _frame_x if populated.
-
-#### frame_y
-
-```python
-frame_y(h: int) -> int
-```
-
-Return frame-level pixel y, using _frame_y if populated.
-
----
-
-### CoordFormat
-
-Coordinate format for bounding boxes.
-
-XYXY: (x0, y0, x1, y1) - top-left and bottom-right corners (exclusive)
-XYWH: (x_center, y_center, width, height) - center point with dimensions
-LTWH: (left, top, width, height) - top-left corner with dimensions
-
-**Constructor:**
-
-```python
-__init__(XYXY='xyxy', XYWH='xywh', LTWH='ltwh')
-```
-
----
-
-### CoordSpace
-
-Coordinate space for bounding box values.
-
-**Normalized:** This is the standard storage format for all DetectedObject.bbox values.
-
-MODEL_PIXEL: Pixel coordinates in model input space (e.g., 0-640 for 640x640 model).
-    This is typically what decoders output before normalization.
-IMAGE_PIXEL: Pixel coordinates in original image space.
-    Produced by fc.map_bbox() for power-user raw-tensor workflows;
-    pipeline operators output NORMALIZED instead.
-
-**Constructor:**
-
-```python
-__init__(NORMALIZED='normalized', MODEL_PIXEL='model_pixel', IMAGE_PIXEL='image_pixel')
-```
 
 ---
 

@@ -9,11 +9,25 @@ Plain-language definitions for terms used throughout the Voyager SDK documentati
 ### AIPU
 AI Processing Unit. The dedicated chip on Metis hardware that performs AI inference. Analogous to how a GPU handles graphics, the AIPU handles AI workloads.
 
-### Accuracy (mAP)
-See [mAP](#map).
+### Accuracy
+How closely a model's output matches the ground truth. Which metric expresses it depends on the task:
+**Top-1** for image classification, **[mAP](#map)** for object detection, instance segmentation and
+keypoint detection, **[mIoU](#miou)** for semantic segmentation, **RMSE** for depth estimation. The
+[Model Zoo](reference/models/model-zoo.md) gives the metric used for every model it lists.
+
+Two things to watch when reading figures. The Model Zoo reports them as percentages (a Top-1 of
+`74.44`) while the tools print them from 0 to 1 (`mAP@50: 0.547`). And **accuracy loss**, listed in
+its own Model Zoo column, is a different number again: the drop from the FP32 reference figure to the
+quantized int8 figure, in whatever metric that model uses.
 
 ### Activation (environment)
 Running `source venv/bin/activate` to set up your terminal session with the correct paths and libraries for the SDK. Must be done in every new terminal. See [Install the SDK](user-guides/sdk-install.md).
+
+### AXE (`.axe`)
+A whole inference pipeline in one file: the preprocessing, the compiled model and the postprocessing, packaged so another machine can run it without the code that built it. Load it with `op.load('pipeline.axe')`. See [Model Formats](reference/pipeline-builder/model-formats.md).
+
+### AXM (`.axm`)
+The compiled model on its own, ready for the [AIPU](#aipu), and what [compilation](#compilation-model) produces. Its inputs and outputs match the ONNX or PyTorch model it was compiled from, so the pre and postprocessing you write around it is the same. Load it with `op.load('model.axm')`. Older documentation calls this file an `.axmodel`. See [Model Formats](reference/pipeline-builder/model-formats.md).
 
 ### AxRuntime
 The low-level C API for directly controlling Metis devices — loading models, running inference, managing memory. Used when you need full control rather than the higher-level pipeline tools.
@@ -24,10 +38,26 @@ The low-level C API for directly controlling Metis devices — loading models, r
 A tag applied to SDK features that are **tested and functional** but still growing. Beta features are safe to use in development and are expected to evolve in future releases. Compare with [Experimental](#experimental).
 
 ### Benchmarking
-Measuring how fast and how accurately a model runs on your hardware. Throughput (FPS) measures speed. mAP measures accuracy. See [Measure Accuracy](tutorials/measure-accuracy.md).
+Measuring how fast and how accurately a model runs on your hardware. Throughput (FPS) measures speed.
+Accuracy is measured by whichever metric fits the task, so two figures are only comparable when they
+came from the same metric on the same dataset. See [Accuracy](#accuracy) for which metric goes with
+which task, and [Measure Accuracy](tutorials/measure-accuracy.md) for how to run it.
+
+### Board names
+Axelera AI boards are named by product line and model number. Boards sold before SDK v1.9 under Metis product names map to the new names as follows:
+
+| Former name | New name | Short name |
+| --- | --- | --- |
+| Metis M.2 | Axelera Embedded 110m | 110m |
+| Metis M.2 Max | Axelera Embedded 113m | 113m |
+| Metis Compute Board | Axelera Embedded 111c | 111c |
+| Metis PCIe (1-chip) | Axelera Edge 130p | 130p |
+| Metis PCIe (4-chip) | Axelera Server 150p | 150p |
+
+The [Metis](#metis) AIPU chip itself is unchanged and keeps its name.
 
 ### BSP
-Board Support Package. The firmware and operating system image for the Metis Compute Board. Must be flashed before using the board.
+Board Support Package. The firmware and operating system image for the Axelera Embedded 111c Compute Board. Must be flashed before using the board.
 
 ## C
 
@@ -94,7 +124,12 @@ The SDK's command-line tool for running models, evaluating performance, and benc
 Mean Average Precision. The standard metric for measuring object detection accuracy. It considers both whether objects are found (recall) and whether detections are correct (precision). Ranges from 0 to 1, where higher is better. A model with mAP 0.56 correctly detects and locates objects about 56% of the time.
 
 ### Metis
-The name of Axelera AI's AI Processing Unit (AIPU) chip family. Available in M.2, PCIe, and Compute Board form factors.
+The name of Axelera AI's AI Processing Unit (AIPU) chip family. Metis chips power the Axelera Embedded (110m, 113m, 111c), Axelera Edge (130p), and Axelera Server (150p) boards — see [Board names](#board-names).
+
+### mIoU
+Mean Intersection over Union. The standard metric for semantic segmentation accuracy. For each class
+it compares the overlap between the predicted region and the ground-truth region, then averages across
+classes. Higher is better.
 
 ### Model
 A trained neural network that performs a specific AI task. Models are identified by name in the SDK (e.g., `yolov5s-v7-coco`). The [Model Zoo](#model-zoo) contains pre-optimized models ready to use.
@@ -120,6 +155,9 @@ The complete processing chain from input to output. A typical pipeline: camera c
 
 ### Post-processing
 Steps that happen after inference — interpreting the raw model output into usable results. For object detection, this includes decoding bounding box coordinates and filtering by confidence. Handled automatically by the pipeline.
+
+### Preamble and postamble
+The pieces of a model the compiler could not place on the [AIPU](#aipu), left inside the [`.axm`](#axm-axm) as small graphs that run on the host: the preamble in front of the network, the postamble after it (typically the model's own decode). They are part of the model, not your [pre-processing](#pre-processing) and [post-processing](#post-processing), which are operators you write around it. By default a postamble runs on onnxruntime; you can name a kernel instead. See [Model Formats](reference/pipeline-builder/model-formats.md) and [Postambles](reference/pipeline-builder/postamble.md).
 
 ### Pre-processing
 Steps that happen before inference — preparing the input for the model. Typically involves resizing, normalizing pixel values, and converting color formats. Handled automatically by the pipeline.
@@ -149,6 +187,11 @@ The end-to-end speed of the complete pipeline, measured in FPS. This includes ev
 
 ### Throughput
 See [FPS](#fps), [System throughput](#system-throughput), [Device throughput](#device-throughput).
+
+### Top-1
+The standard metric for image classification accuracy: the share of images whose single
+highest-scoring prediction is the correct label. Higher is better. The Model Zoo reports it in the
+reference FP32 column of its image classification table.
 
 ## V
 

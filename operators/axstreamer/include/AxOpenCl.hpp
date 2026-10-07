@@ -18,6 +18,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "AxDataInterface.h"
@@ -261,7 +262,46 @@ to_half4(const std::array<float, 4> &f)
 
 std::string get_kernel_utils(int rotate_type = 0, bool use_fp16 = false);
 
-std::string get_rotation(int rotate_type);
+cl_float16 get_transform_matrix(int rotate_type, int width, int height);
+
+// Folds a post-perspective-divide translation of (crop_x, crop_y) into a
+// coordinate-transform matrix's translation terms: numerator' = numerator +
+// crop * denom, so crop is multiplied by the denom row (s8,s9,s10) rather
+// than added directly. This is exact for perspective matrices (denom varies
+// per pixel) and reduces to a plain s[2]/s[6] += crop_x/crop_y add for pure
+// affine matrices (denom == 1 constant, i.e. s8==s9==0, s10==1) -- so the
+// same helper is correct whether `transform` came from get_transform_matrix,
+// an arbitrary perspective homography, or a hand-built affine/scale matrix.
+// Kept in sync with ax2_utils::fold_crop_into_transform in
+// axelera_runtime2/include/axstreamer/AxOpenCl.hpp.
+inline cl_float16
+fold_crop_into_transform(const cl_float16 &transform_in, cl_int crop_x, cl_int crop_y)
+{
+  cl_float16 transform = transform_in;
+  transform.s[0] += crop_x * transform.s[8];
+  transform.s[1] += crop_x * transform.s[9];
+  transform.s[2] += crop_x * transform.s[10];
+  transform.s[4] += crop_y * transform.s[8];
+  transform.s[5] += crop_y * transform.s[9];
+  transform.s[6] += crop_y * transform.s[10];
+  return transform;
+}
+
+// image_dims.x/y bound the source coordinate space a bilinear/pillow sampler
+// will accept (see AxOpenCl.cpp's `_bl`/`_pb` samplers' `fx >=
+// img->image_dims.x` guard). Once crop is folded into a transform via
+// fold_crop_into_transform(), sampled coordinates range over [crop,
+// crop+in.width) rather than [0, in.width), so image_dims.x/y must widen by the
+// same crop_x/crop_y or every in-bounds pixel will appear out of range. Pairing
+// this with fold_crop_into_transform() at every call site (instead of
+// hand-deriving both) is what makes it structurally impossible to update one
+// without the other. Kept in sync with ax2_utils::image_dims_for_crop in
+// axelera_runtime2/include/axstreamer/AxOpenCl.hpp.
+inline cl_int4
+image_dims_for_crop(const buffer_details &in, const buffer_details &out)
+{
+  return { in.width + in.crop_x, in.height + in.crop_y, out.width, out.height };
+}
 
 int run_kernel(CLProgram &program, cl_kernel k, const buffer_details &in,
     const buffer_details &out, CLProgram::ax_buffer &inbuf,
@@ -271,13 +311,98 @@ int run_kernel(CLProgram &program, cl_kernel k, const buffer_details &in,
 cl_float16 get_color_conversion_matrix(AxVideoFormat in_format, AxVideoFormat out_format);
 
 cl_float16 get_color_conversion_matrix_with_norm(AxVideoFormat in_format,
-    AxVideoFormat out_format, const std::vector<cl_float> &mul,
-    const std::vector<cl_float> &add);
+    AxVideoFormat out_format, const std::vector<float> &mul,
+    const std::vector<float> &add);
 
-std::array<cl_int, 4> build_strides(const buffer_details &in, const buffer_details &out);
+cl_int4 build_strides(const buffer_details &in, const buffer_details &out);
 
-std::array<cl_int, 4> build_offsets(
+cl_int4 build_offsets(
     const buffer_details &in, const buffer_details &out, int num_planes = 1);
+
+// Canonical output-format list shared by operators whose OpenCL kernels only
+// ever produce RGB-family or grayscale output (Barrel Correct, Perspective,
+// Polar Transform). Pass to Ax::validate_output_format(..., valid_formats).
+inline constexpr std::array rgb_family_output_formats{
+  AxVideoFormat::RGB,
+  AxVideoFormat::BGR,
+  AxVideoFormat::RGBA,
+  AxVideoFormat::BGRA,
+  AxVideoFormat::GRAY8,
+};
+
+inline void
+require_opencl_input_format(AxVideoFormat format, const std::string &op_name)
+{
+  constexpr std::array valid{
+    AxVideoFormat::RGB,
+    AxVideoFormat::BGR,
+    AxVideoFormat::RGBA,
+    AxVideoFormat::BGRA,
+    AxVideoFormat::NV12,
+    AxVideoFormat::NV16,
+    AxVideoFormat::I420,
+    AxVideoFormat::Y444,
+    AxVideoFormat::Y42B,
+    AxVideoFormat::YUY2,
+    AxVideoFormat::GRAY8,
+  };
+  if (std::none_of(
+          valid.begin(), valid.end(), [format](auto f) { return f == format; }))
+    throw std::runtime_error(op_name + " does not work with the input format: "
+                             + AxVideoFormatToString(format));
+}
+
+struct run_inputs {
+  cl_int4 strides;
+  cl_int4 offsets;
+  std::vector<CLProgram::ax_buffer> in_bufs;
+  cl_float16 color_matrix;
+};
+
+run_inputs prepare_run_inputs(CLProgram &program, const buffer_details &in,
+    const buffer_details &out, int num_planes);
+
+// Same as above, but fuses a per-channel normalization (mul/add) into the
+// color matrix instead of computing the plain one -- for callers whose
+// output is always normalized, this avoids computing the color matrix twice.
+run_inputs prepare_run_inputs(CLProgram &program, const buffer_details &in,
+    const buffer_details &out, int num_planes, const std::vector<float> &mul,
+    const std::vector<float> &add);
+
+// Compiled-kernel cache keyed by an arbitrary int hash. Replaces the
+// hash + linear-scan + vector<{hash, kernel}> pattern that used to be
+// duplicated in every OpenCL operator's get_converter(): each operator only
+// needs to supply a hash covering whatever it varies its kernel source on,
+// and a callable that builds the kernel on a cache miss.
+class KernelCache
+{
+  public:
+  template <typename BuildFn> cl_kernel get_or_build(int hash, BuildFn &&build)
+  {
+    auto it = std::find_if(entries_.begin(), entries_.end(),
+        [hash](const auto &e) { return e.hash == hash; });
+    if (it != entries_.end()) {
+      return *it->cl_prog;
+    }
+    return *entries_.emplace_back(hash, build()).cl_prog;
+  }
+
+  // Convenience overload for the common case of keying purely on
+  // (in_format, out_format).
+  template <typename BuildFn>
+  cl_kernel get_or_build(AxVideoFormat in_format, AxVideoFormat out_format, BuildFn &&build)
+  {
+    auto hash = (static_cast<int>(in_format) << 16) + (static_cast<int>(out_format) << 8);
+    return get_or_build(hash, std::forward<BuildFn>(build));
+  }
+
+  private:
+  struct entry {
+    int hash;
+    CLProgram::ax_kernel cl_prog{ nullptr };
+  };
+  std::vector<entry> entries_;
+};
 
 struct kernel_arg_details {
   AxVideoFormat in_format;

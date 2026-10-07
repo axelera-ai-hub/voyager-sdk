@@ -2,6 +2,7 @@
 
 import itertools
 import os
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -232,7 +233,6 @@ def mock_dataset_prompt_yaml_with_files():
                     {
                         'file': 'ILSVRC2012_img_val.tar',
                         'drop_dirs': 0,
-                        'sub_dir': 'val',
                         'check_files': ['val/n01440764/ILSVRC2012_val_00003014.JPEG'],
                     },
                 ]
@@ -633,3 +633,20 @@ def test_customer_env_not_found_still_errors(mock_filesystem, tmp_path):
             check_and_download_dataset('TestOBBDataset', tmp_path, is_private=True)
         mock_hint.assert_called_once()
         mock_stamp.assert_not_called()
+
+
+@pytest.mark.parametrize('split', ['val', 'train'])
+def test_imagenet_tars_download_to_the_dataset_root(tmp_path, split):
+    """torchvision reads both raw archives from the dataset root, whatever the table says."""
+    tables = Path(__file__).resolve().parents[1] / 'ax_datasets'
+    config = data_utils.DatasetConfig(
+        tables / DatasetYamlFile.DATASET_PRIVATE.value, DatasetYamlFile.DATASET_PRIVATE
+    )
+    root = tmp_path / 'ImageNet'
+    with patch.object(data_utils.utils, 'download') as download:
+        data_utils._download_dataset(root, 'ImageNet', split, config)
+
+    assert {call.args[1] for call in download.call_args_list} == {
+        root / 'ILSVRC2012_devkit_t12.tar.gz',
+        root / f'ILSVRC2012_img_{split}.tar',
+    }

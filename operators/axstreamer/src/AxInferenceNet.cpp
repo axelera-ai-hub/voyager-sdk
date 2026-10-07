@@ -294,6 +294,19 @@ class AxInferenceNet : public InferenceNet
   // Frames popped from reorder_queue but not yet pushed to post_ops; guarded
   // by reorder_mutex. See inference_low_latency_ready()/drain_reorder_queue().
   size_t pending_forward_count = 0;
+  // Serializes the "pop consecutive ready frames from the front of
+  // reorder_queue, then forward them to post_ops" sequence in
+  // inference_low_latency_ready() across concurrent completion callbacks
+  // (async_mode's completions arrive on whatever thread axruntime calls back
+  // on, so this function can run concurrently on multiple threads). Without
+  // it, two threads can each correctly pop a different ready frame under
+  // reorder_mutex, then race to call post_ops.input_queue().push() with no
+  // ordering guarantee between them -- silently re-reordering frames that
+  // reorder_queue had already put back in order. Deliberately a separate
+  // mutex from reorder_mutex: the dispatch thread (inference_thread_low_latency)
+  // never needs forward_mutex, so it's never blocked by the potentially-slow
+  // (and potentially queue-blocking) forwarding work this guards.
+  std::mutex forward_mutex;
 };
 
 class TransformOp : public Ax::Operator
@@ -1071,6 +1084,11 @@ AxInferenceNet::inference_thread_low_latency()
 void
 AxInferenceNet::inference_low_latency_ready(uint64_t idx, bool ok)
 {
+  // Held for the whole call: see forward_mutex's declaration for why this is
+  // required (concurrent completion callbacks would otherwise race to push
+  // to post_ops.input_queue() in the wrong relative order).
+  std::unique_lock forward_lock(forward_mutex);
+
   // This is called whenever a frame's inference is done, but it is called from
   // any thread and we do not know the order that frames will arrive. So we need
   // to queue up out of order frames. (strictly speaking we could actually
@@ -1524,8 +1542,6 @@ Ax::read_inferencenet_properties(std::istream &s, Ax::Logger &logger)
         props.model = value;
       } else if (key == "double_buffer") {
         props.double_buffer = as_bool(value);
-      } else if (key == "async_mode") {
-        props.async_mode = as_bool(value);
       } else if (key == "max_inflight") {
         props.max_inflight = std::stoi(value);
       } else if (key == "max_pending") {

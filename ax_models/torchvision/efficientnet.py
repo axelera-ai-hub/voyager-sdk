@@ -1,3 +1,4 @@
+# Copyright Axelera AI, 2024
 from classifiers import AxTorchvisionClassifierModel
 from torchvision import models
 from torchvision.models import efficientnet

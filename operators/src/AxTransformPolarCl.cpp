@@ -121,7 +121,7 @@ __kernel void polar_transform(%s__global %s *out, int4 image_dims,
     float2 corrected = transform_coordinates(row, col, image_dims.x, image_dims.y, image_dims.z, image_dims.w,
                            center_x, center_y, max_radius, inverse, linear_polar,
                            start_angle, rotate180);
-    image_description img = {image_dims, strides, offsets, (int4)(0, 0, image_dims.z, image_dims.w), (int4)(0,0,0,0)};
+    image_description img = { .image_dims = image_dims, .strides = strides, .offsets = offsets };
     uchar fill = 0;
 )##";
 
@@ -131,7 +131,6 @@ using ax_utils::opencl_details;
 class CLPolarTransform
 {
   using buffer = CLProgram::ax_buffer;
-  using kernel = CLProgram::ax_kernel;
 
   public:
   CLPolarTransform(opencl_details *context, Ax::Logger &logger)
@@ -182,40 +181,39 @@ class CLPolarTransform
   }
 
 
+  cl_kernel get_converter(ax_utils::CLProgram &program, AxVideoFormat in_format,
+      AxVideoFormat out_format, int num_planes)
+  {
+    return kernel_cache.get_or_build(in_format, out_format, [&] {
+      return build_kernel(program, in_format, out_format, 0, num_planes);
+    });
+  }
+
   int run(const buffer_details &in, const buffer_details &out, const polar_properties &prop)
   {
     auto num_planes = ax_utils::get_num_planes(in);
-    if (!converter) {
-      converter = build_kernel(program, in.format, out.format, 0, num_planes);
-    }
+    auto converter = get_converter(program, in.format, out.format, num_planes);
     bool start_flush = prop.downstream_supports_opencl == 0;
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
-
     cl_float max_radius = prop.max_radius;
     if (max_radius == 0.0f) {
       max_radius = calculate_max_radius(in, prop.center_x, prop.center_y);
     }
-
-    std::array<cl_int, 4> image_dims = { in.width, in.height, out.width, out.height };
-    auto strides = ax_utils::build_strides(in, out);
-    auto offsets = ax_utils::build_offsets(in, out, num_planes);
-    auto in_bufs = program.create_buffers(1, ax_utils::determine_buffer_size(in),
-        CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, in.data, in.offsets.size());
-    auto matrix = ax_utils::get_color_conversion_matrix(in.format, out.format);
-
-    program.set_kernel_args(*converter, 0, in_bufs, *outbuf, image_dims,
-        strides, offsets, static_cast<cl_float>(prop.center_x),
+    cl_int4 image_dims = { in.width, in.height, out.width, out.height };
+    auto ri = ax_utils::prepare_run_inputs(program, in, out, num_planes);
+    program.set_kernel_args(converter, 0, ri.in_bufs, *outbuf, image_dims,
+        ri.strides, ri.offsets, static_cast<cl_float>(prop.center_x),
         static_cast<cl_float>(prop.center_y), max_radius,
         static_cast<cl_int>(prop.inverse), static_cast<cl_int>(prop.linear_polar),
         static_cast<cl_float>(prop.start_angle),
-        static_cast<cl_int>(prop.rotate180), matrix);
-    return run_kernel(program, *converter, in, out, in_bufs[0], outbuf, start_flush);
+        static_cast<cl_int>(prop.rotate180), ri.color_matrix);
+    return run_kernel(program, converter, in, out, ri.in_bufs[0], outbuf, start_flush);
   }
 
   private:
   CLProgram program;
   int error{};
-  kernel converter{ nullptr };
+  ax_utils::KernelCache kernel_cache;
 };
 
 
@@ -283,13 +281,7 @@ determine_width_height(const AxVideoInterface &in_info, int size)
     static_cast<int>(std::round(height * scale)) };
 }
 
-std::array valid_formats = {
-  AxVideoFormat::RGB,
-  AxVideoFormat::BGR,
-  AxVideoFormat::RGBA,
-  AxVideoFormat::BGRA,
-  AxVideoFormat::GRAY8,
-};
+constexpr auto &valid_formats = ax_utils::rgb_family_output_formats;
 
 const char *name = "Polar Transform";
 
@@ -342,24 +334,7 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
   if (output_details.size() != 1) {
     throw std::runtime_error("polar transform works on single video output only");
   }
-  auto valid_formats = std::array{
-    AxVideoFormat::RGB,
-    AxVideoFormat::BGR,
-    AxVideoFormat::RGBA,
-    AxVideoFormat::BGRA,
-    AxVideoFormat::NV12,
-    AxVideoFormat::NV16,
-    AxVideoFormat::I420,
-    AxVideoFormat::Y42B,
-    AxVideoFormat::YUY2,
-    AxVideoFormat::GRAY8,
-  };
-  if (std::none_of(valid_formats.begin(), valid_formats.end(), [input_details](auto format) {
-        return format == input_details[0].format;
-      })) {
-    throw std::runtime_error("Polar Transform does not work with the input format: "
-                             + AxVideoFormatToString(input_details[0].format));
-  }
+  ax_utils::require_opencl_input_format(input_details[0].format, "Polar Transform");
   Ax::validate_output_format(output_details[0].format, prop->format, name, valid_formats);
   prop->polar_transform->run(input_details[0], output_details[0], *prop);
 }

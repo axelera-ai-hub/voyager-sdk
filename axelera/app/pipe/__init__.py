@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # Application pipeline
 
 from .base import Pipe, SourceIdAllocator, create_pipe

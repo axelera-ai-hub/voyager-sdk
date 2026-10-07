@@ -82,7 +82,7 @@ finally:
 
 Configure device clock speeds and utilization. Default settings are sufficient for most applications.
 
-**Note:** MVM utilization must be configured for some models on Metis M.2. Check the compiler settings for your model, or set utilization here to apply to all models.
+**Note:** MVM utilization must be configured for some models on Axelera Embedded M.2 boards (110m/113m). Check the compiler settings for your model, or set utilization here to apply to all models.
 
 Returns True if the configuration setting is complete, False if it is pending. Configuration changes are asynchronous - use [`device_ready()`](#device_readydevice) to poll for completion.
 

@@ -2,13 +2,111 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import logging
 import os
+import subprocess
+import sys
+import time
+import zipfile
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
 from axelera.app import config, device_manager
+
+
+@functools.lru_cache(maxsize=1)
+def _has_aipu() -> bool:
+    return any(Path('/dev').glob('metis*'))
+
+
+def _has_error_reporter_api() -> bool:
+    from axelera import runtime
+
+    return hasattr(runtime, 'activate_error_reporter') and hasattr(
+        runtime, 'trigger_error_reporter'
+    )
+
+
+_needs_aipu = pytest.mark.skipif(not _has_aipu(), reason='needs an AIPU')
+_needs_error_reporter_api = pytest.mark.skipif(
+    not _has_error_reporter_api(), reason='needs error reporter runtime API'
+)
+
+_REPORTER_SCRIPT = """
+import os
+import sys
+
+from axelera import runtime
+from axelera.app import device_manager
+
+os.environ['AXELERA_ENABLE_AUTOMATIC_REPORTS'] = '1'
+with device_manager.create_device_manager('gst'):
+    if sys.argv[1] == 'trigger':
+        if not runtime.trigger_error_reporter():
+            raise RuntimeError('failed to trigger error reporter')
+    elif sys.argv[1] == 'crash':
+        os._exit(86)
+"""
+
+
+def _wait_for_error_report(tmp_path: Path) -> Path:
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        reports = list(tmp_path.glob('report-*.zip'))
+        assert len(reports) <= 1
+        if reports:
+            with contextlib.suppress(zipfile.BadZipFile):
+                with zipfile.ZipFile(reports[0]) as archive:
+                    if archive.testzip() is None:
+                        return reports[0]
+        time.sleep(0.1)
+    pytest.fail('error reporter did not produce a valid report archive')
+
+
+def _run_error_reporter_process(tmp_path: Path, termination: str) -> subprocess.CompletedProcess:
+    framework_root = Path(__file__).resolve().parents[1]
+    pythonpath = os.environ.get('PYTHONPATH')
+    environment = os.environ | {
+        'PYTHONPATH': (
+            f'{framework_root}{os.pathsep}{pythonpath}' if pythonpath else str(framework_root)
+        )
+    }
+    return subprocess.run(
+        [sys.executable, '-c', _REPORTER_SCRIPT, termination],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+
+def _run_error_reporter(tmp_path: Path, termination: str, expected_returncode: int) -> None:
+    result = _run_error_reporter_process(tmp_path, termination)
+    assert result.returncode == expected_returncode, result.stderr
+
+    report = _wait_for_error_report(tmp_path)
+    assert report.stat().st_size > 0
+    with zipfile.ZipFile(report) as archive:
+        assert any(Path(name).name.startswith('report-') for name in archive.namelist())
+
+
+@_needs_aipu
+@_needs_error_reporter_api
+@pytest.mark.parametrize('termination, expected_returncode', [('trigger', 0), ('crash', 86)])
+def test_automatic_error_reporter_creates_report(tmp_path, termination, expected_returncode):
+    _run_error_reporter(tmp_path, termination, expected_returncode)
+
+
+@_needs_aipu
+@_needs_error_reporter_api
+def test_automatic_error_reporter_does_not_create_report_after_clean_exit(tmp_path):
+    result = _run_error_reporter_process(tmp_path, 'clean')
+    assert result.returncode == 0, result.stderr
+    assert list(tmp_path.glob('report-*.zip')) == []
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -41,10 +139,45 @@ def test_no_devices_found():
             device_manager.create_device_manager('gst')
 
 
-def test_no_devices_found_override_metis():
+def test_no_devices_found_override_board():
     with mock_runtime([]):
-        with device_manager.create_device_manager('gst', override_metis=config.Metis.pcie) as dm:
-            assert dm.get_metis_type() == config.Metis.pcie
+        with device_manager.create_device_manager('gst', override_board=config.Board.pcie) as dm:
+            assert dm.get_board_type() == config.Board.pcie
+
+
+@pytest.mark.parametrize('value, expected_calls', [(None, 0), ('0', 0), ('1', 1)])
+def test_automatic_error_reporter_activation(monkeypatch, value, expected_calls):
+    from axelera import runtime
+
+    if value is None:
+        monkeypatch.delenv('AXELERA_ENABLE_AUTOMATIC_REPORTS', raising=False)
+    else:
+        monkeypatch.setenv('AXELERA_ENABLE_AUTOMATIC_REPORTS', value)
+    with patch.object(
+        runtime, 'activate_error_reporter', create=True, return_value=True
+    ) as activate:
+        with mock_runtime(['OMEGA_PCIE']):
+            with device_manager.create_device_manager('gst'):
+                pass
+
+    assert activate.call_count == expected_calls
+
+
+@pytest.mark.parametrize(
+    'result',
+    [False, AttributeError('missing Python API'), OSError('missing runtime symbol')],
+)
+def test_automatic_error_reporter_activation_failure_is_nonfatal(monkeypatch, caplog, result):
+    from axelera import runtime
+
+    monkeypatch.setenv('AXELERA_ENABLE_AUTOMATIC_REPORTS', '1')
+    kwargs = {'side_effect': result} if isinstance(result, Exception) else {'return_value': result}
+    with patch.object(runtime, 'activate_error_reporter', create=True, **kwargs):
+        with mock_runtime(['OMEGA_PCIE']):
+            with device_manager.create_device_manager('gst') as dm:
+                assert dm.get_board_type() == config.Board.pcie
+
+    assert 'automatic error report' in caplog.text.lower()
 
 
 @pytest.mark.parametrize('board_type', ['ALPHA_PCIE', 'ALPHA_M2'])
@@ -68,7 +201,7 @@ def test_alpha_devices_found(board_type):
 def test_two_devices_found(selector, got):
     with mock_runtime(['OMEGA_PCIE', 'OMEGA_PCIE']):
         with device_manager.create_device_manager('gst', device_selector=selector) as dm:
-            assert dm.get_metis_type() == config.Metis.pcie
+            assert dm.get_board_type() == config.Board.pcie
             names = [d.name for d in dm.devices]
     assert names == got
 
@@ -128,27 +261,27 @@ def test_device_selector_messages(caplog, level, available, selector, expected, 
 def test_torch_pipe_no_error():
     with mock_runtime([]):
         with device_manager.create_device_manager('torch') as dm:
-            assert dm.get_metis_type() == config.Metis.none
+            assert dm.get_board_type() == config.Board.none
             assert [] == dm.configure_boards_and_tracers(Mock(), [])
 
 
 @pytest.mark.parametrize(
     'board_type, override, expected, warnings',
     [
-        ('OMEGA_PCIE', config.Metis.none, config.Metis.pcie, ''),
-        ('OMEGA_M2', config.Metis.none, config.Metis.m2, ''),
-        ('OMEGA_DEVBOARD', config.Metis.none, config.Metis.pcie, 'Unknown board type'),
-        ('OMEGA_SBC', config.Metis.none, config.Metis.pcie, ''),
-        ('OMEGA_PCIE', config.Metis.pcie, config.Metis.pcie, ''),
-        ('OMEGA_M2', config.Metis.pcie, config.Metis.pcie, ''),
-        ('OMEGA_PCIE', config.Metis.m2, config.Metis.m2, ''),
-        ('OMEGA_M2', config.Metis.m2, config.Metis.m2, ''),
+        ('OMEGA_PCIE', config.Board.none, config.Board.pcie, ''),
+        ('OMEGA_M2', config.Board.none, config.Board.m2, ''),
+        ('OMEGA_DEVBOARD', config.Board.none, config.Board.pcie, 'Unknown board type'),
+        ('OMEGA_SBC', config.Board.none, config.Board.pcie, ''),
+        ('OMEGA_PCIE', config.Board.pcie, config.Board.pcie, ''),
+        ('OMEGA_M2', config.Board.pcie, config.Board.pcie, ''),
+        ('OMEGA_PCIE', config.Board.m2, config.Board.m2, ''),
+        ('OMEGA_M2', config.Board.m2, config.Board.m2, ''),
     ],
 )
-def test_get_metis_type(caplog, board_type, override, expected, warnings):
+def test_get_board_type(caplog, board_type, override, expected, warnings):
     with mock_runtime([board_type]):
-        dm = device_manager.create_device_manager('gst', override)
-        assert dm.get_metis_type() == expected
+        dm = device_manager.create_device_manager('gst', override_board=override)
+        assert dm.get_board_type() == expected
     if warnings:
         assert warnings in caplog.text
     else:
@@ -158,17 +291,17 @@ def test_get_metis_type(caplog, board_type, override, expected, warnings):
 @pytest.mark.parametrize(
     'board_type, expected',
     [
-        ('', config.Metis.none),
-        ('ALPHA_PCIE', config.Metis.none),
-        ('OMEGA_PCIE', config.Metis.pcie),
-        ('OMEGA_M2', config.Metis.m2),
-        ('OMEGA_DEVBOARD', config.Metis.pcie),
-        ('OMEGA_SBC', config.Metis.pcie),
+        ('', config.Board.none),
+        ('ALPHA_PCIE', config.Board.none),
+        ('OMEGA_PCIE', config.Board.pcie),
+        ('OMEGA_M2', config.Board.m2),
+        ('OMEGA_DEVBOARD', config.Board.pcie),
+        ('OMEGA_SBC', config.Board.pcie),
     ],
 )
-def test_detect_metis_type(board_type, expected):
+def test_detect_board_type(board_type, expected):
     with mock_runtime([board_type] if board_type else []):
-        mt = device_manager.detect_metis_type()
+        mt = device_manager.detect_board_type()
         assert mt == expected
 
 
@@ -208,7 +341,7 @@ def test_tracer_clock_correct(caplog, clock, expected, warnings):
     exp = {n: expected for n in range(ncores)}
     devices = ['metis-0:1:0']
     mock_tracer.initialize_models.assert_called_once_with(
-        mock_nn.model_infos, config.Metis.pcie, exp, devices
+        mock_nn.model_infos, config.Board.pcie, exp, devices
     )
     if warnings:
         assert warnings in caplog.text
@@ -217,7 +350,7 @@ def test_tracer_clock_correct(caplog, clock, expected, warnings):
 
 
 @pytest.mark.parametrize(
-    'in_env,in_clock,in_metis,in_mvm,clock,mvm',
+    'in_env,in_clock,in_board,in_mvm,clock,mvm',
     [
         (None, 600, 'OMEGA_PCIE', 88, 600, 88),
         ('', 600, 'OMEGA_PCIE', 88, 600, 88),
@@ -230,12 +363,12 @@ def test_tracer_clock_correct(caplog, clock, expected, warnings):
         ('400,99', 600, 'OMEGA_M2', 88, 400, 99),
     ],
 )
-def test_configure_board(in_env, in_clock, in_metis, in_mvm, clock, mvm):
+def test_configure_board(in_env, in_clock, in_board, in_mvm, clock, mvm):
     with contextlib.ExitStack() as c:
         newenv = {'AXELERA_CONFIGURE_BOARD': in_env} if in_env is not None else {}
         c.enter_context(patch.dict(os.environ, newenv))
         cfg = {f'clock_profile_core_{n}': in_clock for n in range(4)}
-        Ctx = c.enter_context(mock_runtime([in_metis], read_device_configuration=cfg))
+        Ctx = c.enter_context(mock_runtime([in_board], read_device_configuration=cfg))
         ctx = Ctx()
         nn = Mock()
         nn.tasks = [Mock()]
@@ -331,14 +464,14 @@ def _has_europa_board_types():
 @pytest.mark.parametrize(
     'board_type, expected',
     [
-        ('EUROPA_PCIE', config.Metis.europa),
-        ('EUROPA_DEVBOARD', config.Metis.europa),
+        ('EUROPA_PCIE', config.Board.europa),
+        ('EUROPA_DEVBOARD', config.Board.europa),
     ],
 )
-def test_get_metis_type_europa(board_type, expected):
+def test_get_board_type_europa(board_type, expected):
     with mock_runtime([board_type]):
         dm = device_manager.create_device_manager('gst')
-        assert dm.get_metis_type() == expected
+        assert dm.get_board_type() == expected
 
 
 @pytest.mark.skipif(
@@ -483,3 +616,166 @@ def test_get_core_clocks_global_clock_profile(caplog, global_clock, expected, wa
         assert result == {0: 800, 1: 800}
     else:
         assert result == {0: expected, 1: expected}
+
+
+@pytest.mark.parametrize(
+    'env_value, expected',
+    [
+        (None, 'err'),
+        ('dbg', 'dbg'),
+        ('wrn', 'wrn'),
+        ('inf:collector', 'inf:collector'),
+    ],
+)
+def test_slog_level_applied_when_device_is_opened(monkeypatch, env_value, expected):
+    """AXELERA_SLOG_LEVEL (default err) is pushed to sysctrl when the device is opened."""
+    if env_value is None:
+        monkeypatch.delenv('AXELERA_SLOG_LEVEL', raising=False)
+    else:
+        monkeypatch.setenv('AXELERA_SLOG_LEVEL', env_value)
+    with mock_runtime(['OMEGA_PCIE']) as ctx_patch:
+        ctx = ctx_patch()
+        with device_manager.create_device_manager('gst'):
+            pass
+    ctx.device_set_log_level.assert_called_once_with(ctx.list_devices()[0], 'sysctrl', expected)
+
+
+def test_slog_level_empty_leaves_the_firmware_level_alone(monkeypatch):
+    """Empty is the documented opt-out, not a request to set the level to ''."""
+    monkeypatch.setenv('AXELERA_SLOG_LEVEL', '')
+    with mock_runtime(['OMEGA_PCIE']) as ctx_patch:
+        ctx = ctx_patch()
+        with device_manager.create_device_manager('gst'):
+            pass
+    ctx.device_set_log_level.assert_not_called()
+
+
+def test_slog_level_applied_to_every_device(monkeypatch):
+    monkeypatch.delenv('AXELERA_SLOG_LEVEL', raising=False)
+    with mock_runtime(['OMEGA_PCIE', 'OMEGA_PCIE']) as ctx_patch:
+        ctx = ctx_patch()
+        with device_manager.create_device_manager('gst'):
+            pass
+    assert [c.args for c in ctx.device_set_log_level.call_args_list] == [
+        (d, 'sysctrl', 'err') for d in ctx.list_devices()
+    ]
+
+
+def test_slog_level_failure_is_nonfatal(monkeypatch, caplog):
+    """Older firmware may reject the call; a noisy log beats refusing to run."""
+    monkeypatch.delenv('AXELERA_SLOG_LEVEL', raising=False)
+    with mock_runtime(['OMEGA_PCIE']) as ctx_patch:
+        ctx = ctx_patch()
+        ctx.device_set_log_level.side_effect = RuntimeError('unsupported')
+        with caplog.at_level(logging.WARNING):
+            with device_manager.create_device_manager('gst') as dm:
+                assert dm.devices
+    assert 'sysctrl log level' in caplog.text
+    assert 'unsupported' in caplog.text
+
+
+def test_slog_level_reapplied_after_board_configuration(monkeypatch):
+    """configure_device passes device_firmware, which can reload the firmware and reset
+    a level set at open."""
+    monkeypatch.delenv('AXELERA_SLOG_LEVEL', raising=False)
+    nn = Mock()
+    nn.tasks = [Mock()]
+    nn.tasks[0].is_dl_task = True
+    nn.tasks[0].aipu_cores = 1
+    nn.tasks[0].model_info.name = 'model'
+    nn.model_infos.clock_profile.return_value = 800
+    nn.model_infos.mvm_limitation.return_value = 100
+    cfg = {'clock_profile_core_0': 800}
+    with mock_runtime(['OMEGA_PCIE'], read_device_configuration=cfg) as ctx_patch:
+        ctx = ctx_patch()
+        with device_manager.create_device_manager('gst') as dm:
+            assert ctx.device_set_log_level.call_count == 1, 'set once when opened'
+            dm.configure_boards_and_tracers(nn, [])
+    ctx.configure_device.assert_called_once()
+    assert ctx.device_set_log_level.call_count == 2, 're-applied after configuration'
+
+
+_NO_RUNTIME_SCRIPT = """
+import sys
+
+
+class _BlockRuntime:
+    '''Make `axelera.runtime` unimportable, as on a compile-only install.'''
+
+    def find_spec(self, name, path=None, target=None):
+        if name == 'axelera.runtime' or name.startswith('axelera.runtime.'):
+            raise ModuleNotFoundError("No module named '%s'" % name, name=name)
+        return None
+
+
+sys.meta_path.insert(0, _BlockRuntime())
+sys.modules.pop('axelera.runtime', None)
+
+import axelera
+
+if hasattr(axelera, 'runtime'):
+    del axelera.runtime
+
+import axelera.app.device_manager  # noqa: F401
+
+print('imported')
+"""
+
+
+def test_device_manager_imports_without_a_runtime():
+    """
+    A compile-only install - `axelera-devkit` without `axelera-rt` - has no
+    `axelera.runtime`, and `deploy.py` reaches this module through
+    `axelera.app.pipeline`. A module-level `from axelera import runtime` here
+    therefore made the whole deploy flow unimportable on exactly the machine the
+    install guide describes (SDK-11729).
+
+    Run in a subprocess: blocking a module cannot be undone cleanly enough to
+    leave the rest of the suite alone.
+    """
+    result = subprocess.run(
+        [sys.executable, '-c', _NO_RUNTIME_SCRIPT], capture_output=True, text=True
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert 'imported' in result.stdout
+
+
+def test_create_device_manager_without_a_runtime_yields_the_null_manager(monkeypatch, caplog):
+    """
+    Deploying needs no device, so a missing runtime has to fall through to the
+    null manager rather than propagate.
+
+    `except OSError` did not catch this: an absent module raises ImportError,
+    which skipped the fallback and failed the run instead.
+    """
+    import axelera
+
+    monkeypatch.delattr(axelera, 'runtime', raising=False)
+    monkeypatch.setitem(sys.modules, 'axelera.runtime', None)
+
+    with caplog.at_level(logging.INFO):
+        with device_manager.create_device_manager('gst') as dm:
+            assert isinstance(dm, device_manager._NullDeviceManager)
+
+    assert 'no runtime available' in caplog.text.lower()
+
+
+def test_an_import_error_from_inside_the_runtime_is_not_swallowed():
+    """
+    A runtime that is installed but cannot import - a dependency of its own
+    missing, a C extension failing to load - is a broken install, not a
+    compile-only one.
+
+    The fallback is scoped to `axelera.runtime` itself by name, because the
+    `try` covers the whole constructor: without that check any ImportError
+    raised while opening a device would be reported as "no runtime" and the
+    deploy would quietly continue with no device.
+    """
+    broken = ModuleNotFoundError("No module named 'a_dependency'", name='a_dependency')
+
+    with patch.object(device_manager, '_AipuDeviceManager', side_effect=broken):
+        with pytest.raises(ModuleNotFoundError) as exc_info:
+            device_manager.create_device_manager('gst')
+
+    assert exc_info.value.name == 'a_dependency'

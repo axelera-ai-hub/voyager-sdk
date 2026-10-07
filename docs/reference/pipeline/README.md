@@ -4,7 +4,7 @@ title: "Pipeline"
 
 # Pipeline
 
-How the Voyager SDK inference pipeline is structured — from raw video frame to structured results. This section covers the YAML-based GStreamer pipeline. For the Pythonic alternative, see [Pipeline Builder](../pipeline-builder/index.md).
+How the Voyager SDK inference pipeline is structured, from raw video frame to structured results. This section covers the YAML-based GStreamer pipeline. For the Pythonic alternative, see [Pipeline Builder](../pipeline-builder/README.md).
 
 | Page | What it covers |
 |------|---------------|

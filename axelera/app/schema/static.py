@@ -419,6 +419,14 @@ dataset = lambda operators, compilation_configs: {
     Optional["split"]: Str,
     # The default dataset to load for evaluation, this defaults to val.
     Optional["label_type"]: SupportedLabelType,
+    # The dataset section is a MapCombined, so an undeclared key parses as a Str and
+    # every value of it is truthy: `False` would silently read as True. Each flag a
+    # card can set has to be declared here to reach its adapter as a bool.
+    Optional["eval_with_letterbox"]: Bool,
+    Optional["is_mask_overlap"]: Bool,
+    Optional["is_label_image_same_dir"]: Bool,
+    Optional["coco_91_to_80"]: Bool,
+    Optional["keep_1_based_category_ids"]: Bool,
 }
 
 pipeline_asset = lambda operators, compilation_configs: {

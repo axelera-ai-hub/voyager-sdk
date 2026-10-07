@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2024
+// Copyright Axelera AI, 2025
 // Optimized Facenet decoder
 
 #include "AxDataInterface.h"

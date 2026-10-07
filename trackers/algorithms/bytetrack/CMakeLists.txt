@@ -16,7 +16,7 @@ target_include_directories(bytetrack
 )
 
 target_link_libraries(bytetrack PUBLIC Eigen3::Eigen ${OpenCV_LIBS})
-target_link_options(bytetrack PRIVATE -Wl,--exclude-libs,ALL)
+target_link_options(bytetrack PRIVATE ${AX_TRACKER_LINK_OPTIONS})
 
 set_target_properties(bytetrack PROPERTIES
   INSTALL_RPATH "$ORIGIN"

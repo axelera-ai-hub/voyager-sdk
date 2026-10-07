@@ -400,7 +400,9 @@ class TorchvisionDataAdapter(types.DataAdapter):
             batch_size=1,
             shuffle=False,
             collate_fn=lambda x: x,
-            num_workers=0,
+            # Image decode and resize dominate validation wall-clock, so prefetch
+            # them in parallel. Order is preserved because this loader never shuffles.
+            num_workers=min(8, os.cpu_count() or 1),
         )
 
     def reformat_for_calibration(self, batched_data: Any):

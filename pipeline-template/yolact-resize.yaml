@@ -1,0 +1,30 @@
+# YOLACT stretches the input to a square and normalizes with the raw 0-255
+# statistics of its BackboneTransform, so the tensor stays unscaled.
+
+input:
+  type: image
+preprocess:
+  - resize:
+      width: ${{input_width}}
+      height: ${{input_height}}
+      interpolation: bilinear
+  - torch-totensor:
+      scale: False
+  - normalize:
+      mean: 123.68, 116.78, 103.94
+      std: 58.40, 57.12, 57.38
+inference:
+  handle_all: False
+postprocess:
+  - decodeyolact:
+      conf_threshold: 0.15
+      nms_iou_threshold: 0.5
+      max_nms_boxes: 200 # per-class candidates entering NMS
+      nms_top_k: 100 # detections kept across all classes
+      eval: # overrides for evaluating accuracy
+        conf_threshold: 0.05
+
+operators:
+  decodeyolact:
+    class: DecodeYolact
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/yolact.py

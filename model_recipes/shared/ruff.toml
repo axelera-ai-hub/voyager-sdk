@@ -1,0 +1,29 @@
+# The root config excludes `model_recipes/`, because the recipes there are
+# generated and byte-gated by `axzoo drift-check`, so no linter may rewrite
+# them. This directory is the exception: it is hand-written product that
+# README.md tells customers to copy and extend, and `shared/passes/` under it
+# is the same. Ruff resolves the closest config walking up from each file, so
+# one config here covers both and there is no second place to keep in step.
+#
+# Settings mirror the root `[tool.ruff]` deliberately rather than `extend`-ing
+# it, so re-inheriting the root exclusion cannot switch this off again.
+#
+# `quote-style = "preserve"` is what `axelera_zoo` and `axelera_runtime2` set.
+# Without it ruff-format normalises this tree to double quotes: it rewrote every
+# string in `passes/` when that directory moved here, so a verbatim move stopped
+# reading as one.
+line-length = 99
+target-version = "py310"
+
+[lint]
+# The rule set `axelera_zoo` and `axelera_runtime2` select. Without it this
+# directory ran ruff's defaults (E4/E7/E9/F), which is the weakest gate in the
+# repo on the one tree README.md tells customers to copy and extend.
+select = ["E", "W", "F", "I", "B", "C4", "UP", "ARG", "SIM", "D"]
+# D1xx as `axelera_zoo` ignores them. D401 (imperative mood) is ours: a
+# docstring here opens by naming what the thing IS, because a reader arrives at
+# these functions from a recipe rather than from a call site.
+ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D107", "D401", "E731"]
+
+[format]
+quote-style = "preserve"

@@ -36,6 +36,7 @@ class DecodeYolo10(AxOperator):
     conf_threshold: float = 0.25
     use_multi_label: bool = False
     top_k: int = 300
+    nms_top_k: int = 300
     dfl_size: int = 16
 
     def _post_init(self):

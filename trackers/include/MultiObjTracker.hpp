@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2023
+// Copyright Axelera AI, 2024
 #pragma once
 
 #include <Eigen/Dense>

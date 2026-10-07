@@ -55,17 +55,35 @@ class DatasetConfig:
 
                 for split, split_data in data['splits'].items():
                     for item in split_data:
-                        assert 'url' in item, f"Missing 'url' in {dataset}.{split}"
-                        if not item['url'].startswith(('http://', 'https://', 's3://')):
-                            raise ValueError(
-                                f"Invalid URL '{item['url']}' in {dataset}.{split}. "
-                                "Must start with 'https://' or 's3://'."
-                            )
-                        assert 'drop_dirs' in item, f"Missing 'drop_dirs' in {dataset}.{split}"
-                        if 'md5' in item:
+                        # An entry names an archive (`url`), a hub repository (`hub`), or
+                        # neither. Neither is how a set nobody mirrors is declared: the
+                        # dataset's `download_hint` is then the whole entry and `check_files`
+                        # is what verifies whatever the user placed. It is also the shape a
+                        # redacted entry takes, which is why the prompt table is exempt above.
+                        if 'url' in item:
+                            if not item['url'].startswith(('http://', 'https://', 's3://')):
+                                raise ValueError(
+                                    f"Invalid URL '{item['url']}' in {dataset}.{split}. "
+                                    "Must start with 'https://' or 's3://'."
+                                )
+                            assert 'drop_dirs' in item, f"Missing 'drop_dirs' in {dataset}.{split}"
+                            if 'md5' in item:
+                                assert isinstance(
+                                    item['md5'], str
+                                ), f"Invalid md5 format in {dataset}.{split}"
+                        elif 'hub' in item:
+                            hub = item['hub']
                             assert isinstance(
-                                item['md5'], str
-                            ), f"Invalid md5 format in {dataset}.{split}"
+                                hub, dict
+                            ), f"'hub' must be a mapping in {dataset}.{split}"
+                            for key in ('repo', 'revision'):
+                                assert key in hub, f"Missing 'hub.{key}' in {dataset}.{split}"
+                        else:
+                            assert 'download_hint' in data, (
+                                f"{dataset}.{split} names no 'url' and no 'hub', so it can "
+                                f"only be obtained by the user; it must declare a "
+                                f"'download_hint' saying how."
+                            )
 
     def get_datasets(self) -> list[str]:
         return list(self.config.keys())
@@ -260,8 +278,6 @@ def _download_dataset(dataset_dir: Path, dataset_name: str, split: str, config: 
         file_path = target_dir / file_info['name']
         if dataset_name == 'ImageNet':
             # special case for ImageNet, as we let torchvision do the organization
-            if file_info['name'] in ['ILSVRC2012_img_val.tar', 'ILSVRC2012_img_train.tar']:
-                file_path = target_dir.parent / file_info['name']
             utils.download(url, file_path, md5)
             if split == 'subset' and file_info['name'] == 'imagenet_subset.zip':
                 utils.extract(file_path, drop_dirs=drop_dirs)

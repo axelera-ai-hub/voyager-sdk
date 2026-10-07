@@ -24,7 +24,7 @@ sudo apt-get install -y \
     libgstreamer1.0-dev \
     libavdevice-dev \
     libopencv-dev \
-    libqt6svg6-dev \
+    libpci-dev \
     libsimde-dev \
     libswscale-dev \
     libva-dev \
@@ -35,5 +35,6 @@ sudo apt-get install -y \
     opencl-headers \
     pkg-config \
     python3-dev \
+    python3-pip \
     unzip \
     wget

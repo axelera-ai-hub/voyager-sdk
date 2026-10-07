@@ -14,7 +14,7 @@ title: "axmonitor"
 | Core utilization | CPU usage per core and thread |
 | Temperatures | Per-core and board temperatures with thermal threshold indicators |
 | Kernels Per Second (KPS) | Number of fused AI kernels executed per second (≈ FPS for vision pipelines) |
-| Power | Real-time power consumption (Supported on Metis PCIe rev2, M.2 Max, PCIe 4-AIPU and Metis Compute Boards) |
+| Power | Real-time power consumption (Supported on Axelera Edge 130p, Axelera Embedded 113m, Axelera Server 150p and Axelera Embedded 111c boards) |
 | DDR memory | Memory allocation per active application context |
 | PCIe bandwidth | DMA bandwidth per channel in MB/s |
 | Processes | Running processes with PIDs and container IDs (Linux only) |
@@ -71,7 +71,7 @@ sc.exe query axsystemserver   # look for STATE: RUNNING
 ### Installing after pip installation
 
 > [!NOTE]
-> If you followed the [pip installation guide](sdk-install.md), install the base package before using axmonitor. If you used the SDK installer, skip this step.
+> If you followed the [pip installation guide](sdk-install.md), install the base package before using axmonitor.
 
 
 ```bash
@@ -83,8 +83,8 @@ sudo sh -c "echo 'deb [signed-by=/etc/apt/keyrings/axelera.gpg] https://software
 sudo sh -c "echo 'deb [signed-by=/etc/apt/keyrings/axelera.gpg] https://software.axelera.ai/artifactory/axelera-apt-source ubuntu24 main' > /etc/apt/sources.list.d/axelera.list"
 
 sudo apt-get update
-sudo apt-get install -y axelera-voyager-sdk-base-1.8.0
-source /opt/axelera/sdk/1.8.0/axelera_activate.sh
+sudo apt-get install -y axelera-voyager-sdk-base-1.6.0
+source /opt/axelera/sdk/1.6.0/axelera_activate.sh
 ```
 
 ### Run axmonitor

@@ -1,5 +1,5 @@
 # Axelera class for PyTorch tutorial
-# Copyright Axelera AI, 2024
+# Copyright Axelera AI, 2022
 
 from pathlib import Path
 

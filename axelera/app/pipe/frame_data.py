@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 # Basic data structure for pipeline output data
 from __future__ import annotations
 

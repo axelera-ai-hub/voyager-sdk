@@ -196,6 +196,57 @@ def make_paths_in_dict_absolute(base, obj, key_suffixes=("_path", "_dir", "_root
     visit_dict(obj, visitor)
 
 
+def _make_path_portable(base, path):
+    """Rewrite an absolute path under base into relative form."""
+    if not isinstance(path, str) or not path or not Path(path).is_absolute():
+        return path
+    relative = os.path.relpath(Path(path).resolve(), Path(base).resolve())
+    if relative.startswith(os.pardir):
+        return path
+    return relative
+
+
+def make_paths_in_dict_portable(base, obj, key_suffixes=("_path", "_dir", "_root")):
+    """Store framework-owned path values in a form another checkout can read."""
+    key_alone = [suffix[1:] for suffix in key_suffixes]
+
+    def visitor(k, v):
+        if k in key_alone or k.endswith(key_suffixes):
+            return _make_path_portable(base, v)
+        return v
+
+    visit_dict(obj, visitor)
+
+
+def reroot_path(base, path):
+    """Map a legacy framework path from another checkout onto base."""
+    if not isinstance(path, str) or not path or not Path(path).is_absolute():
+        return path
+    root = Path(base).resolve()
+    original = Path(path).resolve()
+    if original.is_relative_to(root):
+        return path
+
+    for directory in ('ax_models', 'ax_datasets'):
+        if directory in original.parts:
+            candidate = root.joinpath(*original.parts[original.parts.index(directory) :])
+            if candidate.exists():
+                return str(candidate)
+    return path
+
+
+def reroot_paths_in_dict(base, obj, key_suffixes=("_path", "_dir", "_root")):
+    """Map legacy absolute path values from another checkout onto base."""
+    key_alone = [suffix[1:] for suffix in key_suffixes]
+
+    def visitor(k, v):
+        if k in key_alone or k.endswith(key_suffixes):
+            return reroot_path(base, v)
+        return v
+
+    visit_dict(obj, visitor)
+
+
 def make_weight_paths_in_dict_absolute(base, obj, keys=("weight_path")):
     """
     Convert all weight path values to absolute paths relative to the base directory
@@ -414,7 +465,7 @@ def download_from_internal_s3(s3_bucket_name: str, s3_filepath: str, cache_path:
                 progress.title(f"Downloading {local_filepath.name}")
                 s3_object.download_file(str(local_filepath))
         except ClientError as e:
-            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            error_code = (e.response.get('Error') or {}).get('Code', 'Unknown')
             if error_code == '404':
                 raise FileNotFoundError(
                     f"File not found in S3: s3://{s3_bucket_name}/{s3_filepath}\n"
@@ -862,6 +913,7 @@ def is_opencl_available():
             LOG.warning("No OpenCL platforms found")
             LOG.warning(CHECK_DOCS)
             return False
+        found_cpu = False
         for p in platforms:
             try:
                 if devs := p.get_devices(pyopencl.device_type.GPU):
@@ -870,15 +922,130 @@ def is_opencl_available():
                     return True
                 elif devs := p.get_devices(pyopencl.device_type.CPU):
                     sdevs = ', '.join(d.name for d in devs)
+                    # CPU OpenCL must be forced from the command line
                     LOG.debug(f"Found OpenCL CPU devices for platform {p.name}: {sdevs}")
-                    return True
-
-                LOG.debug(f"No GPU or CPU OpenCL devices in platform {p.name}")
+                    found_cpu = True
+                else:
+                    LOG.debug(f"No GPU or CPU OpenCL devices in platform {p.name}")
             except Exception as e:
                 LOG.warning(f"Failed to get OpenCL devices for platform {p.name} : {e}")
-        LOG.warning("No OpenCL GPU or CPU devices found")
+        if found_cpu:
+            LOG.warning(
+                "Only OpenCL CPU devices found; CPU OpenCL must be forced from the command line"
+            )
+        else:
+            LOG.warning("No OpenCL GPU or CPU devices found")
         LOG.warning(CHECK_DOCS)
         return False
+
+
+# cl_ext.h / cl_khr_external_memory: not yet known to pyopencl's device_info enum, so
+# clGetDeviceInfo is called directly via ctypes for this check.
+_CL_DEVICE_EXTERNAL_MEMORY_IMPORT_HANDLE_TYPES_KHR = 0x204F
+_CL_EXTERNAL_MEMORY_HANDLE_DMA_BUF_KHR = 0x2067
+
+
+def _device_reports_dmabuf_import_khr(device):
+    """Return True if a device advertises dma-buf support via CL_DEVICE_EXTERNAL_MEMORY_IMPORT_HANDLE_TYPES_KHR.
+
+    Mirrors device_supports_dmabuf_import() in AxOpenClExtensions.cpp: some drivers
+    support dma-buf import via cl_khr_external_memory without advertising the
+    cl_khr_external_memory_dma_buf platform extension string, so this device query is
+    an extra accept-path alongside the string check.
+    """
+    import ctypes
+    import ctypes.util
+
+    libname = ctypes.util.find_library('OpenCL')
+    if libname is None:
+        return False
+    try:
+        libcl = ctypes.CDLL(libname)
+    except OSError:
+        return False
+
+    device_id = ctypes.c_void_p(device.int_ptr)
+    size = ctypes.c_size_t(0)
+    if (
+        libcl.clGetDeviceInfo(
+            device_id,
+            _CL_DEVICE_EXTERNAL_MEMORY_IMPORT_HANDLE_TYPES_KHR,
+            0,
+            None,
+            ctypes.byref(size),
+        )
+        != 0
+        or size.value == 0
+    ):
+        return False
+
+    count = size.value // ctypes.sizeof(ctypes.c_uint32)
+    handle_types = (ctypes.c_uint32 * count)()
+    if (
+        libcl.clGetDeviceInfo(
+            device_id,
+            _CL_DEVICE_EXTERNAL_MEMORY_IMPORT_HANDLE_TYPES_KHR,
+            size,
+            handle_types,
+            None,
+        )
+        != 0
+    ):
+        return False
+    return _CL_EXTERNAL_MEMORY_HANDLE_DMA_BUF_KHR in handle_types
+
+
+def can_import_dmabuf():
+    """Return True if OpenCL on this platform can import dma-bufs directly.
+
+    Kernel fusion (e.g. fusing padding into other OpenCL kernels, the way
+    normalization is fused into resize) is only worthwhile when the OpenCL
+    platform can import a dma-buf as a cl_mem without a copy. This checks for
+    either the ARM ``cl_arm_import_memory_dma_buf`` extension, both of the KHR
+    external-memory extensions (``cl_khr_external_memory_dma_buf`` and
+    ``cl_khr_external_memory``), or a device that reports dma-buf support via
+    ``CL_DEVICE_EXTERNAL_MEMORY_IMPORT_HANDLE_TYPES_KHR`` without advertising the
+    ``cl_khr_external_memory_dma_buf`` string, mirroring ``can_import_dmabuf()`` /
+    ``device_supports_dmabuf_import()`` in operators/axstreamer/src/AxOpenClExtensions.cpp.
+    """
+    try:
+        import pyopencl
+    except ImportError as e:
+        LOG.warning(f"pyopencl not installed/imported, could not detect OpenCL platforms : {e}")
+        return False
+    try:
+        platforms = pyopencl.get_platforms()
+    except Exception as e:
+        LOG.warning(f"Failed to get OpenCL platforms : {e}")
+        return False
+    for p in platforms:
+        try:
+            devices = p.get_devices(pyopencl.device_type.GPU) or p.get_devices(
+                pyopencl.device_type.CPU
+            )
+        except Exception as e:
+            LOG.warning(f"Failed to get OpenCL devices for platform {p.name} : {e}")
+            continue
+        if not devices:
+            continue
+        extensions = set(p.extensions.split())
+        if 'cl_arm_import_memory_dma_buf' in extensions:
+            return True
+        if (
+            'cl_khr_external_memory_dma_buf' in extensions
+            and 'cl_khr_external_memory' in extensions
+        ):
+            return True
+        if 'cl_khr_external_memory' in extensions:
+            try:
+                if any(_device_reports_dmabuf_import_khr(d) for d in devices):
+                    return True
+            except Exception as e:
+                LOG.warning(
+                    f"Failed to query dma-buf import handle types for platform {p.name} : {e}"
+                )
+    LOG.debug("No OpenCL platform supports dma-buf import")
+    return False
 
 
 def get_backend_opengl_version(backend, default=env.DEFAULTS.opengl_backend):

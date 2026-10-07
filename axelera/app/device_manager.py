@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import abc
+import os
 import sys
 import time
 from typing import TYPE_CHECKING, Any
 
-from axelera import runtime
-
 from . import config, logging_utils, network, utils
 
 if TYPE_CHECKING:
+    from axelera import runtime
+
     from . import inf_tracers, logging_utils, network, utils
 
     Tracers = list[inf_tracers.Tracer]
@@ -28,15 +29,15 @@ class DeviceManager(abc.ABC):
 
     @abc.abstractmethod
     def configure_boards_and_tracers(self, nn: network.AxNetwork, tracers: Tracers) -> Tracers:
-        '''Configure the boards and tracers based on the model_infos metis type'''
+        '''Configure the boards and tracers based on the model_infos board type'''
 
     @abc.abstractmethod
     def release(self) -> None:
         '''Release any resources held by the device manager'''
 
     @abc.abstractmethod
-    def get_metis_type(self) -> config.Metis:
-        '''Get the metis type of the (first) device.'''
+    def get_board_type(self) -> config.Board:
+        '''Get the board type of the (first) device.'''
 
     def __enter__(self):
         return self
@@ -52,8 +53,8 @@ class _NullDeviceManager(DeviceManager):
     def release(self) -> None:
         pass
 
-    def get_metis_type(self) -> config.Metis:
-        return config.Metis.none
+    def get_board_type(self) -> config.Board:
+        return config.Board.none
 
     @property
     def devices(self):
@@ -112,22 +113,51 @@ _list_devices._cache = None
 
 
 class _AipuDeviceManager(DeviceManager):
-    def __init__(self, override_metis=config.Metis.none, device_selector: str = ''):
+    def __init__(self, override_board=config.Board.none, device_selector: str = ''):
+        # Imported here rather than at module scope so that a machine with no
+        # runtime installed - a compile-only install, axelera-devkit without
+        # axelera-rt - can still import this module and compile. Everything
+        # below this point needs a device anyway.
+        from axelera import runtime
+
         self.context = runtime.Context()
+        if os.environ.get('AXELERA_ENABLE_AUTOMATIC_REPORTS') == '1':
+            try:
+                if not runtime.activate_error_reporter():
+                    LOG.warning('Failed to activate automatic error reporting')
+            except (AttributeError, OSError) as e:
+                LOG.warning(f'Automatic error reporting is unavailable: {e}')
         try:
             devices = _list_devices(self.context)
             if not devices:
                 raise RuntimeError("No devices found")
         except RuntimeError as e:
-            if override_metis == config.Metis.none:
+            if override_board == config.Board.none:
                 raise
             LOG.info(f"Failed to detect device: {e}")
             self.devices = []
-            self.metis = override_metis
+            self.board = override_board
         else:
             self.devices = _select_devices(devices, device_selector)
-            m = _board_type_as_metis(self.devices[0].board_type, self.devices[0].name)
-            self.metis = m if override_metis == config.Metis.none else override_metis
+            b = _board_type_as_board(self.devices[0].board_type, self.devices[0].name)
+            self.board = b if override_board == config.Board.none else override_board
+        self._set_device_log_level()
+
+    def _set_device_log_level(self) -> None:
+        '''Quieten the device sysctrl log (see AXELERA_SLOG_LEVEL, default err).
+
+        The firmware default is verbose, and shipping that log off the device costs enough
+        host CPU to starve the host-side pipeline: the device keeps reporting full fps while
+        end-to-end throughput collapses.
+        '''
+        if not (level := config.env.slog_level):
+            return
+        for device in self.devices:
+            try:
+                self.context.device_set_log_level(device, 'sysctrl', level)
+            except Exception as e:
+                # Broad: the runtime maps each result code onto its own exception type.
+                LOG.warning(f"Could not set {device.name} sysctrl log level to {level}: {e}")
 
     def _configure_boards(self, nn) -> dict[int, int]:
         core_index = 0
@@ -142,8 +172,8 @@ class _AipuDeviceManager(DeviceManager):
                 continue
             cores = task.aipu_cores
             last = core_index + cores
-            clock = nn.model_infos.clock_profile(task.model_info.name, self.metis)
-            mvm = nn.model_infos.mvm_limitation(task.model_info.name, self.metis)
+            clock = nn.model_infos.clock_profile(task.model_info.name, self.board)
+            mvm = nn.model_infos.mvm_limitation(task.model_info.name, self.board)
             configures.update(_get_configures(core_index, last, clock, mvm))
             core_index = last
 
@@ -155,6 +185,9 @@ class _AipuDeviceManager(DeviceManager):
                 with utils.spinner():
                     while not all(self.context.device_ready(d) for d in self.devices):
                         time.sleep(0.3)
+            # _get_configures passes device_firmware, so this may have reloaded the
+            # firmware and reset the log level set at open.
+            self._set_device_log_level()
         return _get_core_clocks(self.context, self.devices[0], 0, last)
 
     def configure_boards_and_tracers(self, nn, tracers):
@@ -163,15 +196,15 @@ class _AipuDeviceManager(DeviceManager):
         devices = [d.name for d in self.devices]
         for tracer in tracers:
             try:
-                tracer.initialize_models(nn.model_infos, self.metis, core_clocks, devices)
+                tracer.initialize_models(nn.model_infos, self.board, core_clocks, devices)
             except Exception as e:
                 LOG.warning(f"{e}, skip trace")
             else:
                 new_tracers.append(tracer)
         return new_tracers
 
-    def get_metis_type(self) -> config.Metis:
-        return self.metis
+    def get_board_type(self) -> config.Board:
+        return self.board
 
     def release(self) -> None:
         self.context.release()
@@ -179,7 +212,7 @@ class _AipuDeviceManager(DeviceManager):
 
 def create_device_manager(
     pipe_type: str,
-    override_metis: config.Metis = config.Metis.none,
+    override_board: config.Board = config.Board.none,
     deploy_mode: config.DeployMode = config.DeployMode.QUANTCOMPILE,
     device_selector: str = '',
 ) -> DeviceManager:
@@ -188,7 +221,7 @@ def create_device_manager(
     Use it as a context manager or ensure you release the device using :meth:`release` when you are
     done with it.
 
-    `override_metis` can be used to force the metis type to a specific value.  This is used to
+    `override_board` can be used to force the board type to a specific value.  This is used to
     override the detected type and only impacts limitations normally applied to core on M.2 to
     control power restrictions.
 
@@ -201,7 +234,18 @@ def create_device_manager(
         config.DeployMode.QUANTIZE_DEBUG,
     ):
         try:
-            return _AipuDeviceManager(override_metis, device_selector)
+            return _AipuDeviceManager(override_board, device_selector)
+        except ImportError as e:
+            if e.name != 'axelera.runtime':
+                # The runtime is there but could not import - a dependency of
+                # its own is missing, or a C extension failed to load. That is
+                # a broken install, not a compile-only one, and hiding it here
+                # would turn it into a silent device-less compile.
+                raise
+            # No runtime installed, which is a compile-only install rather than
+            # a broken one. Deployment does not need a device, so fall through
+            # to the null manager the same way a missing device does.
+            LOG.info(f"No runtime available, continuing without a device: {e}")
         except OSError as e:
             info_or_error = LOG.info if sys.platform == 'darwin' else LOG.error
             info_or_error(f"Failed to create device manager: {e}")
@@ -209,32 +253,32 @@ def create_device_manager(
     return _NullDeviceManager()
 
 
-def detect_metis_type() -> config.Metis:
-    '''Quickly detect metis type without creating a device manager.
+def detect_board_type() -> config.Board:
+    '''Quickly detect board type without creating a device manager.
 
-    On failure returns config.Metis.none so this can be used as a light touch
+    On failure returns config.Board.none so this can be used as a light touch
     detection.
     '''
     try:
         dm = create_device_manager('gst')
     except (OSError, RuntimeError) as e:
         LOG.debug(f"Failed to create device manager: {e}")
-        return config.Metis.none
+        return config.Board.none
     with dm:
-        return dm.get_metis_type()
+        return dm.get_board_type()
 
 
-def _board_type_as_metis(board_type: runtime.BoardType, name: str) -> config.Metis:
+def _board_type_as_board(board_type: runtime.BoardType, name: str) -> config.Board:
     if board_type.name == 'm2':
-        return config.Metis.m2
+        return config.Board.m2
     if board_type.name.startswith('alpha'):
         raise RuntimeError(f"Failed to detect {name}")
     if board_type.name in ('europa_pcie', 'europa_devboard'):
-        return config.Metis.europa
+        return config.Board.europa
     if board_type.name in ('pcie', 'sbc'):
-        return config.Metis.pcie  # Metis PCIe / SBC boards
+        return config.Board.pcie  # Metis PCIe / SBC boards
     LOG.warning(f"Unknown board type {board_type.name} from device {name}, assuming pcie")
-    return config.Metis.pcie
+    return config.Board.pcie
 
 
 def _is_europa_device(device: runtime.DeviceInfo) -> bool:

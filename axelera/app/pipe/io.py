@@ -16,7 +16,7 @@ import numpy as np
 
 from axelera import types
 
-from .. import config, display, display_cv, gst_builder, logging_utils, utils
+from .. import config, display, gst_builder, logging_utils, utils
 
 if TYPE_CHECKING:
     from . import base, frame_data
@@ -794,15 +794,19 @@ class PipeOutput:
         image = frame_result.image
         meta = frame_result.meta
         if frame_result.meta and self._mode != _OutputMode.NONE:
-            image = image.copy()
+            # lazy imports: rendering is the only part of the pipeline that needs runtime2
+            from axelera.runtime2 import img
+
+            from .. import display_cv
+
             # TODO: Layers, options, speedometer smoothing, and better multistream support (SDK-6794)
             w, h = image.size
-            image = types.Image.fromarray(np.zeros((h, w, 3), dtype=np.uint8))
+            composite = img.Image.from_array(np.zeros((h, w, 3), dtype=np.uint8), 'RGB')
             draw = display_cv.CVDraw(
                 0,
                 1,
-                image,
-                frame_result.image,
+                composite,
+                img.Image.from_any(frame_result.image),
                 [],
             )
             if config.env.render_speedometers_on_saved_outputs:
@@ -813,4 +817,5 @@ class PipeOutput:
                     if key in meta:
                         meta[key].visit(lambda m: m.draw(draw))
             draw.draw()
+            image = types.Image.fromarray(composite.to_numpy())
         self._writer.write(image, str(meta.image_id), frame_result.stream_id)

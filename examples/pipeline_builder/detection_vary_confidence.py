@@ -9,11 +9,6 @@ Applies NMS to remove duplicate detections and outputs DetectedObject instances.
 Note: For custom models with different classes, use:
       MyClasses = op.load_classes('my_labels.txt')
 
-Auto-generated from rt_demo.py's @publicdemo `detection_vary_confidence` by
-tools/export_pipeline_builder_demo.py.  Edit the original demo in rt_demo.py
-rather than this file -- regenerate with
-`python tools/export_pipeline_builder_demo.py detection_vary_confidence`.
-
 Usage:
     python detection_vary_confidence.py PATH [--display opencv|console|none|auto] [--no-wait]
 """
@@ -73,7 +68,7 @@ if __name__ == "__main__":
     parser.add_argument("input", help="Image or video file to process")
     parser.add_argument(
         "--display",
-        choices=["none", "opencv", "console", "iterm2", "auto"],
+        choices=["none", "opencv", "vulkan", "console", "iterm2", "auto"],
         default="auto",
         help="Display backend (default: auto)",
     )

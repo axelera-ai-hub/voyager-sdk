@@ -622,7 +622,7 @@ def _build_pipeline(
     which_cl: str,
     low_latency: bool,
 ) -> list[dict[str, Any]]:
-    qsize = 1 if low_latency else 4
+    qsize = 1
     tiling = any(s.has_tiling for s in pipein.sources)
     gst = gst_builder.builder(hw_caps, tiling, qsize, which_cl)
     _build_input_pipeline(gst, nn.tasks[0], pipein)
@@ -743,7 +743,7 @@ class GstPipe(base.Pipe):
             gst_helper.set_state_and_wait(elem, Gst.State.PLAYING)
 
     def add_source(self, pipe_newinput: io.PipeInput):
-        qsize = 1 if self.config.low_latency else 4
+        qsize = 1
         tiling = any(s.has_tiling for s in pipe_newinput.sources)
         gst = gst_builder.builder(self.hardware_caps, tiling, qsize, self.config.which_cl)
         _build_input_pipeline(gst, self.nn.tasks[0], pipe_newinput)

@@ -106,4 +106,8 @@ class DepthEstimationDataAdapter(types.DataAdapter):
 
         from ax_evaluators.depth_estimation import DepthEstimationEvaluator
 
-        return DepthEstimationEvaluator()
+        return DepthEstimationEvaluator(
+            align=dataset_config.get('eval_align', 'none'),
+            min_depth=float(dataset_config.get('eval_min_depth', 1e-3)),
+            max_depth=float(dataset_config.get('eval_max_depth', 10.0)),
+        )

@@ -22,15 +22,15 @@ axdevice --report
 ## What the output means
 
 ```
-Device 0: metis-0:1:0 4GiB pcie flver=1.3.0 bcver=1.4 clock=800MHz(0-3:800MHz) mvm=0-3:100%
+Device 0: metis-0:1:0 130p 4GiB flver=1.3.0 bcver=1.4 clock=800MHz(0-3:800MHz) mvm=0-3:100%
 ```
 
 | Field | Meaning |
 |-------|---------|
 | `Device 0` | Device index — use this with `-d0` to target it |
 | `metis-0:1:0` | Device name — PCIe bus address (bus:device:function) |
+| `130p` | Board model — `110m`, `113m`, `111c`, `130p`, `part of 150p`, `232p`, or `pcie` for the legacy 1-chip PCIe card. A `113m` additionally shows its temperature grade (`std`) after the memory size |
 | `4GiB` | On-device DDR memory |
-| `pcie` | Connection type (PCIe or M.2) |
 | `flver=1.3.0` | Firmware loader version |
 | `bcver=1.4` | Board controller version |
 | `clock=800MHz` | Current clock speed |
@@ -104,8 +104,8 @@ axdevice --set-mvm-limitation 75              # All cores at 75%
 
 
 > [!WARNING]
-> **Metis PCIe 4-AIPU cards**
-> Some early Metis PCIe 4-AIPU cards may fail to recover when cascaded with other PCIe devices on the same bus. In this case, disable the multi-device service to prevent interference with the recovery process:
+> **Axelera Server 150p (PCIe 4-AIPU) cards**
+> Some early 150p cards may fail to recover when cascaded with other PCIe devices on the same bus. In this case, disable the multi-device service to prevent interference with the recovery process:
 >
 > ```bash
 > sudo systemctl disable axelera-multi-device

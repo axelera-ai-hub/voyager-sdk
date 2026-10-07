@@ -47,7 +47,6 @@ models:
     num_classes: 80
     dataset: CocoDataset-Segment-COCO2017
     extra_kwargs:
-      yolo26_seg_insert_proto_identity: true
       compiler_config_file: yolo26.toml
 
 datasets:

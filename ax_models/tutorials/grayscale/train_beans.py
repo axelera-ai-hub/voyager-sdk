@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright Axelera AI, 2025
 """
 Grayscale CNN Transfer Learning Script
 

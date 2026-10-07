@@ -1,3 +1,4 @@
+// Copyright Axelera AI, 2024
 #include "AxDataInterface.h"
 #include "AxLog.hpp"
 #include "AxMetaObjectDetection.hpp"

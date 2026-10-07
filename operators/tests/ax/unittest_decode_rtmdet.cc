@@ -1,5 +1,5 @@
 
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2024
 #include "gtest/gtest.h"
 #include <gmodule.h>
 #include "gmock/gmock.h"

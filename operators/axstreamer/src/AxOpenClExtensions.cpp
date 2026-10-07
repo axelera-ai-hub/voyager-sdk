@@ -2,9 +2,13 @@
 #include "AxOpenClExtensions.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
+#include <cstring>
+#include <fcntl.h>
 #include <iostream>
 #include <optional>
+#include <unistd.h>
 #include <vector>
 
 using namespace std::string_literals;
@@ -103,9 +107,19 @@ dmabuf_import(cl_context ctx, cl_extensions extensions, int flags,
       return { buffer };
 #endif
     } else if (extensions.hasKhrDmaBufImport) {
+      // Per OpenCL API spec 5.5.2.1, a successful import via
+      // cl_khr_external_memory_dma_buf transfers ownership of the fd to the
+      // OpenCL implementation, but *pfd is owned by the caller's
+      // GstMemory/allocator. Import a dup so the transfer applies to our
+      // throwaway copy, leaving the caller's fd untouched.
+      int dmabuf_fd = fcntl(*pfd, F_DUPFD_CLOEXEC, 0);
+      if (dmabuf_fd < 0) {
+        throw std::runtime_error(
+            "Failed to dup dmabuf fd for OpenCL import: "s + strerror(errno));
+      }
       cl_mem_properties properties[] = {
         CL_EXTERNAL_MEMORY_HANDLE_DMA_BUF_KHR,
-        static_cast<cl_mem_properties>(*pfd),
+        static_cast<cl_mem_properties>(dmabuf_fd),
         0,
       };
       cl_int error{};
@@ -114,6 +128,7 @@ dmabuf_import(cl_context ctx, cl_extensions extensions, int flags,
       auto buffer = clCreateBufferWithProperties(
           ctx, properties, stripped_flags, size, nullptr, &error);
       if (error != CL_SUCCESS) {
+        close(dmabuf_fd);
         throw std::runtime_error("Failed to create buffer with properties, error: "
                                  + ax_utils::cl_error_to_string(error));
       }
@@ -137,15 +152,13 @@ get_device_id(cl_platform_id platform, cl_device_id *device_id, cl_uint *num_dev
   }
 
   auto device_types = which_cl == "cpu" ?
-                          std::array<cl_device_type, 3>{
+                          std::vector<cl_device_type>{
                             CL_DEVICE_TYPE_CPU,
                             CL_DEVICE_TYPE_GPU,
                             CL_DEVICE_TYPE_ALL,
                           } :
-                          std::array<cl_device_type, 3>{
+                          std::vector<cl_device_type>{
                             CL_DEVICE_TYPE_GPU,
-                            CL_DEVICE_TYPE_CPU,
-                            CL_DEVICE_TYPE_ALL,
                           };
 
   cl_int result = CL_DEVICE_NOT_AVAILABLE;
@@ -162,6 +175,37 @@ bool
 can_import_dmabuf(const cl_extensions &extensions)
 {
   return extensions.hasKhrDmaBufImport || extensions.clImportMemoryARM_dmabuf != nullptr;
+}
+
+bool
+device_supports_dmabuf_import(cl_platform_id platform, cl_device_id device)
+{
+#ifdef CL_DEVICE_EXTERNAL_MEMORY_IMPORT_HANDLE_TYPES_KHR
+  // The handle-types query is only meaningful when cl_khr_external_memory is present;
+  // the acquire/release entry points also load off that string, so require it here.
+  if (!has_extension(platform, "cl_khr_external_memory")) {
+    return false;
+  }
+  size_t size = 0;
+  if (clGetDeviceInfo(device, CL_DEVICE_EXTERNAL_MEMORY_IMPORT_HANDLE_TYPES_KHR, 0, nullptr, &size) != CL_SUCCESS
+      || size == 0) {
+    return false;
+  }
+  std::vector<cl_external_memory_handle_type_khr> handles(
+      size / sizeof(cl_external_memory_handle_type_khr));
+  if (clGetDeviceInfo(device, CL_DEVICE_EXTERNAL_MEMORY_IMPORT_HANDLE_TYPES_KHR,
+          handles.size() * sizeof(cl_external_memory_handle_type_khr), handles.data(), nullptr)
+      != CL_SUCCESS) {
+    return false;
+  }
+  return std::find(handles.begin(), handles.end(),
+             static_cast<cl_external_memory_handle_type_khr>(CL_EXTERNAL_MEMORY_HANDLE_DMA_BUF_KHR))
+         != handles.end();
+#else
+  (void) platform;
+  (void) device;
+  return false;
+#endif
 }
 
 bool

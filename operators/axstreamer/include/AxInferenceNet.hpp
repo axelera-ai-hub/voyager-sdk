@@ -35,12 +35,10 @@ struct InferenceProperties {
   std::string which_cl;
   int max_buffers{ 0 };
 
-  // When true, inference is dispatched via axruntime's async executor instead
-  // of the default blocking one, allowing multiple frames per instance to be
-  // in flight concurrently. Only supported for model type "default" on an L0
-  // (non-simulator) connection. max_inflight/max_pending are only used when
-  // async_mode is set.
-  bool async_mode{ false };
+  // Used only when inference is dispatched via axruntime's async (non-blocking)
+  // executor, which is selected automatically for batch-size-1 models (see
+  // Ax::create_inference). Controls how many frames may be in flight per
+  // instance concurrently.
   int max_inflight{ 4 };
   int max_pending{ 8 };
 };

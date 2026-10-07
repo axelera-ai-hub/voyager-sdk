@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 # Operators that convert model-specific tensor output to
 # generalized metadata representation
 from __future__ import annotations

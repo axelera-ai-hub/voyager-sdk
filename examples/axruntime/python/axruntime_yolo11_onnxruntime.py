@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright Axelera AI, 2025
 """
 YOLO11 Detection Example with ONNX Runtime Postamble Processing
 

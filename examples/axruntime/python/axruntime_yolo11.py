@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright Axelera AI, 2025
 """
 YOLO11 Detection Example for axelera.runtime Low-Level API
 

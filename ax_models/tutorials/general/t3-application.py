@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2024
 # The simplest demo application within 50 lines of code
 
 from axelera.app import config, display

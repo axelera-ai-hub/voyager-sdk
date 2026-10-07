@@ -1,3 +1,4 @@
+# Copyright Axelera AI, 2023
 import argparse
 
 import yaml

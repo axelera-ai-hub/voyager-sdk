@@ -29,21 +29,37 @@ skip_gitignore = true
 skip_glob = ["data/*"]
 known_third_party = ["torch", "torchvision", "numpy", "PIL", "onnx", "onnxruntime"]
 
+[tool.pip-tools]
+# pip-tools 8 strips extras by default; keep them until the pins are checked against that.
+strip-extras = false
+
 [tool.pytest.ini_options]
 testpaths = [
     "tests",
     "internal_tools_tests",
     "run_tests.py",
 ]
-pythonpath = [".", "internal_tools"]
+# axelera_zoo is installed editable against whichever checkout was pip-installed, so
+# without this a run from a git worktree imports the OTHER tree's axelera.zoo and
+# tests code that is not the code under test. pytest prepends these, so they win.
+pythonpath = [".", "internal_tools", "axelera_zoo/python"]
 filterwarnings = """\
     ignore:.*call to `pkg_resources.declare_namespace.*:DeprecationWarning
     ignore:.*pkg_resources is deprecated as an API.*:DeprecationWarning
 """
 markers = [
-    "onnx_opt: marks ONNX optimization tests (deselect with '-m \"not onnx_opt\"')",
     "slow: marks tests that require AIPU runtime / wheel installs / minute-scale compiles (deselect with '-m \"not slow\"')",
+    # Carried by the imported ALTO suite (model_axscript/llm/tests). Upstream they are
+    # backed by the ax_pytest_helpers environment-filter plugin, which is not installed
+    # here; registered so the imported files collect without a warning per test.
+    "test_enabled: ALTO environment filter (no effect here; see model_axscript/conftest.py)",
+    "regression_nightly: ALTO nightly regression selector (no effect here)",
+    "alto_sanity: ALTO short-sanity selector (no effect here)",
 ]
+# Every xfail in this repository already passes strict=True by hand. Making it the default
+# means a known-failure list can only shrink: the entry that starts passing fails the run
+# until somebody deletes it.
+xfail_strict = true
 
 [tool.ruff]
 line-length=99

@@ -1,0 +1,75 @@
+=== I. Narrative ===
+
+The lighthouse keeper had not spoken to another living soul in nineteen days, and he had begun, in the way of solitary men, to address the weather as though it were a difficult houseguest. On the morning the gulls left, he noticed first the silence and only afterward the reason for it. A low brown haze sat on the horizon where the sea met the sky, and the air had taken on the metallic stillness that precedes the worst of the autumn gales. He climbed the spiral stair with his coffee cooling in his hand, counting the steps out of an old habit he no longer remembered the origin of, and at the top he wiped the salt from the great lens and waited.
+
+By noon the wind had found its voice. It came not as a single gust but as a slow, deliberate pressure, leaning against the tower the way a tired animal leans against a fence. The keeper logged the barometer readings every half hour, his pencil dull, his handwriting growing smaller as if to take up less room against the enormity outside. He thought of his daughter, who was a chemist in a city he had visited only twice, and who wrote him letters about reactions and reagents that he kept in a tin box though he understood perhaps one word in five. He thought that he ought to write back. He thought this most days, and most days the thought dissolved into the work of the lamp.
+
+When the first wave broke over the lower gallery, the sound was less a crash than a deep, resonant thud, felt in the teeth and the soles of the feet before it was heard. The keeper did not flinch. He had built his calm the way other men build walls, stone by patient stone, and a single storm would not unmake the labor of decades. He trimmed the wick. He checked the reservoir. He set his cup on the narrow ledge and, for the first time in nineteen days, he began, very quietly, to sing.
+
+=== II. Exposition ===
+
+The deep ocean is the largest habitat on the planet and also the least observed, a paradox that has shaped marine science for over a century. Below roughly one thousand meters, sunlight is effectively absent, and the organisms that live there must derive their energy from sources other than photosynthesis. Much of this energy arrives as a slow rain of organic particles drifting down from the productive surface waters, a flux that biologists call marine snow. These aggregates of dead plankton, fecal pellets, and mineral dust descend at speeds of tens to hundreds of meters per day, and along the way they are intercepted, consumed, and remineralized by a succession of organisms adapted to a sparse and unreliable food supply.
+
+Pressure increases by approximately one atmosphere for every ten meters of depth, so an animal living at four thousand meters experiences forces that would crush most surface life. The adaptations that permit survival under such conditions are biochemical as much as anatomical. Certain enzymes are stabilized by small organic molecules known as piezolytes, which counteract the tendency of pressure to deform protein structure. Cell membranes incorporate a higher proportion of unsaturated fatty acids, preserving the fluidity that ordinary lipids would lose under compression. These solutions are elegant precisely because they are invisible; the animal looks unremarkable, and yet its every protein has been tuned to a regime no laboratory replicated until quite recently.
+
+Measurement at these depths remains difficult and expensive. Instruments must be sealed against intrusion, powered for long autonomous deployments, and recovered across kilometers of intervening water. As a result, our maps of the abyssal plains are coarser than our maps of the surface of Mars. Each expedition returns not only data but a reminder of how provisional that data is, how much of the inference rests on a handful of samples standing in for a volume of ocean larger than every continent combined.
+
+=== III. Program ===
+
+#include <stdio.h>
+#include <stdlib.h>
+
+/* A small ring buffer for fixed-size integer samples. */
+typedef struct {
+    int    *data;
+    size_t  cap;
+    size_t  head;
+    size_t  count;
+} ring_t;
+
+static ring_t *ring_new(size_t cap) {
+    ring_t *r = malloc(sizeof(*r));
+    if (!r) return NULL;
+    r->data = calloc(cap, sizeof(int));
+    if (!r->data) { free(r); return NULL; }
+    r->cap = cap; r->head = 0; r->count = 0;
+    return r;
+}
+
+static void ring_push(ring_t *r, int value) {
+    size_t tail = (r->head + r->count) % r->cap;
+    r->data[tail] = value;
+    if (r->count == r->cap)
+        r->head = (r->head + 1) % r->cap;   /* overwrite oldest */
+    else
+        r->count++;
+}
+
+static double ring_mean(const ring_t *r) {
+    if (r->count == 0) return 0.0;
+    long sum = 0;
+    for (size_t i = 0; i < r->count; i++)
+        sum += r->data[(r->head + i) % r->cap];
+    return (double)sum / (double)r->count;
+}
+
+int main(void) {
+    ring_t *r = ring_new(4);
+    for (int i = 1; i <= 7; i++) ring_push(r, i * i);
+    printf("mean of last %zu samples: %.2f\n", r->count, ring_mean(r));
+    free(r->data);
+    free(r);
+    return 0;
+}
+
+=== IV. Dialogue ===
+
+"You're certain about the timing?" she asked, not looking up from the bench.
+
+"As certain as the instrument allows," he said. "Which is to say, certain to within the width of my own doubt."
+
+She set down the pipette. "That's not an answer a reviewer will accept."
+
+"No," he agreed. "But it's the only honest one I have. The signal is there. I can see it. I simply can't yet prove that what I'm seeing is the thing itself and not the shadow it throws on the apparatus."
+
+"Then we measure again," she said, "and we keep measuring until the shadow and the thing are forced to disagree." She pulled a fresh notebook from the drawer and uncapped her pen. "Start from the beginning. Tell me everything you did, in order, leaving nothing out, especially the parts you are tempted to leave out."

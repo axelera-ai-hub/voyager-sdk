@@ -21,6 +21,12 @@ struct resize_properties {
   bool letterbox{};
   bool scale_up{ true };
   int fill{ 114 };
+  //  Extra border (top, bottom, left, right in pixels) added around the
+  //  resized/letterboxed content to satisfy the AIPU's input-shape contract.
+  //  Empty means no extra padding. Filled with aipu_fill, independently of
+  //  the letterbox fill above.
+  std::vector<int> aipu_padding{};
+  int aipu_fill{};
   Interpolation interpolation{ Interpolation::bilinear };
   bool downstream_supports_opencl{};
 
@@ -33,11 +39,12 @@ struct resize_properties {
   std::unique_ptr<CLResize> resize;
 };
 
-const char *resize_kernel = R"##(
+const char *resize_kernel_preamble = R"##(
 
-__kernel void resize_kernel_cl(%s__global %s *out, int4 image_dims, int crop_x, int crop_y,
-                            int4 strides, int4 offsets, float xscale, float yscale, int scaled_width,
-                            int scaled_height, uchar fill, float16 color_matrix) {
+__kernel void resize_kernel_cl(%s__global %s *out, int4 image_dims,
+                            int4 strides, int4 offsets, int4 roi, int crop_x, int crop_y,
+                            uchar fill, float16 color_matrix, float16 transform_matrix,
+                            int4 aipu_pad, uchar aipu_fill) {
 
     const int col = get_global_id(0);
     const int row = get_global_id(1);
@@ -45,11 +52,73 @@ __kernel void resize_kernel_cl(%s__global %s *out, int4 image_dims, int crop_x, 
       return;
     }
 
-    int xoffset = (image_dims.z - scaled_width) / 2;
-    int yoffset = (image_dims.w - scaled_height) / 2;
+)##";
 
-    float2 corrected = ((float2)(0.5F + col - xoffset, 0.5F + row - yoffset) * (float2)(xscale, yscale));
-    image_description img = {image_dims, strides, offsets, (int4)(xoffset, yoffset, scaled_width, scaled_height), (int4)(crop_x, crop_y, 0, 0)};
+// Letterbox padding and AIPU input-shape padding must both be colour/
+// normalisation-converted exactly like a real sampled pixel (see the
+// corresponding gray/rgba_output[_norm]_cl snippets below) so that, e.g. with
+// a quantization zero-point baked into color_matrix (to_tensor +
+// mean/std/quant_scale/quant_zeropoint), the padded border ends up at the
+// same quantized "neutral gray" value the model saw at training time,
+// instead of the raw uint8 `border_fill` byte. `border_fill` resolves to
+// either the letterbox `fill` or the AIPU `aipu_fill`, whichever border the
+// pixel falls in -- see the aipu_pad-vs-roi nesting where these are used.
+//
+// The %s placeholders take the chroma channels of the pre-conversion pixel:
+// for YUV-family inputs this must be the neutral chroma "128, 128" (matching
+// what every input sampler returns for out-of-bounds/letterbox pixels), not
+// `border_fill`, otherwise color_matrix (which expects YUV-space input) tints
+// the border instead of producing a neutral gray.
+const char *fill_write_gray_plain = R"##(
+        advance_uchar_ptr(out, row * strides.w)[col] =
+            convert_uchar_sat(color_convert_float((uchar4)(border_fill, %s, 255), color_matrix).x);
+)##";
+
+const char *fill_write_gray_norm = R"##(
+        advance_uchar_ptr(out, row * strides.w)[col] = convert_uchar(convert_char_sat_rte(
+            color_convert_float((uchar4)(border_fill, %s, 255), color_matrix).x));
+)##";
+
+const char *fill_write_rgba_plain = R"##(
+        advance_uchar4_ptr(out, row * strides.w)[col] =
+            convert_uchar4_sat(color_convert_float((uchar4)(border_fill, %s, 255), color_matrix));
+)##";
+
+const char *fill_write_rgba_norm = R"##(
+        advance_uchar4_ptr(out, row * strides.w)[col] = convert_uchar4(convert_char4_sat_rte(
+            color_convert_float((uchar4)(border_fill, %s, 255), color_matrix)));
+)##";
+
+bool
+is_yuv_format(AxVideoFormat format)
+{
+  switch (format) {
+    case AxVideoFormat::NV12:
+    case AxVideoFormat::NV16:
+    case AxVideoFormat::I420:
+    case AxVideoFormat::Y42B:
+    case AxVideoFormat::Y444:
+    case AxVideoFormat::YUY2:
+      return true;
+    default:
+      return false;
+  }
+}
+
+const char *resize_kernel_coord = R"##(
+    const float col_c = col + 0.5f, row_c = row + 0.5f;
+    // transform_matrix's third row (s8,s9,sa) is always {0,0,1} for every matrix
+    // this kernel receives (see fold_crop_into_transform, which only ever writes
+    // the first two rows on top of the hand-built scale/translate matrix in
+    // CLResize::run), so the perspective divide is always by a constant 1.0 --
+    // skip computing and dividing by it per pixel.
+    float2 corrected = (float2)(
+        transform_matrix.s0 * col_c + transform_matrix.s1 * row_c + transform_matrix.s2,
+        transform_matrix.s4 * col_c + transform_matrix.s5 * row_c + transform_matrix.s6
+    );
+    float xscale = transform_matrix.s0, yscale = transform_matrix.s5;
+    image_description img = { .image_dims = image_dims, .strides = strides,
+        .offsets = offsets, .crop = (int2)(crop_x, crop_y) };
 
 )##";
 
@@ -73,10 +142,10 @@ ax_utils::CLProgram::ax_kernel
 build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
     AxVideoFormat out_format, int flip_type, const resize_properties &prop, int num_planes)
 {
-  std::string kernel_code = resize_kernel;
-
   auto interpolation = prop.interpolation == Interpolation::pillow_bilinear ?
                            ax_utils::Interpolation::pillow_bilinear :
+                       prop.interpolation == Interpolation::nearest ?
+                           ax_utils::Interpolation::nearest :
                            ax_utils::Interpolation::bilinear;
   auto input_details = ax_utils::get_input_details(in_format, interpolation, num_planes);
   auto output_details = prop.normalization_active ?
@@ -84,16 +153,44 @@ build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
                             ax_utils::get_output_details(in_format, out_format);
   const auto &out_type = output_details.out_type;
   const auto &output_code = output_details.sampler;
-
   const auto &sampler_code = input_details.sampler;
 
-  auto n = snprintf(nullptr, 0, kernel_code.c_str(),
+  auto n = snprintf(nullptr, 0, resize_kernel_preamble,
       input_details.input_params.c_str(), out_type.c_str());
   std::vector<char> buffer(n + 1);
-  snprintf(buffer.data(), buffer.size(), kernel_code.c_str(),
+  snprintf(buffer.data(), buffer.size(), resize_kernel_preamble,
       input_details.input_params.c_str(), out_type.c_str());
   auto final_kernel = std::string(buffer.data());
 
+  const char *fill_write_fmt
+      = out_format == AxVideoFormat::GRAY8 ?
+            (prop.normalization_active ? fill_write_gray_norm : fill_write_gray_plain) :
+            (prop.normalization_active ? fill_write_rgba_norm : fill_write_rgba_plain);
+  const char *chroma = is_yuv_format(in_format) ? "128, 128" : "border_fill, border_fill";
+  auto fn = snprintf(nullptr, 0, fill_write_fmt, chroma);
+  std::vector<char> fill_write_buf(fn + 1);
+  snprintf(fill_write_buf.data(), fill_write_buf.size(), fill_write_fmt, chroma);
+  //  A pixel outside roi is either in the letterbox border (still inside the
+  //  aipu_pad-free inner canvas) or in the AIPU's outer padding border; roi is
+  //  always contained within the inner canvas, so this nesting is exhaustive.
+  //  Checked (and, on a miss, written) before any of the sampling/transform
+  //  work below, since border pixels never need it. With no letterboxing, roi
+  //  covers the whole inner canvas so the outer branch is never taken; with no
+  //  aipu_padding, aipu_pad is all zero so the inner branch is never taken -
+  //  this code is always safe to include unconditionally.
+  final_kernel += R"##(
+    if (col < roi.x || row < roi.y || col >= roi.x + roi.z || row >= roi.y + roi.w) {
+        bool in_aipu_pad = col < aipu_pad.s2 || row < aipu_pad.s0
+            || col >= image_dims.z - aipu_pad.s3 || row >= image_dims.w - aipu_pad.s1;
+        uchar border_fill = in_aipu_pad ? aipu_fill : fill;
+)##";
+  final_kernel += fill_write_buf.data();
+  final_kernel += R"##(
+        return;
+    }
+)##";
+
+  final_kernel += resize_kernel_coord;
   final_kernel += sampler_code;
   final_kernel += output_code;
   bool use_fp16 = (interpolation == ax_utils::Interpolation::bilinear)
@@ -105,9 +202,6 @@ build_kernel(ax_utils::CLProgram &program, AxVideoFormat in_format,
 
 class CLResize
 {
-  using buffer = CLProgram::ax_buffer;
-  using kernel = CLProgram::ax_kernel;
-
   public:
   CLResize(opencl_details *display, Ax::Logger &logger)
       : program("", display, logger)
@@ -125,13 +219,9 @@ class CLResize
   {
     auto hash = (static_cast<int>(in_format) << 16) + (static_cast<int>(out_format) << 8)
                 + flip_type + (static_cast<int>(prop.interpolation) << 24);
-    auto it = std::find_if(std::begin(all_kernels), std::end(all_kernels),
-        [hash](auto &x) { return x.hash == hash; });
-    if (it != all_kernels.end()) {
-      return *it->cl_prog;
-    }
-    auto k = build_kernel(program, in_format, out_format, flip_type, prop, num_planes);
-    return *all_kernels.emplace_back(hash, std::move(k)).cl_prog;
+    return kernel_cache.get_or_build(hash, [&] {
+      return build_kernel(program, in_format, out_format, flip_type, prop, num_planes);
+    });
   }
 
   ax_utils::CLProgram::ax_buffer create_buffer(const buffer_details &info, cl_mem_flags flags)
@@ -144,10 +234,24 @@ class CLResize
     auto num_planes = ax_utils::get_num_planes(in);
     auto converter = get_converter(program, in.format, out.format, 0, prop, num_planes);
     bool start_flush = prop.downstream_supports_opencl == 0;
-    cl_float xscale = (float) in.width / out.width;
-    cl_float yscale = (float) in.height / out.height;
-    cl_int scaled_width = out.width;
-    cl_int scaled_height = out.height;
+    //  aipu_padding, when set, is an extra border (independent of letterboxing)
+    //  added around the resized/letterboxed content to satisfy the AIPU's
+    //  input-shape contract. out.width/out.height already include it (see
+    //  set_output_interface), so the content itself must be scaled/centred
+    //  against the inner (un-padded) size, not the full padded canvas.
+    cl_int pad_top = 0, pad_bottom = 0, pad_left = 0, pad_right = 0;
+    if (prop.aipu_padding.size() == 4) {
+      pad_top = prop.aipu_padding[0];
+      pad_bottom = prop.aipu_padding[1];
+      pad_left = prop.aipu_padding[2];
+      pad_right = prop.aipu_padding[3];
+    }
+    cl_int inner_width = out.width - pad_left - pad_right;
+    cl_int inner_height = out.height - pad_top - pad_bottom;
+    cl_float xscale = (float) in.width / inner_width;
+    cl_float yscale = (float) in.height / inner_height;
+    cl_int scaled_width = inner_width;
+    cl_int scaled_height = inner_height;
     if (prop.letterbox) {
       bool scale_to_height = static_cast<double>(prop.width) / prop.height
                              > static_cast<double>(in.width) / in.height;
@@ -165,28 +269,37 @@ class CLResize
       scaled_height = height;
     }
 
-    if (in.width < out.width && in.height < out.height && !prop.scale_up) {
+    if (in.width < inner_width && in.height < inner_height && !prop.scale_up) {
       xscale = 1.0F;
       yscale = 1.0F;
       scaled_width = in.width;
       scaled_height = in.height;
     }
+    cl_int xoffset = (inner_width - scaled_width) / 2 + pad_left;
+    cl_int yoffset = (inner_height - scaled_height) / 2 + pad_top;
+    cl_int4 roi = { xoffset, yoffset, scaled_width, scaled_height };
+    // clang-format off
+    cl_float16 transform = {
+        xscale, 0.0f, -xscale * xoffset, 0.0f,
+        0.0f, yscale, -yscale * yoffset, 0.0f,
+        0.0f, 0.0f,                1.0f, 0.0f,
+        0.0f, 0.0f,                0.0f, 0.0f
+    };
+    // clang-format on
+    transform = ax_utils::fold_crop_into_transform(transform, in.crop_x, in.crop_y);
     cl_uchar fill = prop.fill;
-    auto image_dims = (cl_int4){ in.width, in.height, out.width, out.height };
-    auto strides = ax_utils::build_strides(in, out);
-    auto offsets = ax_utils::build_offsets(in, out, num_planes);
+    cl_int4 aipu_pad = { pad_top, pad_bottom, pad_left, pad_right };
+    cl_uchar aipu_fill = prop.aipu_fill;
+    auto image_dims = ax_utils::image_dims_for_crop(in, out);
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
-    auto in_bufs = program.create_buffers(1, ax_utils::determine_buffer_size(in),
-        CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, in.data, in.offsets.size());
-    auto matrix_f32 = prop.normalization_active ?
-                          ax_utils::get_color_conversion_matrix_with_norm(
-                              in.format, out.format, mul_, add_) :
-                          ax_utils::get_color_conversion_matrix(in.format, out.format);
+    auto ri = prop.normalization_active ?
+                  ax_utils::prepare_run_inputs(program, in, out, num_planes, mul_, add_) :
+                  ax_utils::prepare_run_inputs(program, in, out, num_planes);
 
-    program.set_kernel_args(converter, 0, in_bufs, *outbuf, image_dims,
-        in.crop_x, in.crop_y, strides, offsets, xscale, yscale, scaled_width,
-        scaled_height, fill, matrix_f32);
-    return run_kernel(program, converter, in, out, in_bufs[0], outbuf, start_flush);
+    program.set_kernel_args(converter, 0, ri.in_bufs, *outbuf, image_dims,
+        ri.strides, ri.offsets, roi, (cl_int) in.crop_x, (cl_int) in.crop_y,
+        fill, ri.color_matrix, transform, aipu_pad, aipu_fill);
+    return run_kernel(program, converter, in, out, ri.in_bufs[0], outbuf, start_flush);
   }
 
   bool can_use_dmabuf() const
@@ -199,15 +312,7 @@ class CLResize
   int error{};
   std::vector<cl_float> mul_{ 1.0F, 1.0F, 1.0F, 1.0F };
   std::vector<cl_float> add_{ 0.0F, 0.0F, 0.0F, 0.0F };
-  struct kernels {
-    int hash;
-    kernel cl_prog{ nullptr };
-  };
-  std::vector<kernels> all_kernels;
-  struct last_buffer_details {
-    buffer mem{ nullptr };
-    buffer_details in{};
-  } last_buffer;
+  ax_utils::KernelCache kernel_cache;
 };
 
 
@@ -229,6 +334,9 @@ allowed_properties()
     "quant_scale",
     "quant_zeropoint",
     "to_tensor",
+    //  For fusing the AIPU's extra input-shape padding into this kernel
+    "aipu_padding",
+    "aipu_fill",
 
   };
   return allowed_properties;
@@ -263,6 +371,13 @@ init_and_set_static_properties_with_context(
         "Resize with color convert only outputs RGBA or BGRA, given: " + format);
   }
   prop->fill = Ax::get_property(input, "padding", "resize_cl_static_properties", prop->fill);
+  prop->aipu_padding = Ax::get_property(
+      input, "aipu_padding", "resize_cl_static_properties", prop->aipu_padding);
+  if (!prop->aipu_padding.empty() && prop->aipu_padding.size() != 4) {
+    throw std::runtime_error("aipu_padding must have exactly 4 values: top,bottom,left,right");
+  }
+  prop->aipu_fill = Ax::get_property(
+      input, "aipu_fill", "resize_cl_static_properties", prop->aipu_fill);
   prop->interpolation = static_cast<Interpolation>(Ax::get_property(input, "interpolation",
       "resize_cl_static_properties", static_cast<int>(prop->interpolation)));
   if (prop->letterbox) {
@@ -349,6 +464,10 @@ set_output_interface(const AxDataInterface &interface,
     auto out_info = in_info;
     auto [width, height] = prop->size ? determine_width_height(in_info, prop->size) :
                                         std::make_pair(prop->width, prop->height);
+    if (prop->aipu_padding.size() == 4) {
+      width += prop->aipu_padding[2] + prop->aipu_padding[3]; // left + right
+      height += prop->aipu_padding[0] + prop->aipu_padding[1]; // top + bottom
+    }
     out_info.info.width = width;
     out_info.info.height = height;
     out_info.info.actual_height = height;
@@ -406,25 +525,7 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
   if (output_details.size() != 1) {
     throw std::runtime_error("resize works on single video output only");
   }
-  auto valid_formats = std::array{
-    AxVideoFormat::RGB,
-    AxVideoFormat::BGR,
-    AxVideoFormat::RGBA,
-    AxVideoFormat::BGRA,
-    AxVideoFormat::NV12,
-    AxVideoFormat::NV16,
-    AxVideoFormat::I420,
-    AxVideoFormat::Y42B,
-    AxVideoFormat::Y444,
-    AxVideoFormat::YUY2,
-    AxVideoFormat::GRAY8,
-  };
-  if (std::none_of(valid_formats.begin(), valid_formats.end(), [input_details](auto format) {
-        return format == input_details[0].format;
-      })) {
-    throw std::runtime_error("Resize does not work with the input format: "
-                             + AxVideoFormatToString(input_details[0].format));
-  }
+  ax_utils::require_opencl_input_format(input_details[0].format, "Resize");
   if (output_details[0].format == AxVideoFormat::UNDEFINED) {
     output_details[0].format = prop->format == AxVideoFormat::UNDEFINED ?
                                    add_alpha(input_details[0].format) :

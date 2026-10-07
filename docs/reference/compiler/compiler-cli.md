@@ -3,7 +3,7 @@ title: "Compiler CLI"
 ---
 # Compiler CLI
 
-The `axcompile` command converts an ONNX model into a compiled `.axmodel` binary ready to run on Metis hardware. It handles quantization (FP32 → int8) and hardware-specific optimization in one step.
+The `axcompile` command converts an ONNX model into a compiled `.axm` binary ready to run on Metis hardware. It handles quantization (FP32 → int8) and hardware-specific optimization in one step.
 
 See [Model Formats](../pipeline/model-formats.md) for an explanation of what compilation produces and where the output files land.
 

@@ -1,4 +1,4 @@
-# Copyright Axelera AI, 2025
+# Copyright Axelera AI, 2023
 # PyTorch Tutorial adapted from
 # https://pytorch.org/tutorials/beginner/transfer_learning_tutorial.html
 # We use the standard ResNet34 model from torchvision with the Fruits-360 dataset

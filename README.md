@@ -1,9 +1,12 @@
 ![image](docs/images/Ax_Voyager_SDK_Repo_Banner_1600x457_01.png)
 
+> [!IMPORTANT]
+> **End User License Agreement**
+>
+> Use of this software is governed by the Axelera AI End User License Agreement (EULA) set out in [LICENSE.txt](LICENSE.txt). Before downloading, installing or using the software, please read the EULA carefully. By downloading, installing or using the software, you acknowledge that you have read, understood and agree to be bound by its terms. If you do not agree to the terms of the EULA, do not download, install or use the software.
+
 # Voyager SDK repository
 v1.8: [Release notes](RELEASE_NOTES.md) | [Release compatibility matrix](RELEASE_COMPATIBILITY_MATRIX.md)
-
-This documentation is also published online at [docs.axelera.ai](https://docs.axelera.ai/sdk/), with search and version selection.
 
 - [Voyager SDK repository](#voyager-sdk-repository)
   - [Release Qualification](#release-qualification)
@@ -12,7 +15,7 @@ This documentation is also published online at [docs.axelera.ai](https://docs.ax
   - [Run models on Metis devices](#run-models-on-metis-devices)
   - [Application integration APIs](#application-integration-apis)
   - [Reference pipelines](#reference-pipelines)
-  - [\[Alpha\] Pipeline Builder API](#alpha-pipeline-builder-api)
+  - [\[Beta\] Pipeline Builder API](#beta-pipeline-builder-api)
   - [Additional documentation](#additional-documentation)
   - [Further support](#further-support)
 
@@ -31,8 +34,7 @@ This is a production-ready release of Voyager SDK. Software components and featu
 
 | Document | Description |
 | :--------------------- | :---------- |
-| [Installation guide - original `install.sh`](docs/user-guides/sdk-install.md) | Explains how to set up the Voyager SDK repository and toolchain on your development system using `install.sh` |
-| [Python pip installation](docs/user-guides/sdk-install.md) | Explains how to set up the Voyager SDK repository and toolchain on your development system using new standalone Python wheels |
+| [Installation guide](docs/user-guides/sdk-install.md) | Explains how to set up the Voyager SDK using `quick-start.sh` or Python wheels with `pip`. Note: `install.sh` has been removed. |
 | [Quick start guide](docs/user-guides/first-inference.md) | Explains how to deploy and run your first model |
 | [Windows setup guide](docs/user-guides/windows-setup.md) | Explains how to install Voyager SDK and run a model in Windows 11|
 | [AxDevice manual](docs/reference/tools/axdevice.md) | AxDevice is a tool that lists all Metis boards connected to your system and can configure their settings |
@@ -65,8 +67,8 @@ at different levels of abstraction.
 | API | Description |
 | :--------------------- | :---------- |
 | InferenceStream (high level) | [Library](docs/tutorials/examples/application.md) for directly reading pipeline image and inference metadata from within your application |
-| AxInferenceNet (middle level) | [C/C++](docs/tutorials/examples/axinferencenet-basic.md) API reference for integrating model inferencing and pipeline construction directly within an application |
-| AxRuntime (low level) | [Python](docs/reference/apis/axruntime-py.md) and [C/C++](docs/reference/apis/inference-stream.md) APIs for manually constructing, configuring and executing pipelines |
+| AxInferenceNet (middle level) | [C/C++](docs/reference/apis/axinferencenet.md) API reference for integrating model inferencing and pipeline construction directly within an application |
+| AxRuntime (low level) | [Python](docs/reference/apis/axruntime-py.md) and [C/C++](docs/reference/apis/axruntime-cpp.md) APIs for manually constructing, configuring and executing pipelines |
 | GStreamer | [Plugins](docs/reference/pipeline/pipeline-basics.md) for integrating Metis inferencing within a GStreamer pipeline
 
 The InferenceStream library is the easiest to use and enables most users to achieve the highest performance. The lower-level APIs enable expert users
@@ -84,19 +86,19 @@ end-to-end reference pipelines are provided, which you can use as templates for 
 | [`/ax_models/reference/cascade/with_tracker`](ax_models/reference/cascade) | Cascaded pipelines in which the output of the first model is tracked prior to being input to a secondary model |
 | [`/ax_models/reference/image_preprocess`](ax_models/reference/image_preprocess) | Pipelines in which the camera input is first preprocessed prior to being used for inferencing |
 
-## \[Alpha\] Pipeline Builder API
+## \[Beta\] Pipeline Builder API
 
-A new Python-native API for building, running, and packaging ML inference pipelines. The entire pipeline, from model loading through post-processing and tracking, can be expressed as a composable Python expression.
+A Python-native API for building, running, and packaging ML inference pipelines. The entire pipeline, from model loading through post-processing and tracking, can be expressed as a composable Python expression. Many models already reach their target performance with it, and some still have room to improve. An existing production YAML pipeline does not need to move.
 
 - **Composable operators**: `op.seq()` for sequential, `op.par()` for parallel, `op.for_each()` for cascade (per-object) processing.
-- **Data routing**: `op.select(i)` to extract from tuples, `op.pack()` / `op.unpack()` for explicit tuple conversion.
-- **30+ operators** across preprocessing, inference, postprocessing, filtering, tracking, and result types.
+- **Data routing**: `op.itemgetter(i)` to extract from tuples, `op.pack()` / `op.unpack()` for explicit tuple conversion.
+- **50+ operators** across preprocessing, inference, postprocessing, filtering, tracking, and result types.
 - **Model loading**:
     - `op.load('model.axm')` - hardware inference on AIPU.
     - `op.onnx_model('model.onnx')` - CPU inference, no AIPU required.
-    - `op.load('pipeline.axe')` - portable pipeline package (new .axe format).
+    - `op.load('pipeline.axe')` - portable pipeline package (.axe format).
 - **Tracker integration**: `op.tracker(algo='bytetrack')` - supports ByteTrack, OC-SORT, SORT, TrackTrack. Full lifecycle states via `return_all_states=True` (new, tracked, lost, removed).
-- **Pipeline optimizer**: Automatic SIMD-accelerated fusion of operator chains (e.g., NchwToNhwc + Quant + Pad into single QuantizeTransposePad).
+- **Pipeline optimizer**: `pipeline.optimized()` fuses operator chains into native kernels chosen for the host (e.g., NchwToNhwc + Quant + Pad into a single QuantizeTransposePad, and resize + to-tensor + normalize into one resize kernel).
 - **Typed result objects**: `DetectedObject`, `PoseObject`, `SegmentedObject`, `TrackedObject`, `Classification` with protocol-based interfaces and `.draw()` visualization.
 
 For more information, see [Pipeline Builder documentation](docs/reference/pipeline-builder/README.md).

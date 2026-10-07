@@ -81,7 +81,7 @@ oob_fill_snippet(AxVideoFormat out_format)
 // and output snippet from get_input_details / get_output_details, followed by
 // the closing brace that comes from the output snippet.
 const char *roicrop_kernel_template = R"##(
-__kernel void roicrop_cl(__global const %s *in, __global %s *out, int4 image_dims,
+__kernel void roicrop_cl(%s__global %s *out, int4 image_dims,
                          int crop_x, int crop_y,
                          int4 strides, int4 offsets, float16 color_matrix) {
     const int col = get_global_id(0);
@@ -118,10 +118,10 @@ class CLRoiCrop
     auto output_details = ax_utils::get_output_details(in_format, out_format);
 
     auto n = snprintf(nullptr, 0, kernel_code.c_str(),
-        input_details.out_type.c_str(), output_details.out_type.c_str());
+        input_details.input_params.c_str(), output_details.out_type.c_str());
     std::vector<char> buf(n + 1);
     snprintf(buf.data(), buf.size(), kernel_code.c_str(),
-        input_details.out_type.c_str(), output_details.out_type.c_str());
+        input_details.input_params.c_str(), output_details.out_type.c_str());
     auto final_kernel = std::string(buf.data());
     final_kernel += oob_fill_snippet(out_format);
     final_kernel += input_details.sampler;
@@ -133,15 +133,8 @@ class CLRoiCrop
 
   cl_kernel get_converter(AxVideoFormat in_format, AxVideoFormat out_format, int num_planes)
   {
-    auto hash = (static_cast<int>(in_format) << 16)
-                + (static_cast<int>(out_format) << 8) + 0;
-    auto it = std::find_if(std::begin(all_kernels), std::end(all_kernels),
-        [hash](auto &x) { return x.hash == hash; });
-    if (it != all_kernels.end()) {
-      return *it->cl_prog;
-    }
-    auto k = build_kernel(in_format, out_format, num_planes);
-    return *all_kernels.emplace_back(hash, std::move(k)).cl_prog;
+    return kernel_cache.get_or_build(in_format, out_format,
+        [&] { return build_kernel(in_format, out_format, num_planes); });
   }
 
   int run(const buffer_details &in, const buffer_details &out, int crop_x,
@@ -152,16 +145,11 @@ class CLRoiCrop
 
     bool start_flush = !downstream_supports_opencl;
     auto outbuf = program.create_buffer(out, CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR);
-    auto inbuf = program.create_buffer(in, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR);
-
     auto image_dims = (cl_int4){ in.width, in.height, out.width, out.height };
-    auto strides = ax_utils::build_strides(in, out);
-    auto offsets = ax_utils::build_offsets(in, out);
-    auto matrix = ax_utils::get_color_conversion_matrix(in.format, out.format);
-
-    program.set_kernel_args(converter, 0, *inbuf, *outbuf, image_dims,
-        (cl_int) crop_x, (cl_int) crop_y, strides, offsets, matrix);
-    return run_kernel(program, converter, in, out, inbuf, outbuf, start_flush);
+    auto ri = ax_utils::prepare_run_inputs(program, in, out, num_planes);
+    program.set_kernel_args(converter, 0, ri.in_bufs, *outbuf, image_dims,
+        (cl_int) crop_x, (cl_int) crop_y, ri.strides, ri.offsets, ri.color_matrix);
+    return run_kernel(program, converter, in, out, ri.in_bufs[0], outbuf, start_flush);
   }
 
   bool can_use_dmabuf() const
@@ -171,11 +159,7 @@ class CLRoiCrop
 
   private:
   CLProgram program;
-  struct kernels {
-    int hash;
-    kernel cl_prog{ nullptr };
-  };
-  std::vector<kernels> all_kernels;
+  ax_utils::KernelCache kernel_cache;
   AxVideoFormat last_in_format{ AxVideoFormat::UNDEFINED };
   AxVideoFormat last_out_format{ AxVideoFormat::UNDEFINED };
 };
@@ -250,23 +234,7 @@ transform(const AxDataInterface &input, const AxDataInterface &output,
     throw std::runtime_error("roicrop_cl works on single video output only");
   }
 
-  constexpr std::array valid_input_formats = {
-    AxVideoFormat::RGB,
-    AxVideoFormat::BGR,
-    AxVideoFormat::RGBA,
-    AxVideoFormat::BGRA,
-    AxVideoFormat::NV12,
-    AxVideoFormat::NV16,
-    AxVideoFormat::I420,
-    AxVideoFormat::Y42B,
-    AxVideoFormat::YUY2,
-    AxVideoFormat::GRAY8,
-  };
-  if (std::none_of(valid_input_formats.begin(), valid_input_formats.end(),
-          [&](auto fmt) { return fmt == input_details[0].format; })) {
-    throw std::runtime_error("roicrop_cl does not support input format: "
-                             + AxVideoFormatToString(input_details[0].format));
-  }
+  ax_utils::require_opencl_input_format(input_details[0].format, "roicrop_cl");
 
   auto [x1, y1, x2, y2] = roicrop_get_roi_with_margin(
       *prop, subframe_index, subframe_number, map, "roicrop_cl", logger);

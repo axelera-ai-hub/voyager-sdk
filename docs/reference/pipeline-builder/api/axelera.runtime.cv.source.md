@@ -11,9 +11,13 @@ Video streaming implementation for zero-copy frame decoding.
 | Name | Description |
 |------|-------------|
 | [Image](#image) | A single image frame backed by a numpy array, PIL image, GStreamer sample, or VideoBuffer. |
-| [Source](#source) | Abstract base for frame sources: iterable of `Image` frames with `fps` and `frame_count` metadata. |
+| [Source](#source) | ABC for all sources: iterable of `Image` frames with `fps` and `frame_count` metadata. |
 | [VideoSource](#videosource) | Video source stream wrapper that provides both frame iteration and metadata access. |
 | [create_source](#create_source) | Create a video source that yields decoded frames with metadata access. |
+| [frame_count](#frame_count) | How many frames `source` holds, or None when it cannot say. |
+| [get_media_files](#get_media_files) | Get all media files (video/image) recursively from a directory, checking if images-only. |
+| [is_single_image](#is_single_image) | Whether `source` is a single still image, best-effort (see `frame_count`). |
+| [iter_results](#iter_results) | Yield `(image, objects)` for each frame of `source`. |
 
 ---
 
@@ -29,6 +33,9 @@ Construct one with the `from_array`, `from_pil`, `from_gst`, `from_any`, or
 - **`source`** (`str`) — Source identifier for the image, e.g. filename or stream name.
 - **`shape`** (`tuple[int, int, int]`) — Shape of the image in pixels as (height, width, channels).
 - **`presentation_timestamp`** (`int | None`) — Presentation timestamp of the image in us.
+- **`decoded_timestamp`** (`int | None`) — Wall-clock time decoding of this frame completed.
+- **`color_range`** (`int`) — Color range from the source stream (GstRange int): 0=unknown, 1=limited, 2=full.
+- **`color_matrix`** (`int`) — Color matrix from the source stream (GstMatrix int): 0=unknown, 3=BT.601, 4=BT.709, etc.
 - **`ndim`** (`int`) — Number of dimensions (always 3: height, width, channels).
 - **`nbytes`** (`int`) — Total size of the image buffer in bytes.
 - **`width`** (`int`) — Width of the image in pixels.
@@ -48,10 +55,14 @@ Construct one with the `from_array`, `from_pil`, `from_gst`, `from_any`, or
 #### classmethod from_videobuffer
 
 ```python
-from_videobuffer(buffer: _videodecoder.VideoBuffer)
+from_videobuffer(buffer: _videodecoder.VideoBuffer, like: Image | None = None)
 ```
 
 Construct an Image from a VideoBuffer.
+
+If *like* is provided its source, presentation_timestamp, and decoded_timestamp
+are copied to the new Image (useful when the buffer is a processed version of
+an existing frame and the caller wants to preserve frame provenance).
 
 #### classmethod from_array
 
@@ -99,6 +110,17 @@ Construct an Image from a GST video buffer.
 
 If `like` is provided, the new Image will inherit metadata from it. An explicit
 `source` parameter takes precedence over `like.source`.
+
+#### classmethod is_supported
+
+```python
+is_supported(i: Any) -> bool
+```
+
+Return True if `from_any` accepts `i`, without constructing an Image.
+
+For a caller that discards the result unless some condition holds, this checks the
+type up front without paying for a conversion that is then thrown away.
 
 #### classmethod from_any
 
@@ -187,7 +209,7 @@ In words:
 
 ### Source
 
-Abstract base for frame sources: iterable of `Image` frames with `fps` and `frame_count` metadata.
+ABC for all sources: iterable of `Image` frames with `fps` and `frame_count` metadata.
 
 **Properties:**
 
@@ -202,13 +224,37 @@ Video source stream wrapper that provides both frame iteration and metadata acce
 
 This class wraps a video stream generator and provides access to video metadata
 like FPS, frame count, and timestamps while also allowing iteration over frames.
+`create_source` builds it; you do not construct one directly.
+
+**Constructor:**
+
+```python
+__init__(generator: Generator[Image, None, None], decoder=None, cleanup_done: threading.Event | None = None, stop_requested: threading.Event | None = None, decode_finished: threading.Event | None = None, frame_queue: queue.Queue | None = None, frame_count: int | None = None, dropped: list[int] | None = None, live_source: bool = False, classified_live: bool = False)
+```
 
 **Properties:**
 
 - **`fps`** (`float`) — Get the video's native frame rate (FPS).
 - **`frame_count`** (`int`) — Get the total number of frames in the video.
+- **`dropped`** (`int`) — Frames dropped unseen because the consumer could not keep up.
+- **`is_live`** (`bool`) — Whether this source serves the freshest frame on a full queue.
+- **`may_drop`** (`bool`) — Whether this source can lose frames at all.
+- **`buffer_size`** (`int`) — Queue depth this source was given, or 0 if it has no queue of its own.
 
 **Methods:**
+
+#### queue_depth
+
+```python
+queue_depth() -> int | None
+```
+
+Return decoded frames currently buffered, or None if this source has no queue.
+
+A live snapshot of the decode queue's `qsize()`, for callers that want to
+sample how full the decode buffer is (e.g. a consumer profiling whether it
+is source-starved or back-pressured). Directory sources decode nothing and
+have no queue.
 
 #### close
 
@@ -227,7 +273,7 @@ Safe to call multiple times.
 ### create_source
 
 ```python
-create_source(input_path: str, event_callback: Callable[[int, str], None] | None = None, buffer_size: int = 30, backend: Literal['ffmpeg', 'opencv'] = 'ffmpeg', live_source: bool | None = None) -> VideoSource
+create_source(input_path: str, event_callback: Callable[[int, str], None] | None = None, buffer_size: int | None = None, backend: Literal['ffmpeg', 'opencv'] = 'ffmpeg', live_source: bool | None = None) -> VideoSource
 ```
 
 Create a video source that yields decoded frames with metadata access.
@@ -238,11 +284,11 @@ for efficient frame transfer.
 
 **Args:**
 
-- **input_path**: Path to the video file or stream URL
+- **input_path**: Path to the video file or stream URL. A trailing `@fps` or         `@auto` paces a file as if it were a live camera of that frame         rate (`@auto` uses the source's native rate), so end-to-end         latency reflects real-time arrival rather than decoder read-ahead.         Example: `"clip.mp4@auto"` or `"clip.mp4@30"`.
 - **event_callback**: Optional callback function for handling decoder events.             Receives (error_code: int, error_message: str).             Only used with FFmpeg backend.
-- **buffer_size**: Size of the internal frame buffer queue (default: 30).          Larger values prevent frame drops but use more memory.
+- **buffer_size**: Depth of the internal frame buffer queue. Defaults to 30 for a          file (read-ahead, no frame lost) and 2 for a live source, where          the depth is a latency floor rather than a safety margin: a          consumer that falls a frame behind a camera trails it by the          whole depth until the run ends. Raise it for a live source only          to trade latency for tolerance of consumer jitter.
 - **backend**: Video decoder backend to use - "ffmpeg" (default) or "opencv".      "ffmpeg" uses FFMpegVideoDecoder for better performance and format support,      while "opencv" uses OpenCVVideoDecoder for maximum compatibility.
-- **live_source**: Override input-kind classification. By default,          `input_path` is auto-classified as a live source if it          uses an RTSP/RTP/RTMP/SRT/UDP/MJPEG URI or starts with          `/dev/video`; everything else (incl. http(s)://) is          treated as a file. Live sources drop frames on full          queue to stay real-time; files block. Pass          `live_source=True` for HTTP live streams (HLS,          MJPEG-over-HTTP) or `live_source=False` to force          blocking semantics.
+- **live_source**: Override input-kind classification, which selects the queue          policy. By default, `input_path` is auto-classified as a live          source if it uses an RTSP/RTP/RTMP/SRT/UDP/MJPEG URI or starts          with `/dev/video`; everything else (incl. http(s)://) is          treated as a file. A live source is freshest-wins -- an          arriving frame evicts the stale ones rather than being          dropped itself, so the consumer never accumulates a backlog          and trails the newest decoded frame by at most          `buffer_size - 1` (one frame at the default depth of 2) --          while a file blocks the decoder (back-pressure) to deliver          every frame. Pass `live_source=True` for HTTP live streams          (HLS, MJPEG-over-HTTP), or `live_source=False` to force          blocking semantics: every frame is then delivered in order,          but on an input that auto-classifies as live the decoder's          wait for room is capped at one second (after which the frame          is dropped and counted in `VideoSource.dropped`), because a          camera cannot be asked to slow down and a parked reader only          moves the same loss into the socket buffer, uncounted.
 
 **Returns:** `VideoSource` -- A video source wrapper that yields decoded frames
 
@@ -262,6 +308,72 @@ for efficient frame transfer.
 >>> # Get frames as Image objects
 >>> source = create_source("video.mp4")
 >>> for frame in source:
-...     print(type(frame))  # <class 'axelera.runtime2.img.Image'>
+...     print(type(frame).__name__)  # Image
 ...     print(frame.shape)  # (H, W, 3)
 ```
+
+---
+
+### frame_count
+
+```python
+frame_count(source: Source) -> int | None
+```
+
+How many frames `source` holds, or None when it cannot say.
+
+Best-effort: a live source (camera, RTSP) has no count, and a decoder may not
+expose one for a given container. Callers get None rather than a fabricated
+number, so a progress bar shows elapsed-only instead of counting to a wrong
+total. A non-positive or non-integer count is normalized to None.
+
+---
+
+### get_media_files
+
+```python
+get_media_files(directory: str | pathlib.Path) -> tuple[list[str], bool]
+```
+
+Get all media files (video/image) recursively from a directory, checking if images-only.
+
+**Args:**
+
+- **directory**: Path to directory containing media files
+
+**Returns:** `tuple[list[str], bool]` -- A tuple containing: - List of absolute paths to media files, sorted alphabetically - True if all discovered media files are images, otherwise False
+
+---
+
+### is_single_image
+
+```python
+is_single_image(source: Source) -> bool
+```
+
+Whether `source` is a single still image, best-effort (see `frame_count`).
+
+---
+
+### iter_results
+
+```python
+iter_results(pipeline, source: str | Source, *, max_frames: int | None = None) -> Iterator[tuple[Image, object]]
+```
+
+Yield `(image, objects)` for each frame of `source`.
+
+Streams `source` -- a path (single image, video, or stream URL) or an already
+open :class:`Source` -- through the built `pipeline` (pipelined across cores) and
+yields each frame's image alongside its result objects, so a caller can render
+both (each object draws its own overlay via `.draw()`). The image is whatever
+the pipeline emits for that frame -- typically the decoder-native buffer, so its
+colour format follows the source rather than being normalized here. `max_frames`,
+when set, caps how many frames are yielded, and stops before decoding the one
+after.
+
+A path is opened here and closed deterministically on exit; an open `Source` is
+left to its owner, so a caller that needs the source's metadata (frame count,
+fps) can open it once and share it rather than probing it a second time.
+The stream is drained on early exit either way, so in-flight futures unwind now
+rather than at GC.

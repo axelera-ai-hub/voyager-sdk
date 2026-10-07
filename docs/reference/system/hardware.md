@@ -88,9 +88,9 @@ Real-world throughput depends on the model: how much of the computation fits in 
 
 | Form factor | Typical use |
 |-------------|-------------|
-| PCIe | Workstation, server, edge server |
-| M.2 | Embedded, compact edge devices |
-| Compute Board (SBC) | Standalone evaluation and prototyping; mini-ITX with ARM host onboard |
+| PCIe (Axelera Edge 130p, Axelera Server 150p) | Workstation, server, edge server |
+| M.2 (Axelera Embedded 110m, 113m) | Embedded, compact edge devices |
+| Compute Board (Axelera Embedded 111c, SBC) | Standalone evaluation and prototyping; mini-ITX with ARM host onboard |
 
 All form factors use the same AIPU die and software stack. Each is available in multiple variants differing by AIPU count (1× or 4×), memory, and cooling (active or passive) — see the product datasheets for specific configurations.
 

@@ -3,19 +3,16 @@
 """Semantic segmentation (YOLO26n-sem, pixel-level class map output).
 
 Ultralytics YOLO26n-sem trained on Cityscapes (19 classes), compiled at
-1024x1024. The .axm emits (1, 19, H, W) per-class logits;
-decode_semantic_segmentation() argmaxes over the class axis to a (1, H, W)
-class map, which ax_semantic_segmentation() wraps for palette rendering.
+1024x1024. This export reduces the class axis in-graph, so the .axm emits a
+(1, H, W) uint8 class map, which decode_semantic_segmentation() squeezes to
+(H, W) rather than argmaxing; given an export that ends at (1, 19, H, W)
+per-class logits it argmaxes over the class axis instead.
+ax_semantic_segmentation() wraps either for palette rendering.
 
 Preprocessing follows the Ultralytics convention (RGB, resize to 1024x1024,
 HWC->CHW scaled to [0, 1] via to_tensor); the model has no inline
 normalization. Swap the model path, resize dims, and num_classes for other
 semantic-segmentation models.
-
-Auto-generated from rt_demo.py's @publicdemo `semantic_segmentation` by
-tools/export_pipeline_builder_demo.py.  Edit the original demo in rt_demo.py
-rather than this file -- regenerate with
-`python tools/export_pipeline_builder_demo.py semantic_segmentation`.
 
 Usage:
     python semantic_segmentation.py PATH [--display opencv|console|none|auto] [--no-wait]
@@ -66,7 +63,7 @@ if __name__ == "__main__":
     parser.add_argument("input", help="Image or video file to process")
     parser.add_argument(
         "--display",
-        choices=["none", "opencv", "console", "iterm2", "auto"],
+        choices=["none", "opencv", "vulkan", "console", "iterm2", "auto"],
         default="auto",
         help="Display backend (default: auto)",
     )

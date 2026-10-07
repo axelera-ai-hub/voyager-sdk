@@ -96,6 +96,32 @@ def parse_net(main_yaml, files):
         return network.parse_network_from_path('test.yaml')
 
 
+def test_read_deployed_model_infos_reroots_legacy_absolute_paths(tmp_path):
+    model_info_from_yaml = types.ModelInfo('model', 'Classification', [3, 224, 224])
+    model_infos = network.ModelInfos()
+    model_infos.add_model(model_info_from_yaml, None)
+    deployed_model_info = types.ModelInfo('model', 'Classification', [3, 224, 224])
+    deployed_model_info.class_path = 'ax_models/base_onnx.py'
+    foreign = tmp_path / 'voyager-sdk/ax_models/base_onnx.py'
+    foreign.parent.mkdir(parents=True)
+    foreign.write_text('# legacy checkout')
+    deployed_model_info.extra_kwargs = {'model_config_path': str(foreign)}
+    model_json = tmp_path / 'model' / constants.K_MODEL_INFO_FILE_NAME
+    model_json.parent.mkdir()
+    model_json.write_text(deployed_model_info.to_json())
+
+    loaded_infos = network.read_deployed_model_infos(
+        tmp_path,
+        AxNetwork(model_infos=model_infos),
+        Mock(pipe_type='torch'),
+        Mock(),
+    )
+
+    assert loaded_infos.model('model').extra_kwargs['model_config_path'] == str(
+        config.env.framework / 'ax_models/base_onnx.py'
+    )
+
+
 def test_parse_network():
     input = f'''
 name: squeezenet1.0-imagenet-onnx
@@ -1127,15 +1153,15 @@ def test_from_model_dir():
 def test_compiler_overrides_no_extra():
     mis = network.ModelInfos()
     mis.add_compiler_overrides('mymodel', {})
-    assert {} == mis.model_compiler_overrides('mymodel', config.Metis.pcie)
-    assert 1 == mis.determine_deploy_cores('mymodel', 1, config.Metis.none, False)
+    assert {} == mis.model_compiler_overrides('mymodel', config.Board.pcie)
+    assert 1 == mis.determine_deploy_cores('mymodel', 1, config.Board.none, False)
     # still 1 because max_compiler_cores is not set
-    assert 1 == mis.determine_deploy_cores('mymodel', 4, config.Metis.none, False)
-    assert 800 == mis.clock_profile('mymodel', config.Metis.none)
-    assert 800 == mis.clock_profile('mymodel', config.Metis.pcie)
-    assert 4 == mis.determine_execution_cores('mymodel', 4, config.Metis.none)
-    assert 3 == mis.determine_execution_cores('mymodel', 3, config.Metis.none)
-    assert 1 == mis.determine_execution_cores('mymodel', 1, config.Metis.none)
+    assert 1 == mis.determine_deploy_cores('mymodel', 4, config.Board.none, False)
+    assert 800 == mis.clock_profile('mymodel', config.Board.none)
+    assert 800 == mis.clock_profile('mymodel', config.Board.pcie)
+    assert 4 == mis.determine_execution_cores('mymodel', 4, config.Board.none)
+    assert 3 == mis.determine_execution_cores('mymodel', 3, config.Board.none)
+    assert 1 == mis.determine_execution_cores('mymodel', 1, config.Board.none)
 
 
 def test_compiler_overrides_cascade_no_cores_specified():
@@ -1143,25 +1169,25 @@ def test_compiler_overrides_cascade_no_cores_specified():
     mis.add_compiler_overrides('m0', {'max_compiler_cores': 3})
     mis.add_compiler_overrides('m1', {})
     with pytest.raises(logging_utils.UserError, match='The pipeline has multiple models but'):
-        mis.determine_deploy_cores('m0', 4, config.Metis.none, False)
+        mis.determine_deploy_cores('m0', 4, config.Board.none, False)
     with pytest.raises(logging_utils.UserError, match='model m1 does not specify aipu_cores'):
-        mis.determine_deploy_cores('m1', 4, config.Metis.none, False)
+        mis.determine_deploy_cores('m1', 4, config.Board.none, False)
 
 
 def test_compiler_overrides_cascade():
     mis = network.ModelInfos()
     mis.add_compiler_overrides('m0', {'aipu_cores': 3, 'max_compiler_cores': 3})
     mis.add_compiler_overrides('m1', {'aipu_cores': 1, 'clock_profile': 400})
-    assert 3 == mis.determine_deploy_cores('m0', 4, config.Metis.none, False)
-    assert 1 == mis.determine_deploy_cores('m0', 4, config.Metis.none, True)
-    assert 1 == mis.determine_deploy_cores('m1', 4, config.Metis.none, False)
-    assert 1 == mis.determine_deploy_cores('m1', 4, config.Metis.none, True)
-    assert 800 == mis.clock_profile('m0', config.Metis.none)
-    assert 800 == mis.clock_profile('m0', config.Metis.pcie)
-    assert 800 == mis.clock_profile('m0', config.Metis.m2)
-    assert 400 == mis.clock_profile('m1', config.Metis.none)
-    assert 400 == mis.clock_profile('m1', config.Metis.pcie)
-    assert 400 == mis.clock_profile('m1', config.Metis.m2)
+    assert 3 == mis.determine_deploy_cores('m0', 4, config.Board.none, False)
+    assert 1 == mis.determine_deploy_cores('m0', 4, config.Board.none, True)
+    assert 1 == mis.determine_deploy_cores('m1', 4, config.Board.none, False)
+    assert 1 == mis.determine_deploy_cores('m1', 4, config.Board.none, True)
+    assert 800 == mis.clock_profile('m0', config.Board.none)
+    assert 800 == mis.clock_profile('m0', config.Board.pcie)
+    assert 800 == mis.clock_profile('m0', config.Board.m2)
+    assert 400 == mis.clock_profile('m1', config.Board.none)
+    assert 400 == mis.clock_profile('m1', config.Board.pcie)
+    assert 400 == mis.clock_profile('m1', config.Board.m2)
 
 
 def test_compiler_overrides_with_overrides():
@@ -1172,13 +1198,13 @@ def test_compiler_overrides_with_overrides():
     mis.add_compiler_overrides('mymodel', extra)
     assert {
         'max_compiler_cores': 3,
-    } == mis.model_compiler_overrides('mymodel', config.Metis.pcie)
-    assert 1 == mis.determine_deploy_cores('mymodel', 1, config.Metis.none, False)
-    assert 3 == mis.determine_deploy_cores('mymodel', 4, config.Metis.none, False)
-    assert 1 == mis.determine_deploy_cores('mymodel', 4, config.Metis.none, True)
-    assert 800 == mis.clock_profile('mymodel', config.Metis.none)
-    assert 800 == mis.clock_profile('mymodel', config.Metis.pcie)
-    assert 800 == mis.clock_profile('mymodel', config.Metis.m2)
+    } == mis.model_compiler_overrides('mymodel', config.Board.pcie)
+    assert 1 == mis.determine_deploy_cores('mymodel', 1, config.Board.none, False)
+    assert 3 == mis.determine_deploy_cores('mymodel', 4, config.Board.none, False)
+    assert 1 == mis.determine_deploy_cores('mymodel', 4, config.Board.none, True)
+    assert 800 == mis.clock_profile('mymodel', config.Board.none)
+    assert 800 == mis.clock_profile('mymodel', config.Board.pcie)
+    assert 800 == mis.clock_profile('mymodel', config.Board.m2)
 
 
 def test_compiler_overrides_with_execution_overrides():
@@ -1189,11 +1215,11 @@ def test_compiler_overrides_with_execution_overrides():
     mis.add_compiler_overrides('mymodel', extra)
     assert {
         'max_execution_cores': 3,
-    } == mis.model_compiler_overrides('mymodel', config.Metis.pcie)
-    assert 1 == mis.determine_deploy_cores('mymodel', 1, config.Metis.none, False)
-    assert 1 == mis.determine_deploy_cores('mymodel', 4, config.Metis.none, False)
-    assert 3 == mis.determine_execution_cores('mymodel', 3, config.Metis.none)
-    assert 1 == mis.determine_execution_cores('mymodel', 1, config.Metis.none)
+    } == mis.model_compiler_overrides('mymodel', config.Board.pcie)
+    assert 1 == mis.determine_deploy_cores('mymodel', 1, config.Board.none, False)
+    assert 1 == mis.determine_deploy_cores('mymodel', 4, config.Board.none, False)
+    assert 3 == mis.determine_execution_cores('mymodel', 3, config.Board.none)
+    assert 1 == mis.determine_execution_cores('mymodel', 1, config.Board.none)
 
 
 def test_compiler_overrides_with_m2_overrides():
@@ -1209,16 +1235,16 @@ def test_compiler_overrides_with_m2_overrides():
     assert {
         'max_compiler_cores': 2,
         'clock_profile': 400,
-    } == mis.model_compiler_overrides('mymodel', config.Metis.m2)
-    assert 1 == mis.determine_deploy_cores('mymodel', 1, config.Metis.m2, False)
-    assert 2 == mis.determine_deploy_cores('mymodel', 4, config.Metis.m2, False)
-    assert 400 == mis.clock_profile('mymodel', config.Metis.m2)
+    } == mis.model_compiler_overrides('mymodel', config.Board.m2)
+    assert 1 == mis.determine_deploy_cores('mymodel', 1, config.Board.m2, False)
+    assert 2 == mis.determine_deploy_cores('mymodel', 4, config.Board.m2, False)
+    assert 400 == mis.clock_profile('mymodel', config.Board.m2)
     assert {
         'max_compiler_cores': 3,
-    } == mis.model_compiler_overrides('mymodel', config.Metis.pcie)
-    assert 1 == mis.determine_deploy_cores('mymodel', 1, config.Metis.pcie, False)
-    assert 3 == mis.determine_deploy_cores('mymodel', 4, config.Metis.pcie, False)
-    assert 800 == mis.clock_profile('mymodel', config.Metis.pcie)
+    } == mis.model_compiler_overrides('mymodel', config.Board.pcie)
+    assert 1 == mis.determine_deploy_cores('mymodel', 1, config.Board.pcie, False)
+    assert 3 == mis.determine_deploy_cores('mymodel', 4, config.Board.pcie, False)
+    assert 800 == mis.clock_profile('mymodel', config.Board.pcie)
 
 
 def test_compiler_overrides_with_m2_override_of_aipu_cores():
@@ -1235,29 +1261,29 @@ def test_compiler_overrides_with_m2_override_of_aipu_cores():
     assert {
         'aipu_cores': 2,
         'max_compiler_cores': 2,
-    } == mis.model_compiler_overrides('mymodel', config.Metis.m2)
-    assert 2 == mis.determine_deploy_cores('mymodel', 2, config.Metis.m2, False)
-    assert 2 == mis.determine_deploy_cores('mymodel', 4, config.Metis.m2, False)
+    } == mis.model_compiler_overrides('mymodel', config.Board.m2)
+    assert 2 == mis.determine_deploy_cores('mymodel', 2, config.Board.m2, False)
+    assert 2 == mis.determine_deploy_cores('mymodel', 4, config.Board.m2, False)
     assert {
         'aipu_cores': 3,
         'max_compiler_cores': 3,
-    } == mis.model_compiler_overrides('mymodel', config.Metis.pcie)
-    assert 3 == mis.determine_deploy_cores('mymodel', 3, config.Metis.pcie, False)
-    assert 3 == mis.determine_deploy_cores('mymodel', 4, config.Metis.pcie, False)
+    } == mis.model_compiler_overrides('mymodel', config.Board.pcie)
+    assert 3 == mis.determine_deploy_cores('mymodel', 3, config.Board.pcie, False)
+    assert 3 == mis.determine_deploy_cores('mymodel', 4, config.Board.pcie, False)
 
 
 def test_compiler_overrides_with_m2_override_of_execution_cores():
     mis = network.ModelInfos()
     extra = {'m2': {'max_execution_cores': 3}}
     mis.add_compiler_overrides('mymodel', extra)
-    assert 1 == mis.determine_deploy_cores('mymodel', 2, config.Metis.m2, False)
-    assert 1 == mis.determine_deploy_cores('mymodel', 4, config.Metis.m2, False)
-    assert 2 == mis.determine_execution_cores('mymodel', 2, config.Metis.pcie)
-    assert 4 == mis.determine_execution_cores('mymodel', 4, config.Metis.pcie)
-    assert 1 == mis.determine_deploy_cores('mymodel', 3, config.Metis.pcie, False)
-    assert 1 == mis.determine_deploy_cores('mymodel', 4, config.Metis.pcie, False)
-    assert 2 == mis.determine_execution_cores('mymodel', 2, config.Metis.pcie)
-    assert 4 == mis.determine_execution_cores('mymodel', 4, config.Metis.pcie)
+    assert 1 == mis.determine_deploy_cores('mymodel', 2, config.Board.m2, False)
+    assert 1 == mis.determine_deploy_cores('mymodel', 4, config.Board.m2, False)
+    assert 2 == mis.determine_execution_cores('mymodel', 2, config.Board.pcie)
+    assert 4 == mis.determine_execution_cores('mymodel', 4, config.Board.pcie)
+    assert 1 == mis.determine_deploy_cores('mymodel', 3, config.Board.pcie, False)
+    assert 1 == mis.determine_deploy_cores('mymodel', 4, config.Board.pcie, False)
+    assert 2 == mis.determine_execution_cores('mymodel', 2, config.Board.pcie)
+    assert 4 == mis.determine_execution_cores('mymodel', 4, config.Board.pcie)
 
 
 def test_compiler_overrides_with_quantization_config():
@@ -1274,7 +1300,7 @@ def test_compiler_overrides_with_quantization_config():
             'quantization_debug': False,
             'quantizer_version': 1,
         },
-    } == mis.model_compiler_overrides('mymodel', config.Metis.pcie)
+    } == mis.model_compiler_overrides('mymodel', config.Board.pcie)
 
 
 def test_network_cleanup_trigger_operator_pipeline_stopped():

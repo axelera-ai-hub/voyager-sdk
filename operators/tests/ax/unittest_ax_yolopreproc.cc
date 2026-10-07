@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2025
+// Copyright Axelera AI, 2023
 #include <gmock/gmock.h>
 #include "unittest_ax_common.h"
 

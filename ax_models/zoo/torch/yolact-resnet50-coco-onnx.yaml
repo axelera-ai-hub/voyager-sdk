@@ -1,0 +1,62 @@
+axelera-model-format: 1.0.0
+
+name: yolact-resnet50-coco-onnx
+
+description: YOLACT real-time instance segmentation, ResNet-50 backbone, 550x550 (COCO)
+
+pipeline:
+  - segmentations:
+      model_name: yolact-resnet50-coco-onnx
+      input:
+        type: image
+      preprocess:
+        - resize:
+            height: ${{input_height}}
+            interpolation: bilinear
+            width: ${{input_width}}
+        - torch-totensor:
+            scale: false
+        - normalize:
+            mean: 123.68, 116.78, 103.94
+            std: 58.40, 57.12, 57.38
+      inference:
+        handle_all: false
+      postprocess:
+        - decodeyolact:
+            conf_threshold: 0.15
+            max_nms_boxes: 200
+            nms_iou_threshold: 0.5
+            nms_top_k: 100
+            eval:
+              conf_threshold: 0.05
+
+models:
+  yolact-resnet50-coco-onnx:
+    class: AxONNXModel
+    class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
+    weight_path: weights/yolact_resnet50_550_coco.onnx
+    weight_url: https://media.axelera.ai/artifacts/model_cards/yolact-resnet50-coco/yolact_resnet50_coco_550.onnx
+    weight_md5: 151ec5623a183f9e1d09439def3b7af4
+    task_category: InstanceSegmentation
+    input_tensor_layout: NCHW
+    input_tensor_shape: [1, 3, 550, 550]
+    input_color_format: RGB
+    num_classes: 80
+    dataset: CocoDataset-Segment-COCO2017
+    extra_kwargs:
+      compilation_config:
+        quantization_scheme: per_tensor_min_max
+
+datasets:
+  CocoDataset-Segment-COCO2017:
+    class: SegDataAdapter
+    class_path: $AXELERA_FRAMEWORK/ax_datasets/objdataadapter.py
+    data_dir_name: coco
+    labels_path: $AXELERA_FRAMEWORK/ax_datasets/labels/coco.names
+    label_type: COCO2017
+    eval_with_letterbox: false
+
+operators:
+  decodeyolact:
+    class: DecodeYolact
+    class_path: $AXELERA_FRAMEWORK/ax_models/decoders/yolact.py

@@ -1,4 +1,4 @@
-// Copyright Axelera AI, 2023
+// Copyright Axelera AI, 2024
 #include "AxDataInterface.h"
 #include "AxFilterDetections.hpp"
 #include "AxLog.hpp"

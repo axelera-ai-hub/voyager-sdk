@@ -15,7 +15,7 @@ This is a heavy demo, usualy running on multiple PCIe cards. If you’re using a
 - If the camera feeds too many frames, the chip cannot keep up and you will see delays between the camera and the screen
 
 To tune this demo, follow these steps
-- Play with tilesize: bigger tiles result in less tiles per frame. This means higher fps as there's less processing per frame. However, you may lose a bit of detail when doing so. When we run this demo at shows, we usually use tiles of size 960 or 1280 when using multiple Metis PCIe cards.
+- Play with tilesize: bigger tiles result in less tiles per frame. This means higher fps as there's less processing per frame. However, you may lose a bit of detail when doing so. When we run this demo at shows, we usually use tiles of size 960 or 1280 when using multiple Axelera AI PCIe cards.
 - Run at highest fps: once you've found your desired tile size, run once at the maximum camera FPS. This will likely result in high camera-to-screen delay as the camera feeds more frames than your runtime can handle. After a few minutes, look at the end_to_end FPS.
 - Set camera to 1 fps lower than the stable fps that you found in the previous step. After a few minutes of "warmup", the end_to_end fps will stabilize at the camera FPS and your latency will be small. The final latency depends on your number of tiles, your camera latency, and the processing latency of your model. The reason the delay lowers in the beginning of the run, is because the camera starts sending frames before inference starts, meaning the buffers fill up. The system needs some time to work through these frames and empty the buffers before you start seeing real time results.
 

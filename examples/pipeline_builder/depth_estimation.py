@@ -6,11 +6,6 @@ Predicts a per-pixel depth map from a standard RGB image. Works best on
 indoor scenes (bedrooms, kitchens, offices) since FastDepth was trained on
 NYU Depth V2. Any regular photo can be used as input.
 
-Auto-generated from rt_demo.py's @publicdemo `depth_estimation` by
-tools/export_pipeline_builder_demo.py.  Edit the original demo in rt_demo.py
-rather than this file -- regenerate with
-`python tools/export_pipeline_builder_demo.py depth_estimation`.
-
 Usage:
     python depth_estimation.py PATH [--display opencv|console|none|auto] [--no-wait]
 """
@@ -57,7 +52,7 @@ if __name__ == "__main__":
     parser.add_argument("input", help="Image or video file to process")
     parser.add_argument(
         "--display",
-        choices=["none", "opencv", "console", "iterm2", "auto"],
+        choices=["none", "opencv", "vulkan", "console", "iterm2", "auto"],
         default="auto",
         help="Display backend (default: auto)",
     )

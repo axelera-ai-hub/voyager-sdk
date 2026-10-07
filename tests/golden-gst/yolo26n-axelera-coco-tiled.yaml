@@ -1,0 +1,53 @@
+- pipeline:
+  - instance: filesrc
+    location: {{input_video0}}
+  - instance: decodebin
+    force-sw-decoders: {{force_sw_decoders}}
+    caps: video/x-raw(ANY)
+    expose-all-streams: false
+    connections:
+      src_%u: decodebin-link0.sink
+  - instance: axinplace
+    lib: libinplace_addstreamid.so
+    name: decodebin-link0
+    mode: meta
+    options: stream_id:0
+  - instance: axtransform
+    lib: libtransform_colorconvert.so
+    options: format:rgba
+  - instance: axinplace
+    lib: libinplace_addtiles.so
+    options: meta_key:axelera-tiles-internal;tile_size:640;tile_overlap:0;tile_position:none;model_width:640;model_height:640
+  - instance: queue
+    connections:
+      src: inference-task0.sink_%u
+    max-size-buffers: 1
+    max-size-time: 0
+    max-size-bytes: 0
+  - instance: axinferencenet
+    name: inference-task0
+    model: {{model_lib0}}
+    devices: metis-0:1:0
+    double_buffer: true
+    dmabuf_inputs: true
+    dmabuf_outputs: true
+    num_children: 0
+    meta: axelera-tiles-internal
+    preprocess0_lib: libtransform_roicrop.so
+    preprocess0_options: meta_key:axelera-tiles-internal
+    preprocess1_lib: libtransform_resize.so
+    preprocess1_options: "width:640;height:640;padding:114;to_tensor:1;letterbox:1;scale_up:1"
+    preprocess2_lib: libinplace_normalize.so
+    preprocess2_options: "mean:0.;std:1.;simd:avx2;quant_scale:0.003921568859368563;quant_zeropoint:-128"
+    preprocess2_mode: write
+    preprocess3_lib: libtransform_padding.so
+    preprocess3_options: "padding:0,0,1,1,1,15,0,0;fill:-128"
+    postprocess0_lib: libdecode_yolov8.so
+    postprocess0_options: "meta_key:{{task_name0}};master_meta:axelera-tiles-internal;classes:80;confidence_threshold:0.4;scales:0.038154326379299164,0.06268085539340973,0.07532625645399094,0.1859361082315445,0.8311023116111755,0.5637736916542053;padding:0,0,0,0,0,0,0,60|0,0,0,0,0,0,0,60|0,0,0,0,0,0,0,60|0,0,0,0,0,0,0,48|0,0,0,0,0,0,0,48|0,0,0,0,0,0,0,48;zero_points:-105,-125,-125,117,123,120;topk:300;multiclass:0;dfl_size:1;classlabels_file:{{label_file}};model_width:640;model_height:640;scale_up:1;letterbox:1"
+    postprocess0_mode: read
+    postprocess1_lib: libinplace_nms.so
+    postprocess1_options: "meta_key:{{task_name0}};flatten_meta:1;master_meta:axelera-tiles-internal;location:CPU;max_boxes:600"
+  - instance: appsink
+    max-buffers: 1
+    drop: false
+    sync: false
