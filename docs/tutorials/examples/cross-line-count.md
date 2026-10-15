@@ -34,7 +34,6 @@ Use this for traffic monitoring, entrance/exit counting, or any scenario where y
 # Copyright Axelera AI, 2025
 # Sample demo application of counting vehicles crossing a line
 # The tracker metadata usage is demonstrated in this example
-# FIXME: change this example as async mode and remove from .gitattributes
 
 import cv2
 

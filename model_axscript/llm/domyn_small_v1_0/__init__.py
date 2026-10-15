@@ -52,9 +52,6 @@ def make_config(artifact_dir, cal_device: str = ""):
         # only because the chip took them. Widening this set is still an on-chip measurement
         # and never an edit to make a build pass -- a size that fails comes back out.
         #
-        # The upstream ALTO bring-up branch's numbers (prefill 206 tok/s, decode 2.10 tok/s,
-        # perplexity 8.317 vs a 7.149 float32 reference, on a Metis 130p) came from a
-        # different recipe and are orientation only; nothing here is taken from them.
         # 128, 256 and 512 are declared too, so a build may be targeted at them
         # (`--seq-len 128`); they are the cheap end of the range, strictly below the smallest
         # size measured here, and the compiled footprint falls with context length. NO on-chip
@@ -76,8 +73,8 @@ def make_config(artifact_dir, cal_device: str = ""):
         # 16384 the prefill kernel already sits at 3.85 MiB of the 4 MiB L1 at chunk 512.
         chunk_len=512,
         # Decode is DDR-bandwidth bound -- the stack reads 7.72 GiB of int8 weights per
-        # token however many cores read it -- so the cores pay for prefill (a clean 2.0x:
-        # 104 -> 206 tok/s) and add only ~27% to decode.
+        # token however many cores read it -- so the cores pay for prefill (a clean 2.0x)
+        # and add only ~27% to decode.
         num_cores=4,
         cal_device=cal_device,
     )

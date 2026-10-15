@@ -89,16 +89,8 @@ def make_config(
         # device's. `--compile-seq-len` moves only the KV cache (8 attention layers x 2 x
         # 2048 x 512 B is ~17 MB at this context), so it is not a lever on the fit.
         #
-        # MEASURED ON CHIP, ON EUROPA -- NOT the part this entry defaults to, which is now
-        # Omega; these are the numbers this model has, and a re-measure on Omega is what
-        # would replace them rather than a relabel. europa-0:2:0,
-        # firmware v1.9.0-a2, 8 cores of EUROPA, context 2048, 512x512 tiles, --num-cal 1.
-        # Warm medians from `python -m model_axscript.llm benchmark lfm2.5-vl-3b`.
-        #
-        #   vision       81.68 ms/picture (12.24 pictures/s), one dispatch, 256 image tokens
-        #   decode       13.8 tok/s (60.0 ms device + 12.7 ms host lm_head, 17 %)
-        #   TTFT         1449 ms at 2048 positions; 1.62 s end to end, vision included
-        #   artifact     606 MB vision + 3431 MB text (+ 3.2 GB quantized bundle, not uploaded)
+        # MEASURED ON CHIP: `axzoo report lfm2.5-vl-3b --backend axscript`, recorded in
+        # `axelera_zoo/reports/llm/lfm2_5_vl_3b.yaml`. The numbers live there, not here.
         #
         # The ENCODER was also checked against the torch W8A8 reference it was quantized
         # from: the real 27-block So400m tower at 512x512, cosine mean 0.9852 with percentile

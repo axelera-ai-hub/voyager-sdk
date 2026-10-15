@@ -80,21 +80,10 @@ def make_config(
         # than a square does, which is what this model is calibrated on, and 2048 is the
         # context the driver itself defaults to.
         #
-        # WHAT IS MEASURED. Both declared sizes have now been run on chip, on metis-0:1:0,
-        # firmware v1.9.0-a1-4-g07dba233f6da. Both entries are here because a supported size
-        # with no recorded measurement behind it is an unbacked claim.
-        #
-        #   SHIPPED, 288x512 / 2048 on four cores (18x32 grid, 576 patches, 144 image tokens):
-        #
-        #     vision tower   126.5 ms/frame (best 119.6, 10 runs), 7.9 img/s
-        #     TTFT           1.31 s   (vision 124 ms + prefill 1182 ms, 160 tokens, 135 tok/s)
-        #     decode         7.85 tok/s (127.4 ms/token; 7.75 wall)
-        #
-        #   256x256 / 512 on four cores, the size this model first shipped at:
-        #
-        #     vision tower   83.3 ms/frame (one dispatch + 3 DeepStack maps), 11.5 img/s
-        #     TTFT           0.281 s
-        #     decode         10.3 tok/s
+        # WHAT IS MEASURED. Both declared sizes have been run on chip: `axzoo report
+        # qwen3-vl-2b-instruct --backend axscript`, recorded in
+        # `axelera_zoo/reports/llm/qwen3_vl_2b_instruct.yaml`. Both entries are here because a
+        # supported size with no recorded measurement behind it is an unbacked claim.
         #
         # Reading the gap between them, because both numbers are correct and neither is a
         # regression. TTFT is a function of the COMPILED CONTEXT, not of the prompt -- the
@@ -103,9 +92,9 @@ def make_config(
         # than a slower part. Vision grows with patches, 2.25x of them for 1.52x the time.
         # Decode is slower at 2048 because each step reads a KV cache 4x the size.
         #
-        # Decode is DDR-bound on the weights and, on this host, on the lm_head: 36.2 ms of a
-        # 127 ms step is the host fp lm_head gemv (28%), so 10.97 tok/s is what the device
-        # alone sustains. That is a host-memory cost, not device DDR.
+        # Decode is DDR-bound on the weights and, on this host, on the lm_head: over a quarter
+        # of each step is the host fp lm_head gemv, so the device alone sustains more than
+        # the measured rate. That is a host-memory cost, not device DDR.
         #
         # Still missing for the shipped size: a wikitext row (`--eval`). Take it before this
         # model's card moves past `pending`, and do not widen either supported set further

@@ -694,7 +694,7 @@ def main():
         "--models",
         type=str,
         default=None,
-        help="Path to YAML file and section containing the list of models (e.g., './internal_tools/model_release_candidates.yaml:VALIDATION').",
+        help="Path to YAML file and section containing the list of models (e.g., 'models.yaml:VALIDATION').",
     )
     parser.add_argument(
         "--n_try",

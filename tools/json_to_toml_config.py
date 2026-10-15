@@ -213,7 +213,7 @@ Examples:
   %(prog)s compile_config.json -o my-model_mc-100.toml
 
   # Extract compilation_config from YAML model card
-  %(prog)s --from-yaml ax_models/model_cards/yolo/yolov8n-coco.yaml
+  %(prog)s --from-yaml my-model.yaml
 
   # Include all settings (not just non-defaults)
   %(prog)s compile_config.json --no-exclude-defaults

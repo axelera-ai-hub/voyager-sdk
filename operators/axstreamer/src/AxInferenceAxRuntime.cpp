@@ -102,7 +102,6 @@ class AxRuntimeConnectionBase
     // level-zero/triton/kmd has issues if we try to load the model from
     // multiple threads. So lock here to load a model at a time. This is a
     // workaround for the issue, and it needs fixing lower down.
-    // Proper fix tracked here https://axeleraai.atlassian.net/browse/SDK-6708
     std::lock_guard lock(second_slice_workaround_mutex);
     num_inputs = axr_num_model_inputs(model);
     auto input0 = axr_get_model_input(model, 0);

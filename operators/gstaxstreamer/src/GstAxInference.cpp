@@ -685,8 +685,8 @@ gst_axinference_class_init(GstAxInferenceClass *klass)
   gst_element_class_set_static_metadata(
       gstelement_class, "axinference", "Effect", "description", "axelera.ai");
 
-  gst_element_class_set_details_simple(gstelement_class, "AxInference", "AxInference",
-      "Runs TVM inference from GST pipeline", "<deniz.hasan@axelera.ai>");
+  gst_element_class_set_details_simple(gstelement_class, "AxInference",
+      "AxInference", "Runs TVM inference from GST pipeline", "axelera.ai");
 
   gst_element_class_add_pad_template(
       GST_ELEMENT_CLASS(klass), gst_static_pad_template_get(&src_template));

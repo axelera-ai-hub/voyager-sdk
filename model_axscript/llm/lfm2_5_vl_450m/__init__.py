@@ -74,23 +74,8 @@ def make_config(
         # part the build targets. 512 is what lets a build TILE at all -- a tile IS the
         # compiled grid, so a high-resolution picture is cut into copies of it plus a thumbnail.
         #
-        # MEASURED ON CHIP, ON EUROPA -- NOT the part this entry defaults to, which is now
-        # Omega; these are the numbers this model has, and a re-measure on Omega is what
-        # would replace them rather than a relabel. europa-0:2:0,
-        # firmware v1.9.0-a2, 8 cores of EUROPA, context 2048, 512x512 tiles, --num-cal 1.
-        # Warm medians from `python -m model_axscript.llm benchmark lfm2.5-vl-450m`.
-        #
-        #   vision       26.12 ms/picture (38.29 pictures/s), one dispatch, 256 image tokens
-        #   decode       46.2 tok/s (15.1 ms device + 6.5 ms host lm_head, 30 %)
-        #   TTFT         417 ms at 2048 positions; 0.50 s end to end, vision included
-        #   artifact     166 MB vision + 746 MB text (+ 498 MB quantized bundle, not uploaded)
-        #
-        # EARLIER, ON OMEGA, at the shipped calibration: metis-0:1:0, an Omega m2-max
-        # (16 GiB), firmware v1.9.0-a1-4-g07dba233f6da, four cores, 48 DocVQA samples --
-        # vision 52.2 ms/picture (19.2 pictures/s), prefill 829 ms at 2048, decode
-        # 33.1 tok/s, artifact 108 MB vision + 518 MB text, wikitext word_perplexity 59.75
-        # (200 samples; byte_perplexity 2.149, bits_per_byte 1.104). Both towers grow with
-        # the core count, which is where the artifact difference between the rows comes from.
+        # MEASURED ON CHIP: `axzoo report lfm2.5-vl-450m --backend axscript`, recorded in
+        # `axelera_zoo/reports/llm/lfm2_5_vl_450m.yaml`. The numbers live there, not here.
         #
         # THE RUN ITSELF, verbatim, because the numbers say how fast it is and only the
         # transcript says there was an answer at all:
@@ -121,10 +106,10 @@ def make_config(
         # the torch-vs-compiled drift is not -- the same gap Qwen3-VL and SmolVLM2 have.
         #
         # Read TTFT against the COMPILED CONTEXT, not the prompt: the prefill graph ingests
-        # every compiled position whatever it is sent, so 829 ms of it is the 2048-token
+        # every compiled position whatever it is sent, so most of it is the 2048-token
         # window and not the 274-token prompt. Tiling is the other half of the cost -- the
         # same picture split into 7 dispatches is 1792 image tokens and an 1817-token prompt,
-        # which measured 373 ms of vision and TTFT 1.28 s.
+        # which multiplies the vision time and lengthens TTFT with it.
         #
         # ONE entry in each set, because one is what has been measured. The architecture
         # also builds at 256x256 (a 16x16 grid, 64 image tokens, four times cheaper per

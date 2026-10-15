@@ -250,7 +250,6 @@ def test_gen_compilation_config_backward_compat():
 def test_config_available():
     """Test that compiler config module is available."""
     try:
-        # this import will fail until axelera-ai/software-platform#5089 merges
         from axelera.compiler import config as compiler_config
 
         assert compiler_config is not None

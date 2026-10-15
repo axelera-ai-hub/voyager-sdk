@@ -158,7 +158,7 @@ int
 main(int argc, char **argv)
 {
   std::cout << "OpenCV version: " << CV_VERSION << std::endl;
-  std::string videoPath = "/home/atang/repo/application.framework/media/traffic2_480p.mp4";
+  std::string videoPath = "media/traffic2_480p.mp4";
 
   std::string trackerTypeStr = "SORT";
 

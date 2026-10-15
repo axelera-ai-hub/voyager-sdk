@@ -359,10 +359,10 @@ def gen_model_help():
     print_separator()
     print_model_help(model_collection.local, "MODELS")
     print_model_help(model_collection.zoo, "ZOO")
-    print_model_help(model_collection.cards, "INTERNAL MODEL CARDS")
+    print_model_help(model_collection.cards, "MODEL CARDS")
     print_model_help(model_collection.tutorial, "TUTORIALS")
     print_model_help(model_collection.reference, "REFERENCE APPLICATION PIPELINES")
-    print_model_help(model_collection.customers, "CUSTOMER MODELS [Confidential]")
+    print_model_help(model_collection.customers, "CUSTOMER MODELS")
     if model_collection.llm_local or model_collection.llm_cards or model_collection.llm_zoo:
         print_model_help(
             model_collection.llm_local + model_collection.llm_cards + model_collection.llm_zoo,

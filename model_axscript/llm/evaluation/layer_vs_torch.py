@@ -21,7 +21,7 @@ Everything under test is this tree's ``model_axscript`` code. Only ``run`` (a ge
 run-a-compiled-model-on-device helper) is imported from the compiler checkout, because it
 lives beside the ALTO integration tests and has no copy here -- which is also why
 ``layer_benchmark.py``'s ``from ...utils import compile_and_run`` cannot resolve in this
-tree. Point --compiler-root at that checkout if it is not in the default place.
+tree. Point --compiler-root at that checkout.
 
 ``--emulate`` adds a third leg (the same module through the compiler's emulation) which is
 what makes a bad number diagnosable: device-vs-emulate isolates a lowering bug, while both
@@ -43,7 +43,6 @@ import numpy as np
 
 _logger = logging.getLogger(__name__)
 PWORD = 64
-_DEFAULT_COMPILER_ROOT = "/home/axuser/software-platform/host/tvm/axelera_compiler"
 
 
 def _device_run(compiler_root: str):
@@ -343,7 +342,7 @@ def main(argv=None) -> int:
     p.add_argument("--cores", type=int, default=8)
     p.add_argument("--calib-budget", type=int, default=16)
     p.add_argument("--cal-device", default="cuda")
-    p.add_argument("--compiler-root", default=_DEFAULT_COMPILER_ROOT)
+    p.add_argument("--compiler-root", required=True)
     p.add_argument(
         "--impl",
         default="europa",

@@ -799,7 +799,7 @@ class PipeOutput:
 
             from .. import display_cv
 
-            # TODO: Layers, options, speedometer smoothing, and better multistream support (SDK-6794)
+            # TODO: Layers, options, speedometer smoothing, and better multistream support
             w, h = image.size
             composite = img.Image.from_array(np.zeros((h, w, 3), dtype=np.uint8), 'RGB')
             draw = display_cv.CVDraw(

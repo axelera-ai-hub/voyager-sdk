@@ -797,11 +797,6 @@ class AxTileGenPanel(wx.Panel):
             style=wx.FLP_DEFAULT_STYLE | wx.FLP_SMALL | wx.FLP_FILE_MUST_EXIST,
             size=(650, -1),
         )
-        # self.video_filename_picker.SetPath(
-        #     "\\\\wsl.localhost\\Ubuntu\\home\\tony\\branches"
-        #     "\\app\\tile_creator\\application.framework\\tools"
-        #     "\\8K_show_full_iscw - EDITED V5.mp4"
-        # )
         pickerfont = self.video_filename_picker.GetFont()
         pickerfont.SetPointSize(pickerfont.GetPointSize() + 2)
         pickerfont.SetWeight(wx.FONTWEIGHT_BOLD)

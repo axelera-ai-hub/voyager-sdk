@@ -1,6 +1,6 @@
 # AxScript models
 
-Bring-up recipes for models compiled on the **AxScript** path, which drives the ALTO backend
+Recipes for models compiled on the **AxScript** path, which drives the ALTO backend
 directly instead of going through the graph compiler. Each model here is a folder of code: the
 compile is a program you read, run and change, not a pipeline you configure. That is the point,
 because the interesting knobs are the ones you reach by editing the recipe.
@@ -298,7 +298,7 @@ From the command line, `--calibration <path>` does the same for one build (part 
 Say a `state_dict` arrives with QK-norm, a SwiGLU MLP, a different residual structure, or a
 window-attention backbone. No source can rescue that, because there is nowhere in our block to
 put those tensors, and the mapping refuses them by name rather than dropping them. What that
-model needs is its own bring-up: a torch reference block with fake-quant observers, and an
+model needs is its own port: a torch reference block with fake-quant observers, and an
 AxScript kernel for it. Both exist here to copy, `llm/models/dino/reference.py` and
 `llm/models/dino/optimized_impl.py`, and `_template/` is the package skeleton. It is a
 bounded job rather than a research one, roughly a few hundred lines for a transformer block
@@ -325,7 +325,7 @@ model_axscript/
   <family>/__main__.py             that family's command line, `python -m model_axscript.<family>`
   shared/cli.py                   the flags and the rules both doors share, declared once
   _template/                       copy this to start your own model
-  shared/                         ours, used by both families: the artifact contract, the
+  shared/                         used by both families: the artifact contract, the
                                    runtime wrapper, checkpoint helpers, the compiler probe
 
   llm/                             FLAT: one model per directory, because LLM is one task
@@ -339,7 +339,7 @@ model_axscript/
     models/<arch>/                 ARCHITECTURES, not models: qwen3, llama, lfm2, domyn, dino,
                                    and the VL towers lfm2vl, smolvlm2, qwen3vl.
                                    `dino` is here and every VISION card authors from it
-    ops/  quant.py  export.py      the imported ALTO toolkit, compiler-team code
+    ops/  quant.py  export.py      the ALTO op library and toolkit
     layout.py  luts.py  modules.py
     graph_descriptor.py            the KindContract graph engine both families author with
 
@@ -355,7 +355,7 @@ model_axscript/
 ```
 
 Two things about this are worth saying plainly rather than defending. `llm/` is not just the
-LLM family: it is where the imported ALTO toolkit landed, so its root holds
+LLM family: it is where the ALTO toolkit lives, so its root holds
 `quant.py`, `export.py`, `layout.py`, `luts.py`, `graph_descriptor.py` and `ops/`, which BOTH
 families compile through. And `llm/models/` holds architectures rather than models, which is
 why `llm/models/dino/` is the reference block and kernel every vision card uses. Reading
@@ -395,7 +395,7 @@ picture: a shape of `("image", "prompt*")` can only be typed one way round, and 
 user types a question is prompt-first. The flags are spelled as the model's own run CLI
 spells them, so nothing is translated or sniffed on the way down.
 
-Bring-up needs a configuration the front door deliberately does not offer, and reaches it by
+Developing a model needs a configuration the front door deliberately does not offer, and reaches it by
 module rather than through a second door: part 4 lists them.
 
 The artifact is never downloaded, at any status. It is compiled output, so both paths compile
@@ -415,14 +415,14 @@ and the compiler probe.
 
 ### Toolkit, driver, model
 
-Three tiers, so nothing forks (mirrors the compiler-team layout):
+Three tiers, so nothing forks:
 
-- **The toolkit** (`llm/`, imported, plus `shared/` for what is ours): the AxScript
+- **The toolkit** (`llm/`, plus `shared/`): the AxScript
   machinery every model shares regardless of task - the `KindContract` graph engine, the
   ALTO `ops/` library, quant/layout/luts/export/modules. `KindContract` is what lets one
   engine author both a stateful decoder LLM and a stateless vision encoder, so there is no
   reason to fork it per task, and the vision family reaches it through
-  `vision/shared/imported_dino.py`. `shared/` holds the pieces the imported tree does not
+  `vision/shared/imported_dino.py`. `shared/` holds the pieces the toolkit does not
   own: the artifact contract, the runtime, the checkpoint helpers, the compiler probe.
 - **The driver** (`<family>/shared/`, one per family): the build/run *shape* that a
   family genuinely shares but differs across families - LLM is stateful
@@ -431,7 +431,7 @@ Three tiers, so nothing forks (mirrors the compiler-team layout):
   difference, not drift.
 - **Model-specific** code (registration, configuration, the seams the driver calls,
   README) goes in `<family>/<model>/` or `<family>/<task>/<model>/`. This is the
-  customer-facing, reusable bringup recipe. A card that reuses an existing architecture is a
+  reusable recipe. A card that reuses an existing architecture is a
   configuration and nothing else; one that needs a new device recipe carries its torch
   reference and its ALTO kernel here too.
 
@@ -484,7 +484,7 @@ than which inputs it takes.
 ### The AxScript language guide
 
 The kernels (`optimized_impl.py` / `naive_impl.py` / `llm/ops/`) are written in AxScript,
-the ALTO device DSL. Its canonical, low-level reference is **compiler-team-owned** and ships with
+the ALTO device DSL. Its canonical, low-level reference ships with
 the compiler wheel at `axelera/compiler/alto/docs/axelerascript_guide.md`. Refer to it for language syntax and the supported-op surface; it is
 updated upstream, so link to it and never copy it here.
 
@@ -549,12 +549,12 @@ Two rules the tree enforces rather than documents. `--calibration` REPLACES the 
 rather than joining it, because a build that quietly kept a share of the default corpus would
 report int8 scales nobody asked for. And the checkpoint is a property of the ARTIFACT, not of
 the command: vision keys the default artifact directory to everything that changes what is
-compiled, so a customer build cannot overwrite the shipped one; text and vision-language
+compiled, so a build from your own weights cannot overwrite the shipped one; text and vision-language
 record it in `metadata.json` and refuse a later `--weights` that names something else, because
 running the artifact that is there and labelling it with the checkpoint that was asked for is
 how a number gets attributed to weights nobody measured.
 
-The customer-facing pages are three, in the order a customer meets them, and this file does not
+The tutorials are three, in the order a reader meets them, and this file does not
 repeat them: [`docs/tutorials/axscript/quickstart.md`](../docs/tutorials/axscript/quickstart.md) builds and runs a card as it ships,
 [`docs/tutorials/axscript/llm-huggingface.md`](../docs/tutorials/axscript/llm-huggingface.md) serves a built text or VLM artifact, and
 [`docs/tutorials/axscript/custom-weights.md`](../docs/tutorials/axscript/custom-weights.md) is the walkthrough for all three flags across the
@@ -602,7 +602,7 @@ name because scoring a vision card is `axzoo eval`, not a verb on this front doo
 ships ONE configuration, the input size or context length and the shard width its published
 numbers were measured at, and the front door runs that one.
 
-**Bring-up modules, for the text family.** Not a second designed surface. Each is a module
+**Developer modules, for the text family.** Not a second designed surface. Each is a module
 with its own parser, run directly, and it takes any configuration rather than the shipped one,
 so a number from here is not the number a published figure was taken with. Vision has none:
 score a vision card with `axzoo eval` (the "measure accuracy" row above).
@@ -617,7 +617,7 @@ python -m model_axscript.llm.evaluation.regression --help   # perplexity and per
 
 Everything above compiles through the same code, so the front door and a module cannot
 disagree about what an artifact is; they disagree only about who chooses the configuration.
-Quote a card's own numbers, not a bring-up run's.
+Quote a card's own numbers, not a developer module's.
 
 Each model folder's README gives its exact commands, its checkpoint, and any prerequisite such
 as a HuggingFace token for a gated one.

@@ -144,7 +144,7 @@ The 111c requires flashing the Board Support Package (BSP) and runs the Voyager 
 
 
 > [!TIP]
-> If your board came pre-installed with a recent BSP, you can skip straight to the SDK Docker setup in Section 5 of the User Guide.
+> If your board came pre-installed with a recent BSP, you can skip straight to "Setting up the Voyager SDK" in the [Axelera Embedded 111c User Guide](https://docs.axelera.ai/docs/hardware/metis/compute-board/user-manual/).
 
 
 ---

@@ -196,7 +196,7 @@ def _find_display_class(display: str | bool, opengl: config.HardwareEnable):
         return _renderer('.display_console', 'ConsoleApp')
     elif display == 'iterm2':
         return _renderer('.display_console', 'iTerm2App')
-    elif display == 'wx':  # Internal only - requires OpenGL
+    elif display == 'wx':  # requires OpenGL
         return _safe_gl_import('._display_wx', 'WxApp', display_env)
     elif display == 'vulkan':
         return _renderer('.display_vk', 'VKApp')

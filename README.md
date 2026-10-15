@@ -6,7 +6,7 @@
 > Use of this software is governed by the Axelera AI End User License Agreement (EULA) set out in [LICENSE.txt](LICENSE.txt). Before downloading, installing or using the software, please read the EULA carefully. By downloading, installing or using the software, you acknowledge that you have read, understood and agree to be bound by its terms. If you do not agree to the terms of the EULA, do not download, install or use the software.
 
 # Voyager SDK repository
-v1.8: [Release notes](RELEASE_NOTES.md) | [Release compatibility matrix](RELEASE_COMPATIBILITY_MATRIX.md)
+v1.9: [Release notes](RELEASE_NOTES.md) | [Release compatibility matrix](RELEASE_COMPATIBILITY_MATRIX.md)
 
 - [Voyager SDK repository](#voyager-sdk-repository)
   - [Release Qualification](#release-qualification)

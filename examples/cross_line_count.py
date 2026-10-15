@@ -2,7 +2,6 @@
 # Copyright Axelera AI, 2024
 # Sample demo application of counting vehicles crossing a line
 # The tracker metadata usage is demonstrated in this example
-# FIXME: change this example as async mode and remove from .gitattributes
 import os
 import sys
 import cv2

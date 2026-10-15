@@ -728,7 +728,7 @@ def test_device_manager_imports_without_a_runtime():
     `axelera.runtime`, and `deploy.py` reaches this module through
     `axelera.app.pipeline`. A module-level `from axelera import runtime` here
     therefore made the whole deploy flow unimportable on exactly the machine the
-    install guide describes (SDK-11729).
+    install guide describes.
 
     Run in a subprocess: blocking a module cannot be undone cleanly enough to
     leave the rest of the suite alone.

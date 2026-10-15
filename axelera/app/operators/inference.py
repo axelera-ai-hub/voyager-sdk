@@ -840,7 +840,6 @@ class Inference:
         self.pre_ort_sess, self.post_ort_sess = None, None
 
         # torch preprocessing gives NCHW - always permute to NHWC for AIPU if torch-aipu
-        # (we will address TF2 NHWC input in SDK-2649)
         if self.device == 'aipu':
             self._permute_op = PermuteChannels(
                 input_layout=types.TensorLayout.NCHW,

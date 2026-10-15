@@ -97,18 +97,6 @@ def make_config(
         # 576 wide x 30 layers, 9q/3kv decoder, both spanning the whole
         # part the build targets (8 cores on the Europa default).
         #
-        # MEASURED ON CHIP, ON EUROPA -- NOT the part this entry defaults to, which is now
-        # Omega; these are the numbers this model has, and a re-measure on Omega is what
-        # would replace them rather than a relabel. europa-0:2:0,
-        # firmware v1.9.0-a2, 8 cores of EUROPA, context 2048, --num-cal 1. Warm medians
-        # from `python -m model_axscript.llm benchmark smolvlm2-256m-video-instruct`.
-        #
-        #   vision       19.5 fps (51.2 ms/frame: 45.4 encoder + 5.8 shuffle+connector)
-        #   decode       44.2 tok/s
-        #   TTFT         342 ms at 2048 positions (and 344 ms at 5, so it is the
-        #                context that is being read and not the prompt)
-        #   artifact     107 MB vision + 417 MB text (+ 213 MB quantized bundle, not uploaded)
-        #
         # WHAT IS MEASURED: every entry below has been built and run on chip; the numbers
         # are recorded in the zoo report block for this stem. A supported size with no
         # recorded measurement behind it is an unbacked claim, so this set stays as narrow

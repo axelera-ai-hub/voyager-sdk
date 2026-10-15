@@ -44,7 +44,7 @@ models:
     class: AxONNXModel
     class_path: $AXELERA_FRAMEWORK/ax_models/base_onnx.py
     # TODO: Use s3 path
-    weight_path: /home/jonas/code/voyager-sdk/fast_samx_segm_544_960.onnx
+    weight_path: weights/fast_samx_segm_544_960.onnx
     task_category: InstanceSegmentation
     input_tensor_layout: NCHW
     input_tensor_shape: [1, 3, 544, 960]

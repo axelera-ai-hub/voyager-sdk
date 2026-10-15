@@ -6,7 +6,7 @@ title: "LLM Inference"
 Running Small Language Models (SLMs) on Metis hardware using the `axllm` command.
 
 > [!NOTE]
-> All models are precompiled. You cannot load arbitrary LLMs without prior compilation for the Metis platform. See the [Model Zoo — Large Language Models](../reference/models/model-zoo.md#large-language-models) for the full list of available precompiled language models and RAM requirements.
+> All models are precompiled. You cannot load arbitrary LLMs without prior compilation for the Metis platform. See the [Model Zoo — Large Language Models](../reference/models/model-zoo.md#large-language-models-llms) for the full list of available precompiled language models and RAM requirements.
 
 
 ---
@@ -33,7 +33,7 @@ axllm llama-3-2-1b-1024-4core-static --ui
 | `--pipeline=transformers-aipu` | *(default)* Runs the model on the Metis AIPU. All models are precompiled. |
 | `--pipeline=transformers` | Runs on CPU/GPU via Hugging Face Transformers. For development and testing only — not for benchmarking. |
 
-Some models require a 16GB AIPU card. Check the [Model Zoo — LLM RAM requirements](../reference/models/model-zoo.md#large-language-models) before selecting a model. The system will also tell you at model load time if you don't have sufficient memory.
+Some models require a 16GB AIPU card. Check the [Model Zoo — LLM RAM requirements](../reference/models/model-zoo.md#large-language-models-llms) before selecting a model. The system will also tell you at model load time if you don't have sufficient memory.
 
 ---
 

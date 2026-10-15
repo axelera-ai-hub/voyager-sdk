@@ -266,7 +266,7 @@ WORKLOADS = ('generate', 'prefill', 'decode')
 DECODE_SEED_TOKENS = 2
 
 # Decode steps dropped from the step aggregates. A decode trajectory is measured cold,
-# so its first steps carry warm-up cost; the software-platform LLM regression job drops
+# so its first steps carry warm-up cost; the compiler LLM regression job drops
 # exactly three (`step_times[num_warmup:]`, `--num-warmup` default 3) and errors when
 # that leaves none. Keeping them would report a mean that cannot be compared against
 # that job's, which is material at short sequence lengths -- 3 of 122 steps at 128.
@@ -284,7 +284,7 @@ def artifact_metadata(output_dir) -> dict:
     Everything describing WHAT was compiled is read from here rather than from the
     config or a build knob: this recipe is rendered in-process by `axzoo benchmark`
     without the build env set, so its constants describe the config, not the
-    directory being measured. The software-platform LLM regression job reads the
+    directory being measured. The compiler LLM regression job reads the
     same file for the same reason.
     """
     meta = Path(output_dir) / 'metadata.json'
@@ -873,7 +873,7 @@ def write_csv(
 
     `workload` selects which measurement is the row's headline, and which columns
     stay empty, so a row means the same thing as the corresponding row of the
-    software-platform LLM regression job:
+    compiler LLM regression job:
 
     - `prefill` reports prompt tokens over the prefill pass, and leaves every
       gap-derived column empty, since one generated token yields no gaps. That
