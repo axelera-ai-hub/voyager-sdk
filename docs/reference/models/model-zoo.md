@@ -334,13 +334,13 @@ python -m model_axscript.vision benchmark <model> <image>
 - **PCIe** — Intel Core i7-13700 32GB RAM running Ubuntu 24.04.5 with 1x Axelera Edge 130p PCIe card.
 
 
-| Model                                                                                                                                       | Resolution | benchmark ms / fps | License    |
-| :-------------------------------------------------------------------------------------------------------------------------------------------| ---------: | -----------------: | ---------: |
-| [depth_anything_v2_small](../../../axelera_zoo/python/axelera/zoo/configs/depth_estimation/depth_anything_v2_small.py)                      | 224x224    | 42.91 / 23.3       | Apache-2.0 |
-| [dinov2_depth_vits14_nyu_linear](../../../axelera_zoo/python/axelera/zoo/configs/depth_estimation/dinov2_depth_vits14_nyu_linear.py)        | 224x224    | 48.25 / 20.7       | Apache-2.0 |
-| [dinov2_seg_vitl14_ade20k_linear](../../../axelera_zoo/python/axelera/zoo/configs/semantic_segmentation/dinov2_seg_vitl14_ade20k_linear.py) | 518x518    | 163.28 / 6.1       | Apache-2.0 |
-| [dinov2_vits14](../../../axelera_zoo/python/axelera/zoo/configs/feature_extraction/dinov2_vits14.py)                                        | 224x224    |  7.63 / 131.1      | Apache-2.0 |
-| [vit_large_patch16_224](../../../axelera_zoo/python/axelera/zoo/configs/classification/vit_large_patch16_224_imagenet.py)                   | 224x224    | 113.00 / 8.85      | Apache-2.0 |
+| Model                                                                                                                   | Resolution | benchmark ms / fps | License    |
+| :-----------------------------------------------------------------------------------------------------------------------| ---------: | -----------------: | ---------: |
+| [depth_anything_v2_small](../../../model_axscript/vision/depth_estimation/depth_anything_v2_small)                      | 224x224    | 42.91 / 23.3       | Apache-2.0 |
+| [dinov2_depth_vits14_nyu_linear](../../../model_axscript/vision/depth_estimation/dinov2_depth_vits14_nyu_linear)        | 224x224    | 48.25 / 20.7       | Apache-2.0 |
+| [dinov2_seg_vitl14_ade20k_linear](../../../model_axscript/vision/semantic_segmentation/dinov2_seg_vitl14_ade20k_linear) | 518x518    | 163.28 / 6.1       | Apache-2.0 |
+| [dinov2_vits14](../../../model_axscript/vision/feature_extraction/dinov2_vits14)                                        | 224x224    |  7.63 / 131.1      | Apache-2.0 |
+| [vit_large_patch16_224](../../../model_axscript/vision/classification/vit_large_patch16_224_imagenet)                   | 224x224    | 113.00 / 8.85      | Apache-2.0 |
 
 ## Vision Language Models (VLMs)
 
@@ -366,15 +366,15 @@ To run a VLM, see [Serve an AxScript LLM through HuggingFace](../../tutorials/ax
 - **M.2** — Intel Core Ultra 5 125H 32GB RAM running Ubuntu 24.04 with 1x Axelera Embedded 113m M.2 card.
 - **—** — Model not supported on this form factor.
 
-| Model                                                                                                               | Resolution | Ctx  | Prompt tokens | PCIe TTFT (s) | PCIe Decode (tok/s) | PCIe Vision (fps) | M.2 TTFT (s) | M.2 Decode (tok/s) | M.2 Vision (fps) | License               |
-|:--------------------------------------------------------------------------------------------------------------------| :--------- | ---: | ------------: | ------------: | ------------------: | ----------------: | -----------: | -----------------: | ---------------: | :-------------------- |
-| [lfm2_5_vl_450m](../../../axelera_zoo/python/axelera/zoo/configs/llm/lfm2_5_vl_450m.py)                             | 512×512    | 2048 |           274 |           0.5 |                37.3 |              20.5 |         0.52 |               37.2 |             19.8 | LFM Open License v1.0 |
-| [lfm2_5_vl_3b](../../../axelera_zoo/python/axelera/zoo/configs/llm/lfm2_5_vl_3b.py)                                 | 512×512    | 2048 |           273 |           2.0 |                7.17 |               5.9 |         2.06 |               7.16 |             5.82 | LFM Open License v1.0 |
-| [qwen3_vl_2b_instruct](../../../axelera_zoo/python/axelera/zoo/configs/llm/qwen3_vl_2b_instruct.py)                 | 288×512    | 2048 |           160 |         1.470 |                10.8 |              7.41 |        1.482 |              10.86 |             8.55 | Apache-2.0            |
-| [qwen3_vl_8b_instruct](../../../axelera_zoo/python/axelera/zoo/configs/llm/qwen3_vl_8b_instruct.py)                 | 288×512    | 2048 |           160 |         4.846 |                 2.8 |              5.38 |            — |                  — |                — | Apache-2.0            |
-| [smolvlm2_256m_video_instruct](../../../axelera_zoo/python/axelera/zoo/configs/llm/smolvlm2_256m_video_instruct.py) | 512×512    | 2048 |          1141 |         0.508 |                42.3 |              13.7 |        0.525 |               39.9 |             18.7 | Apache-2.0            |
-| [smolvlm2_500m_video_instruct](../../../axelera_zoo/python/axelera/zoo/configs/llm/smolvlm2_500m_video_instruct.py) | 512×512    | 2048 |          1141 |         0.929 |                  24 |              17.9 |        0.954 |                 23 |             17.6 | Apache-2.0            |
-| [smolvlm2_2_2b_instruct](../../../axelera_zoo/python/axelera/zoo/configs/llm/smolvlm2_2_2b_instruct.py)             | 384×384    | 2048 |          1430 |         2.024 |                7.08 |              6.45 |        2.044 |               7.13 |             7.36 | Apache-2.0            |
+| Model                                                                                    | Resolution | Ctx  | Prompt tokens | PCIe TTFT (s) | PCIe Decode (tok/s) | PCIe Vision (fps) | M.2 TTFT (s) | M.2 Decode (tok/s) | M.2 Vision (fps) | License               |
+|:-----------------------------------------------------------------------------------------| :--------- | ---: | ------------: | ------------: | ------------------: | ----------------: | -----------: | -----------------: | ---------------: | :-------------------- |
+| [lfm2_5_vl_450m](../../../model_axscript/llm/lfm2_5_vl_450m)                             | 512×512    | 2048 |           274 |           0.5 |                37.3 |              20.5 |         0.52 |               37.2 |             19.8 | LFM Open License v1.0 |
+| [lfm2_5_vl_3b](../../../model_axscript/llm/lfm2_5_vl_3b)                                 | 512×512    | 2048 |           273 |           2.0 |                7.17 |               5.9 |         2.06 |               7.16 |             5.82 | LFM Open License v1.0 |
+| [qwen3_vl_2b_instruct](../../../model_axscript/llm/qwen3_vl_2b_instruct)                 | 288×512    | 2048 |           160 |         1.470 |                10.8 |              7.41 |        1.482 |              10.86 |             8.55 | Apache-2.0            |
+| [qwen3_vl_8b_instruct](../../../model_axscript/llm/qwen3_vl_8b_instruct)                 | 288×512    | 2048 |           160 |         4.846 |                 2.8 |              5.38 |            — |                  — |                — | Apache-2.0            |
+| [smolvlm2_256m_video_instruct](../../../model_axscript/llm/smolvlm2_256m_video_instruct) | 512×512    | 2048 |          1141 |         0.508 |                42.3 |              13.7 |        0.525 |               39.9 |             18.7 | Apache-2.0            |
+| [smolvlm2_500m_video_instruct](../../../model_axscript/llm/smolvlm2_500m_video_instruct) | 512×512    | 2048 |          1141 |         0.929 |                  24 |              17.9 |        0.954 |                 23 |             17.6 | Apache-2.0            |
+| [smolvlm2_2_2b_instruct](../../../model_axscript/llm/smolvlm2_2_2b_instruct)             | 384×384    | 2048 |          1430 |         2.024 |                7.08 |              6.45 |        2.044 |               7.13 |             7.36 | Apache-2.0            |
 
 ## Large Language Models (LLMs)
 ### LLM Performance characteristics
@@ -396,17 +396,17 @@ To run an LLM, see [Serve an AxScript LLM through HuggingFace](../../tutorials/a
 **PCIe** — Intel Core Ultra 9 285 (24 cores) 128GB RAM running Ubuntu 24.04 with 1x Axelera Edge 16GB 130p PCIe card.
 
 
-| Model                                                                              | Ctx  | Prompt tokens | PCIe TTFT (s) | PCIe Decode (tok/s) | License                     |
-|:---------------------------------------------------------------------------------- | ---: | ------------: | ------------: | ------------------: | :-------------------------- |
-| [lfm2.5-350m](../../../axelera_zoo/python/axelera/zoo/configs/llm/lfm2_5_350m.py)  | 4096 |          4096 |          0.31 |                33.8 | LFM Open License v1.0       |
-| [lfm2-700m](../../../axelera_zoo/python/axelera/zoo/configs/llm/lfm2_700m.py)      | 2048 |          2048 |          0.46 |                21.2 | LFM Open License v1.0       |
-| [lfm2.5-1.2b](../../../axelera_zoo/python/axelera/zoo/configs/llm/lfm2_5_1_2b.py)  |    — |             — |          0.64 |                13.7 | LFM Open License v1.0       |
-| [llama3.2-1b](../../../axelera_zoo/python/axelera/zoo/configs/llm/llama_3_2_1b.py) | 4096 |             — |          0.84 |                11.9 | Llama 3.2 Community License |
-| [llama3.2-3b](../../../axelera_zoo/python/axelera/zoo/configs/llm/llama_3_2_3b.py) | 4096 |          4096 |          1.50 |                 5.5 | Llama 3.2 Community License |
-| [qwen3-0.6b](../../../axelera_zoo/python/axelera/zoo/configs/llm/qwen3_0_6b.py)    | 4096 |          4096 |          0.71 |                19.4 | Apache-2.0                  |
-| [qwen3-1.7b](../../../axelera_zoo/python/axelera/zoo/configs/llm/qwen3_1_7b.py)    | 4096 |          4096 |          0.92 |                10.0 | Apache-2.0                  |
-| [qwen3-4b](../../../axelera_zoo/python/axelera/zoo/configs/llm/qwen3_4b.py)        | 4096 |          4096 |          2.04 |                 4.7 | Apache-2.0                  |
-| [qwen3-8b](../../../axelera_zoo/python/axelera/zoo/configs/llm/qwen3_8b.py)        | 4096 |          4096 |          2.92 |                 2.7 | Apache-2.0                  |
+| Model                                                   | Ctx  | Prompt tokens | PCIe TTFT (s) | PCIe Decode (tok/s) | License                     |
+|:------------------------------------------------------- | ---: | ------------: | ------------: | ------------------: | :-------------------------- |
+| [lfm2.5-350m](../../../model_axscript/llm/lfm2_5_350m)  | 4096 |          4096 |          0.31 |                33.8 | LFM Open License v1.0       |
+| [lfm2-700m](../../../model_axscript/llm/lfm2_700m)      | 2048 |          2048 |          0.46 |                21.2 | LFM Open License v1.0       |
+| [lfm2.5-1.2b](../../../model_axscript/llm/lfm2_5_1_2b)  |    — |             — |          0.64 |                13.7 | LFM Open License v1.0       |
+| [llama3.2-1b](../../../model_axscript/llm/llama_3_2_1b) | 4096 |             — |          0.84 |                11.9 | Llama 3.2 Community License |
+| [llama3.2-3b](../../../model_axscript/llm/llama_3_2_3b) | 4096 |          4096 |          1.50 |                 5.5 | Llama 3.2 Community License |
+| [qwen3-0.6b](../../../model_axscript/llm/qwen3_0_6b)    | 4096 |          4096 |          0.71 |                19.4 | Apache-2.0                  |
+| [qwen3-1.7b](../../../model_axscript/llm/qwen3_1_7b)    | 4096 |          4096 |          0.92 |                10.0 | Apache-2.0                  |
+| [qwen3-4b](../../../model_axscript/llm/qwen3_4b)        | 4096 |          4096 |          2.04 |                 4.7 | Apache-2.0                  |
+| [qwen3-8b](../../../model_axscript/llm/qwen3_8b)        | 4096 |          4096 |          2.92 |                 2.7 | Apache-2.0                  |
 
 ---
 
