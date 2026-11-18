@@ -1,6 +1,7 @@
 # Voyager SDK release notes v1.9.0
 
 - [Voyager SDK release notes v1.9.0](#voyager-sdk-release-notes-v190)
+  - [Voyager SDK release notes v1.9.1](#voyager-sdk-release-notes-v191)
   - [Voyager SDK release notes v1.9.0](#voyager-sdk-release-notes-v190-1)
     - [Release Qualification](#release-qualification)
   - [Installation and Compatibility](#installation-and-compatibility)
@@ -42,6 +43,12 @@
     - [Runtime Environment](#runtime-environment)
   - [Further Support](#further-support)
 
+
+## Voyager SDK release notes v1.9.1
+
+v1.9.1 is a maintenance release. Its only change is how the build gets ONNX Runtime; nothing else changed since v1.9.0.
+
+- **ONNX Runtime download fixed.** The GitHub release page for ONNX Runtime now returns `404 Not Found`, so `make operators` failed on fresh builds. `operators/Makefile` now downloads the same ONNX Runtime version (1.17.1) from Microsoft's NuGet packages and checks it against a pinned SHA-256 checksum. The installed files keep the same layout. Building the operators now requires `unzip`.
 
 ## Voyager SDK release notes v1.9.0
 Voyager SDK v1.9.0 is a content rich release: it greatly improves the Model Zoo coverage with a single build/run/eval/report workflow, makes the Pipeline Builder substantially faster and more capable, ships a native Windows runtime and re-brands the Metis product line.
