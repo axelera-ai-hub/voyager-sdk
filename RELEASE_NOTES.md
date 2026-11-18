@@ -1,6 +1,7 @@
 # Voyager SDK release notes v1.8
 
 - [Voyager SDK release notes v1.8](#voyager-sdk-release-notes-v18)
+  - [Voyager SDK release notes v1.8.1](#voyager-sdk-release-notes-v181)
   - [Voyager SDK release notes v1.8.0](#voyager-sdk-release-notes-v180)
     - [Release Qualification](#release-qualification)
   - [Installation and Compatibility](#installation-and-compatibility)
@@ -32,6 +33,12 @@
     - [Development Environment](#development-environment)
     - [Runtime Environment](#runtime-environment)
   - [Further Support](#further-support)
+
+## Voyager SDK release notes v1.8.1
+
+v1.8.1 is a maintenance release. Its only change is how the build gets ONNX Runtime; nothing else changed since v1.8.0.
+
+- **ONNX Runtime download fixed.** The GitHub release page for ONNX Runtime now returns `404 Not Found`, so `make operators` failed on fresh builds. `operators/Makefile` now downloads the same ONNX Runtime version (1.17.1) from Microsoft's NuGet packages and checks it against a pinned SHA-256 checksum. The installed files keep the same layout. Building the operators now requires `unzip`.
 
 ## Voyager SDK release notes v1.8.0
 

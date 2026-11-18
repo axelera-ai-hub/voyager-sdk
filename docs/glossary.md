@@ -9,8 +9,16 @@ Plain-language definitions for terms used throughout the Voyager SDK documentati
 ### AIPU
 AI Processing Unit. The dedicated chip on Metis hardware that performs AI inference. Analogous to how a GPU handles graphics, the AIPU handles AI workloads.
 
-### Accuracy (mAP)
-See [mAP](#map).
+### Accuracy
+How closely a model's output matches the ground truth. Which metric expresses it depends on the task:
+**Top-1** for image classification, **[mAP](#map)** for object detection, instance segmentation and
+keypoint detection, **[mIoU](#miou)** for semantic segmentation, **RMSE** for depth estimation. The
+[Model Zoo](reference/models/model-zoo.md) gives the metric used for every model it lists.
+
+Two things to watch when reading figures. The Model Zoo reports them as percentages (a Top-1 of
+`74.44`) while the tools print them from 0 to 1 (`mAP@50: 0.547`). And **accuracy loss**, listed in
+its own Model Zoo column, is a different number again: the drop from the FP32 reference figure to the
+quantized int8 figure, in whatever metric that model uses.
 
 ### Activation (environment)
 Running `source venv/bin/activate` to set up your terminal session with the correct paths and libraries for the SDK. Must be done in every new terminal. See [Install the SDK](user-guides/sdk-install.md).
@@ -24,7 +32,10 @@ The low-level C API for directly controlling Metis devices — loading models, r
 A tag applied to SDK features that are **tested and functional** but still growing. Beta features are safe to use in development and are expected to evolve in future releases. Compare with [Experimental](#experimental).
 
 ### Benchmarking
-Measuring how fast and how accurately a model runs on your hardware. Throughput (FPS) measures speed. mAP measures accuracy. See [Measure Accuracy](tutorials/measure-accuracy.md).
+Measuring how fast and how accurately a model runs on your hardware. Throughput (FPS) measures speed.
+Accuracy is measured by whichever metric fits the task, so two figures are only comparable when they
+came from the same metric on the same dataset. See [Accuracy](#accuracy) for which metric goes with
+which task, and [Measure Accuracy](tutorials/measure-accuracy.md) for how to run it.
 
 ### BSP
 Board Support Package. The firmware and operating system image for the Metis Compute Board. Must be flashed before using the board.
@@ -96,6 +107,11 @@ Mean Average Precision. The standard metric for measuring object detection accur
 ### Metis
 The name of Axelera AI's AI Processing Unit (AIPU) chip family. Available in M.2, PCIe, and Compute Board form factors.
 
+### mIoU
+Mean Intersection over Union. The standard metric for semantic segmentation accuracy. For each class
+it compares the overlap between the predicted region and the ground-truth region, then averages across
+classes. Higher is better.
+
 ### Model
 A trained neural network that performs a specific AI task. Models are identified by name in the SDK (e.g., `yolov5s-v7-coco`). The [Model Zoo](#model-zoo) contains pre-optimized models ready to use.
 
@@ -149,6 +165,11 @@ The end-to-end speed of the complete pipeline, measured in FPS. This includes ev
 
 ### Throughput
 See [FPS](#fps), [System throughput](#system-throughput), [Device throughput](#device-throughput).
+
+### Top-1
+The standard metric for image classification accuracy: the share of images whose single
+highest-scoring prediction is the correct label. Higher is better. The Model Zoo reports it in the
+reference FP32 column of its image classification table.
 
 ## V
 
